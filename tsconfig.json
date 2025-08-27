@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "lib/*": ["src/app/lib/*"],          // 👈 allows "lib/..."
+      "components/*": ["src/app/components/*"],
+      "resume-parser/*": ["src/app/resume-parser/*"],
+      "data/*": ["src/app/data/*"],
+      "@ocr/*": ["src/ocr/*"]
+    },
+    "noImplicitAny": false,
+    "noUnusedParameters": false,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "noUnusedLocals": false,
+    "strictNullChecks": false
+  }
+}

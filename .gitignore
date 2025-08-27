@@ -1,0 +1,46 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+db-data/
+logfile
+
+*.map
+__tests__/
+
+node_modules
+dist
+# dist-ssr
+dist-react
+*.local
+dbd.js
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Electron-builder output
+*.exe                           # Windows installer
+*.dmg                           # macOS installer
+*.AppImage                      # Linux installer
+*.snap                          # Linux snap package
+*.blockmap                      # Used for auto-updates
+latest.yml                      # Used for auto-updates
+__package/                      # Your custom temp folder for packaging
+
+.env
+.env.* 
+Thumbs.db
+ehthumbs.db
