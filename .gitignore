@@ -18,7 +18,6 @@ dist
 # dist-ssr
 dist-react
 *.local
-dbd.js
 
 # Editor directories and files
 .vscode/*
