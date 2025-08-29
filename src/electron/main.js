@@ -53,10 +53,6 @@ contextMenu({
         label: "Reload",
         click: () => wc.reload(),
       },
-      {
-        label: "Print...",
-        click: () => wc.print(),
-      },
     ];
   },
 });

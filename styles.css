@@ -1,7 +1,7 @@
 /* #region [Main] */
-html {
+/* html {
   overflow-x: auto
-}
+} */
 
 .scrollContainer {
   overflow-x: auto;
@@ -31,7 +31,7 @@ h1 {
   margin: 0;
   font-size: 24px;
   font-weight: bold;
-  text-align: center;
+  /* text-align: center; */
 }
 
 p {
@@ -65,7 +65,7 @@ input {
 
 .content.expanded {
   margin-left: 220px;
-  overflow-x: auto;
+  /* overflow-x: auto; */
 }
 
 .content.collapsed {
@@ -586,8 +586,13 @@ body.login .content {
   border-radius: 8px;
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
   width: 100%;
-  max-width: 360px; /* smaller width to prevent horizontal scroll */
-  box-sizing: border-box; /* include padding in width */
+  max-width: 360px;
+  box-sizing: border-box;
+}
+
+.forgot {
+  font-size: 12px;
+  margin-top: 10px;
 }
 
 .loginLogo {
@@ -619,7 +624,7 @@ body.login .content {
 }
 
 .loginButton {
-  margin-top: 20px;
+  margin-top: 10px;
   width: 100%;
   padding: 10px;
   background-color: #A12323;
@@ -1598,7 +1603,7 @@ body.login .content {
 
 .attendanceHeader {
   font-size: 1.3rem;
-  margin-bottom: 0.5rem;
+  /* margin-bottom: 0.5rem; */
 }
 
 .attendanceTableWrapper {
@@ -1691,6 +1696,7 @@ body.login .content {
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
+  margin-bottom: 1rem;;
 }
 
 .attendanceHeader {

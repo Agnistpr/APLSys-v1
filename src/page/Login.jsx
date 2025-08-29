@@ -29,7 +29,7 @@ const Login = ({ onLogin }) => {
 
   return (
     <div className="loginContainer">
-      <div className="loginLogo">LOGO</div>
+      <div className="loginLogo"></div>
 
       <label htmlFor="email">
         USERNAME <span className="required">*</span>
