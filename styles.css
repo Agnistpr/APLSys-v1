@@ -1700,8 +1700,6 @@ body.login .content {
 }
 
 .attendanceHeader {
-  font-size: 32px;
-  font-weight: bold;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -2817,19 +2815,18 @@ body.login .content {
 /* #endregion Logs Styles */
 
 /* #region [Analyzer] */
-:root {
+/* :root {
   --theme-purple: #5d52d9;
   --theme-blue: #4fc5eb;
   --top-nav-bar-height: 3.5rem;
   --resume-control-bar-height: 3rem;
   --resume-padding: 1.5rem;
-}
+} */
 
-/* Container Layout */
 .resume-parser-container {
   display: flex;
   gap: 1.5rem;
-  height: 100vh;
+  height: 98vh;
   padding: 1rem;
   background: #fafafa;
   box-sizing: border-box;

@@ -820,16 +820,26 @@ ipcMain.handle('getEmployees', async () => {
   }
 });
 
-ipcMain.handle('getEmployeeAttendance', async (event, employeeId) => {
+ipcMain.handle('getEmployeeAttendance', async (event, employeeId, selectedDate) => {
   try {
-    const res = await dbClient.query(`
-      SELECT a.date, a.timein, a.timeout, s.timestart AS shiftstart, s.timeend AS shiftend
-      FROM attendance a
-      LEFT JOIN employee e ON a.employeeid = e.employeeid
-      LEFT JOIN shift s ON e.shiftid = s.shiftid
-      WHERE a.employeeid = $1
-      ORDER BY a.date DESC
-    `, [employeeId]);
+    let res;
+    if (selectedDate) {
+      res = await dbClient.query(`
+        SELECT a.date, a.timein, a.timeout, s.timestart AS shiftstart, s.timeend AS shiftend
+        FROM attendance a
+        LEFT JOIN employee e ON a.employeeid = e.employeeid
+        LEFT JOIN shift s ON e.shiftid = s.shiftid
+        WHERE a.employeeid = $1 AND a.date = $2
+      `, [employeeId, selectedDate]);
+    } else {
+      res = await dbClient.query(`
+        SELECT a.date, a.timein, a.timeout, s.timestart AS shiftstart, s.timeend AS shiftend
+        FROM attendance a
+        LEFT JOIN employee e ON a.employeeid = e.employeeid
+        LEFT JOIN shift s ON e.shiftid = s.shiftid
+        WHERE a.employeeid = $1
+      `, [employeeId]);
+    }
 
     return res.rows;
   } catch (err) {

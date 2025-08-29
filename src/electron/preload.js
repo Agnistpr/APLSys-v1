@@ -11,7 +11,6 @@ contextBridge.exposeInMainWorld('fileAPI', {
 
   getUser: (username, password) => ipcRenderer.invoke("getUser", { username, password }),
 
-  // db
   logAction: (userid, useraction, description) => ipcRenderer.invoke('logAction', { userid, useraction, description }),
 
   exportEmployees: () => ipcRenderer.invoke('exportEmployees'),
@@ -30,7 +29,6 @@ contextBridge.exposeInMainWorld('fileAPI', {
   getEmployee: (id) => ipcRenderer.invoke('getEmployee', id),
   getEmployeeTableColumns: () => ipcRenderer.invoke('getEmployeeTableColumns'),
   searchEmployees: (term) => ipcRenderer.invoke('searchEmployees', term),
-
   updateEmployee: (employeeId, field, value) => {
     return ipcRenderer.invoke("updateEmployee", {
       employeeId: String(employeeId),
@@ -39,11 +37,10 @@ contextBridge.exposeInMainWorld('fileAPI', {
     });
   },
 
-  // importEmployees: (payload) => ipcRenderer.invoke('importEmployees', payload),
-  // getCSV: () => ipcRenderer.invoke('getCSV'),
   getFilteredEmployees: (filters, mode) => ipcRenderer.invoke('getFilteredEmployees', { filters, mode }),
   getFilterOptions: () => ipcRenderer.invoke('getFilterOptions'),
-  getEmployeeAttendance: (id) => ipcRenderer.invoke('getEmployeeAttendance', id),
+
+  getEmployeeAttendance: (id, date) => ipcRenderer.invoke('getEmployeeAttendance', id, date),
   getAttendance: () => ipcRenderer.invoke('getAttendance'),
   getAttendanceByDate: (date) => ipcRenderer.invoke('getAttendanceByDate', date),
   getAbsent: (date) => ipcRenderer.invoke('getAbsent', date),

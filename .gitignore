@@ -10,6 +10,8 @@ lerna-debug.log*
 db-data/
 logfile
 
+log.txt
+
 *.map
 __tests__/
 
