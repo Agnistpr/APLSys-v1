@@ -17,6 +17,7 @@ node_modules
 dist
 # dist-ssr
 dist-react
+documents
 *.local
 
 # Editor directories and files
