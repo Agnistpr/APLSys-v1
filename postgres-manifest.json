@@ -1,0 +1,19 @@
+{
+  "minimum_version": { "major": 17, "minor": 6 },
+  "windows": {
+    "url": "https://get.enterprisedb.com/postgresql/postgresql-17.6-windows-x64.exe",
+    "sha256": "0FFBD42F3777338ED629686349C905F37A657074C4DA410B1E3AC61FE38D23A0"
+  },
+  "notes": [
+    "Instructions to update this:",
+    "1. Download the latest installer from the official PostgreSQL website.",
+    "2. Copy the file name (e.g. postgresql-17.6-windows-x64.exe) and replace the last lines in the url in this JSON.",
+    "3. Then open your terminal in the same folder as the exe file downloaded (Downloads).",
+    "4. Run: Get-FileHash .\\{filename} -Algorithm SHA256 (only one backslash)",
+    "5. Copy the SHA256 hash and replace the one in this JSON.",
+    "6. Save this and git add postgres-manifest.json",
+    "7. git commit -m 'Update PostgreSQL Manifest'",
+    "8. git push origin main",
+    "Done."
+  ]
+}
