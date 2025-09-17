@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import contextMenu from "electron-context-menu";
 import { spawn, exec } from "child_process";
+import fetch from "node-fetch";
 
 import { initDatabase, startDatabase, stopDatabase, closeDatabaseConnection, connectToDatabase } from "./db.js";
 import "./files.js";
@@ -53,32 +54,71 @@ contextMenu({
         label: "Reload",
         click: () => wc.reload(),
       },
+      {
+        label: "Print...",
+        click: () => wc.print(),
+      },
     ];
   },
 });
 
 let backendProcess;
 
-function startBackend() {
-  const backendPython = "python"; // make sure Python is in PATH
-  const nerScript = path.join(__dirname, "..", "..", "parser", "ner_api.py");
+async function waitForBackend(url, timeout = 10000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        console.log("✅ Backend is up!");
+        return true;
+      }
+    } catch (err) {
+      console.log("Waiting for backend...");
+    }
+    await new Promise((res) => setTimeout(res, 500));
+  }
+  throw new Error("Backend did not start in time");
+}
 
-  if (!fs.existsSync(nerScript)) {
-    logMessage("ERROR: ner_api.py not found!");
+function startBackend() {
+  const backendProcess = spawn('npm', ['run', 'start-ner'], {// Start NER server on app startup
+    cwd: path.resolve(__dirname, "../../"),
+    shell: true,
+    stdio: "inherit"
+  });
+
+  console.log("Backend cwd:", path.resolve(__dirname, "../../"));
+
+  if (!fs.existsSync(backendProcess)) {
+    logMessage("ERROR: ner_api.ts not found!");
     return;
   }
 
-  backendProcess = spawn(backendPython, [`"${nerScript}"`], { 
-    cwd: path.dirname(nerScript),
-    shell: true,
-    windowsHide: true,
-    // detached: true, // testing
+  backendProcess.on("error", (err) => {
+    console.error("[Backend] Failed to start:", err);
   });
 
-  backendProcess.unref(); 
-  backendProcess.stdout.on("data", (data) => logMessage(`[NER_API] ${data.toString().trim()}`));
-  backendProcess.stderr.on("data", (data) => logMessage(`[NER_API ERROR] ${data.toString().trim()}`));
-  backendProcess.on("close", (code) => logMessage(`[NER_API] exited with code ${code}`));
+  backendProcess.on("exit", (code) => {
+    console.error(`[Backend] exited with code ${code}`);
+  });
+
+  backendProcess.on("close", (code) => {
+    console.log(`[NER_API] exited with code ${code}`);
+  });
+  
+  waitForBackend("http://localhost:8000/health")
+  .then(() => console.log("[Backend] Ready to accept requests"))
+  .catch((err) => console.error(err.message));
+
+  const logFile = path.resolve(__dirname, "../../backend.log");
+  const logStream = fs.createWriteStream(logFile, { flags: "a" });
+
+  backendProcess.stdout.pipe(logStream);
+  backendProcess.stderr.pipe(logStream);
+
+
+  return backendProcess
 }
 
 function stopBackend() {
@@ -97,10 +137,11 @@ function stopBackend() {
 // App thingy
 app.on("ready", async () => {
   try {
+    startBackend();
+    await waitForBackend("http://localhost:8000/health");
     initDatabase();
     startDatabase();
     connectToDatabase();
-    startBackend();
 
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
     const mainWindow = new BrowserWindow({
