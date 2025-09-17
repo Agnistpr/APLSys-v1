@@ -12,7 +12,7 @@ import {
 import { toast } from 'sonner';
 import Tesseract from 'tesseract.js';
 import type { ExtractedText } from './DocumentScanner';
-import { classifyText } from '@/ocr/lib/ner';
+import axios from "axios";
 
 
 //Mapping function for NER entity to tag
@@ -39,6 +39,11 @@ interface SelectionBox {
   y: number;
   width: number;
   height: number;
+}
+
+export async function classifyTextWithNER(text: string) {
+  const res = await axios.post("http://localhost:8000/classify", { text });
+  return res.data.entities;
 }
 
 export const ImageViewer: React.FC<ImageViewerProps> = ({
@@ -194,7 +199,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         const line = lines[i];
         let tags: string[] = [];
         try {
-          const nerResult = await classifyText(line);
+          const nerResult = await classifyTextWithNER(line);
           tags = nerResult.entities
             .map((ent: any) => entityToTag(ent.entity))
             .filter((tag: string | null) => tag !== null);
@@ -266,7 +271,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       if (text.trim()) {
         let tags: string[] = [];
         try {
-          const nerResult = await classifyText(text.trim());
+          const nerResult = await classifyTextWithNER(text.trim());
           tags = nerResult.entities
             .map((ent: any) => entityToTag(ent.entity))
             .filter((tag: string | null) => tag !== null) as string[];
