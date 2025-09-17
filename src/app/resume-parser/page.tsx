@@ -7,8 +7,8 @@ import { groupLinesIntoSections } from "lib/parse-resume-from-pdf/group-lines-in
 import { extractResumeFromSections } from "lib/parse-resume-from-pdf/extract-resume-from-sections";
 import { ResumeDropzone } from "components/ResumeDropzone";
 import { ResumeTable } from "resume-parser/ResumeTable";
-import { analyzeResumeWithGemini } from "lib/ai/geminiConn";
-import { generateResumeAnalysisPrompt } from "lib/ai/genAnalysis";
+import { analyzeResumeWithGemini } from "../../conn/genAnalysis";
+import { generateResumeAnalysisPrompt } from "../../conn/genAnalysis";
 import { JOB_ROLES } from "data/jobRoles";
 
 function exportJSON(data: any, filename: string) {
@@ -170,7 +170,10 @@ export default function ResumeParser({ setActivePage, setSelectedApplicantId, se
 
   const handleAnalyzeResume = async () => {
     setLoadingAnalysis(true);
-    const prompt = generateResumeAnalysisPrompt(editableResume, selectedJobRole, customJobDescription);
+    // Combine text items into raw text
+    const rawText = textItems.map(item => item.str).join("\n");
+    console.log("editableResume before analysis:", rawText);
+    const prompt = generateResumeAnalysisPrompt(rawText, selectedJobRole, customJobDescription);
     const result = await analyzeResumeWithGemini(prompt);
     setAnalysisResult(result);
     setLoadingAnalysis(false);
