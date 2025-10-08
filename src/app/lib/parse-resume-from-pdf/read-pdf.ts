@@ -1,9 +1,9 @@
-// Getting pdfjs to work is tricky. The following 3 lines would make it work
-// https://stackoverflow.com/a/63486898/7699841
-import * as pdfjs from "pdfjs-dist/webpack";
-
+import * as pdfjs from "pdfjs-dist/build/pdf.mjs"; //webpack
+import "pdfjs-dist/build/pdf.worker.mjs";
 import type { TextItem as PdfjsTextItem } from "pdfjs-dist/types/src/display/api";
-import type { TextItem, TextItems } from "lib/parse-resume-from-pdf/types";
+import type { TextItem, TextItems } from "./types";
+
+pdfjs.GlobalWorkerOptions.workerSrc = "pdfjs-dist/build/pdf.worker.js";
 
 /**
  * Step 1: Read pdf and output textItems by concatenating results from each page.
@@ -19,6 +19,7 @@ import type { TextItem, TextItems } from "lib/parse-resume-from-pdf/types";
  * }
  */
 export const readPdf = async (fileUrl: string): Promise<TextItems> => {
+  try{
   const pdfFile = await pdfjs.getDocument(fileUrl).promise;
   let textItems: TextItems = [];
 
@@ -83,4 +84,9 @@ export const readPdf = async (fileUrl: string): Promise<TextItems> => {
   textItems = textItems.filter((textItem) => !isEmptySpace(textItem));
 
   return textItems;
+  } catch (err)
+  {
+    console.error("Error in readPdf:", err, "fileUrl:", fileUrl);
+    return [];
+  }
 };
