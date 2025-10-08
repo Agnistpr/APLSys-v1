@@ -1,15 +1,16 @@
 "use client";
 import { useState, useEffect } from "react";
-import { readPdf } from "lib/parse-resume-from-pdf/read-pdf";
-import type { TextItems } from "lib/parse-resume-from-pdf/types";
-import { groupTextItemsIntoLines } from "lib/parse-resume-from-pdf/group-text-items-into-lines";
-import { groupLinesIntoSections } from "lib/parse-resume-from-pdf/group-lines-into-sections";
-import { extractResumeFromSections } from "lib/parse-resume-from-pdf/extract-resume-from-sections";
-import { ResumeDropzone } from "components/ResumeDropzone";
-import { ResumeTable } from "resume-parser/ResumeTable";
+import { readPdf } from "../lib/parse-resume-from-pdf/read-pdf";
+import type { TextItems } from "../lib/parse-resume-from-pdf/types";
+import { groupTextItemsIntoLines } from "../lib/parse-resume-from-pdf/group-text-items-into-lines";
+import { groupLinesIntoSections } from "../lib/parse-resume-from-pdf/group-lines-into-sections";
+import { extractResumeFromSections } from "../lib/parse-resume-from-pdf/extract-resume-from-sections";
+import { ResumeDropzone } from "../components/ResumeDropzone";
+import { ResumeTable } from "./ResumeTable";
 import { analyzeResumeWithGemini } from "../../../conn/genAnalysis";
 import { generateResumeAnalysisPrompt } from "../../../conn/genAnalysis";
-import { JOB_ROLES } from "data/jobRoles";
+import { JOB_ROLES } from "../data/jobRoles";
+import { BatchResumeAnalyzer } from "./BatchResumeAnalyzer";
 
 function exportJSON(data: any, filename: string) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -20,6 +21,32 @@ function exportJSON(data: any, filename: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+const scoringWeights = {
+  skills: 0.3,
+  experience: 0.4,
+  education: 0.15,
+  achievements: 0.1,
+  formatting: 0.05,
+};
+
+const sectionScores = {
+  skills: 85,
+  experience: 90,
+  education: 75,
+  achievements: 60,
+  formatting: 80,
+};
+
+function calculateCandidateScore(sections, weights) {
+  let total = 0;
+  for (const key in weights) {
+    total += (sections[key] || 0) * weights[key];
+  }
+  return Math.round(total);
+}
+
+const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
 function getApplicantName(resume: any) {
   const name = resume?.profile?.name || "applicant";
@@ -64,20 +91,31 @@ export default function ResumeParser({ setActivePage, setSelectedApplicantId, se
       setFileUrl(url);
       setResumeName(selectedResumeFile.name || "uploaded_resume.pdf");
     } else {
-      setFileUrl(defaultFileUrl);
-      setResumeName(defaultFileUrl.split(/[\\/]/).pop() || "template.pdf");
+      setFileUrl(null);
+      setResumeName("");
     }
   }, [selectedResumeFile]);
 
   useEffect(() => {
-    if (!fileUrl) return;
+    if (!fileUrl || typeof fileUrl !== "string" || !fileUrl.startsWith("blob:")) {
+    console.log("No file was uploaded, or an error has occured.");
+    return;
+  }
+    console.log("fileUrl changed:", fileUrl);
     async function loadResume() {
+    try{
       const textItems = await readPdf(fileUrl);
       setTextItems(textItems);
       const lines = groupTextItemsIntoLines(textItems || []);
       const sections = groupLinesIntoSections(lines);
       const parsedResume = extractResumeFromSections(sections);
+      console.log("Parsed resume:", parsedResume);
       setEditableResume(parsedResume);
+    } catch (err)
+    {
+      console.error("Failed to parse PDF:", err);
+      setEditableResume(null);
+    }
     }
     loadResume();
   }, [fileUrl]);
@@ -151,7 +189,7 @@ export default function ResumeParser({ setActivePage, setSelectedApplicantId, se
           const score = scoreMatch ? scoreMatch[1] : null;
 
           return (
-            <div key={idx} className="bg-white shadow-sm rounded p-4 border">
+            <div key={idx} className="analysis-card bg-white shadow-sm rounded p-4 border">
               <h3 className="font-semibold text-lg mb-2">{header}</h3>
               <div className="whitespace-pre-wrap mb-2">{content}</div>
               {score && (
@@ -168,16 +206,77 @@ export default function ResumeParser({ setActivePage, setSelectedApplicantId, se
     );
   };
 
+  //CALLS ONLY, NO TASK PROCESSING
   const handleAnalyzeResume = async () => {
-    setLoadingAnalysis(true);
+  setLoadingAnalysis(true);
+
+  try {
     // Combine text items into raw text
-    const rawText = textItems.map(item => item.str).join("\n");
-    console.log("editableResume before analysis:", rawText);
-    const prompt = generateResumeAnalysisPrompt(rawText, selectedJobRole, customJobDescription);
-    const result = await analyzeResumeWithGemini(prompt);
-    setAnalysisResult(result);
-    setLoadingAnalysis(false);
+    const rawText = textItems.map(item => item.text).join("\n");
+
+    // Prepare payload for backend
+    // const payload = {
+    //   resume: rawText,
+    //   job_role: selectedJobRole,
+    //   job_description: customJobDescription,
+    // };
+
+    // Get job role description from JOB_ROLES
+    const jobRoleObj = selectedCategory && selectedJobRole
+      ? JOB_ROLES[selectedCategory][selectedJobRole]
+      : undefined;
+
+    // Prepare payload for backend
+    const payload = {
+      resume: rawText,
+      job_role: selectedJobRole || "",
+      job_description: jobRoleObj?.description || customJobDescription || "",
+    };
+
+    // Call FastAPI backend
+    const result = await analyzeResumeWithGemini(payload);
+    setAnalysisResult(result)
+    } catch (err) {
+      console.error("Error analyzing resume:", err);
+      setAnalysisResult("Failed to analyze resume");
+    } finally {
+      setLoadingAnalysis(false);
+    }
   };
+
+  function CandidateScoreCard({ sectionScores, scoringWeights }) {
+  const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
+
+  return (
+    <div className="candidate-score-card" style={{ marginBottom: "1.5em" }}>
+      <h3>Automated Candidate Score</h3>
+      <table style={{ width: "100%", marginBottom: "0.5em" }}>
+        <thead>
+          <tr>
+            <th>Section</th>
+            <th>Score</th>
+            <th>Weight</th>
+            <th>Weighted</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Object.keys(scoringWeights).map((section) => (
+            <tr key={section}>
+              <td>{section.charAt(0).toUpperCase() + section.slice(1)}</td>
+              <td>{sectionScores[section]}</td>
+              <td>{scoringWeights[section]}</td>
+              <td>{Math.round(sectionScores[section] * scoringWeights[section])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ fontWeight: "bold", fontSize: "1.2em" }}>
+        Final Candidate Score: <span style={{ color: "#1976d2" }}>{finalScore} / 100</span>
+      </div>
+    </div>
+    );
+  }
+
 
   return (
     <div className="resume-parser-container">
@@ -344,9 +443,20 @@ export default function ResumeParser({ setActivePage, setSelectedApplicantId, se
                 {loadingAnalysis ? "Analyzing..." : "Analyze Resume"}
               </button>
 
-              <div className="analysis-cards mt-4">
-                {analysisResult ? renderAnalysisSections(analysisResult) : <div className="analysis-card">No analysis yet.</div>}
-              </div>
+              {analysisResult && (
+                <>
+                  <CandidateScoreCard sectionScores={sectionScores} scoringWeights={scoringWeights} />
+                  <div className="analysis-cards mt-4">
+                    {renderAnalysisSections(analysisResult)}
+                  </div>
+                </>
+              )}
+
+              {!analysisResult && (
+                <div className="analysis-card mt-4">No analysis yet.</div>
+              )}
+
+              <BatchResumeAnalyzer jobRole={selectedCategory} jobDescription={customJobDescription} />
             </div>
           )}
         </div>
