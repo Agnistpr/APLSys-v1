@@ -21,14 +21,18 @@ class PromptRequest(BaseModel):
     
 class ClassifyRequest(BaseModel):
     text: str
+    
+#- **Current Skills**: [List ALL skills the candidate demonstrates in their resume, categorized by type (technical, soft, domain-specific, etc.). Be comprehensive.]
 
 def build_prompt(req: ResumeAnalysisRequest) -> str:
     base_prompt = f"""
+Please use only "##" for section headers and avoid using "###" or Markdown bold/italic formatting in your output.
+And for each section, make your outputs concise but in 3 sentences max.
 ## Overall Assessment
 [Provide a detailed & summarized assessment of the resume's overall quality, effectiveness, and alignment with industry standards. Include specific observations about formatting, content organization, and general impression. Be thorough and specific.]
 
 ## Skills Analysis
-- **Current Skills**: [List ALL skills the candidate demonstrates in their resume, categorized by type (technical, soft, domain-specific, etc.). Be comprehensive.]
+
 - **Skill Proficiency**: [Assess the apparent level of expertise in key skills based on how they're presented in the resume]
 - **Missing Skills**: [List important skills that would improve the resume for their target role. Be specific and explain why each skill matters.]
 
@@ -36,7 +40,7 @@ def build_prompt(req: ResumeAnalysisRequest) -> str:
 [Provide detailed feedback on how well the candidate has presented their experience. Analyze the use of action verbs, quantifiable achievements, and relevance to their target role. Suggest specific improvements. Afterwards, provide a score from 0-100 based on how well the experience section is presented: Resume Score: XX/100. Use this format exactly, where XX is the numerical score.]
 
 ## Key Strengths
-[List 5-7 specific strengths of the resume with detailed explanations of why these are effective]
+[List 2-5 specific strengths of the resume with detailed explanations of why these are effective]
 
 ## Resume Score
 [Provide a score from 0-100 based on the overall quality of the resume. Use this format exactly: "Resume Score: XX/100"]

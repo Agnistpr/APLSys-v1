@@ -9,11 +9,9 @@ from PIL import Image
 import numpy as np
 import os
 from dotenv import load_dotenv
-from utils.img_to_b64 import image_to_base64
-import requests
+from PyPDF2 import PdfReader
+import io
 import json
-import re
-from operator import itemgetter
 load_dotenv()
 
 
@@ -77,20 +75,33 @@ def extract_tables_from_image(image_path):
 
     return table_results
 
-def run_ocr_on_document(file):
+def extract_on_document(file):
     # If file is bytes (uploaded file content)
     if isinstance(file, bytes):
-        doc = DocumentFile.from_images([file])
+        # Try to read as PDF first
+        try:
+            reader = PdfReader(io.BytesIO(file))
+            text = "\n".join([page.extract_text() or "" for page in reader.pages])
+            return None, {"pages": [{"text": text}]}
+        except Exception:
+            # Not a PDF, treat as image
+            doc = DocumentFile.from_images([file])
+            model = ocr_model
+            result = model(doc)
+            exported = result.export()
+            return doc, exported
+    elif isinstance(file, str) and file.lower().endswith(".pdf"):
+        # File path to PDF
+        reader = PdfReader(file)
+        text = "\n".join([page.extract_text() or "" for page in reader.pages])
+        return None, {"pages": [{"text": text}]}
     else:
-        # If file is a path string
-        if isinstance(file, str) and file.lower().endswith(".pdf"):
-            doc = DocumentFile.from_pdf(file)
-        else:
-            doc = DocumentFile.from_images(file)
-    model = ocr_model
-    result = model(doc)
-    exported = result.export()
-    return doc, exported
+        # File path to image or image bytes
+        doc = DocumentFile.from_images(file)
+        model = ocr_model
+        result = model(doc)
+        exported = result.export()
+        return doc, exported
 
 async def search_word(exported_doc, query: str):
     """Search for words in OCR output and return matches with their boxes"""
@@ -107,50 +118,130 @@ async def search_word(exported_doc, query: str):
                         })
     return matches
 
-def collect_all_pages(file_path):
-    doc, exported = run_ocr_on_document(file_path)
+def collect_all_pages(file):
+    doc, exported = extract_on_document(file)
     pages = []
-    for page_idx, (page_dict, image) in enumerate(zip(exported["pages"], doc)):
-        # Collect text for this page
-        lines = []
-        for block in page_dict["blocks"]:
-            for line in block["lines"]:
-                line_text = " ".join([word["value"] for word in line["words"]])
-                lines.append(line_text)
-        page_text = "\n".join(lines)
-        pages.append({
-            "page_number": page_idx + 1,
-            "text": page_text,
-            "image": image,
-            "ocr_data": page_dict
-        })
+    if doc is not None:
+        # OCR result (images)
+        for page_idx, (page_dict, image) in enumerate(zip(exported["pages"], doc)):
+            lines = []
+            for block in page_dict.get("blocks", []):
+                if isinstance(block, dict):
+                    for line in block.get("lines", []):
+                        line_text = " ".join([word["value"] for word in line.get("words", [])])
+                        lines.append(line_text)
+            page_text = "\n".join(lines)
+            pages.append({
+                "page_number": page_idx + 1,
+                "text": page_text,
+                "image": image,
+                "ocr_data": page_dict
+            })
+    else:
+        # Digital PDF (text extraction)
+        for page_idx, page_dict in enumerate(exported.get("pages", [])):
+            page_text = page_dict.get("text", "")
+            pages.append({
+                "page_number": page_idx + 1,
+                "text": page_text,
+                "image": None,
+                "ocr_data": page_dict
+            })
     return pages
 
-def ocr_and_visualize(file_path, search_query=None):
-    doc, exported = run_ocr_on_document(file_path)
-    for page_idx, (page_dict, image) in enumerate(zip(exported["pages"], doc)):
-        print(f"---- PAGE {page_idx+1} ----")
-        for block in page_dict["blocks"]:
-            for line in block["lines"]:
-                line_text = " ".join([word["value"] for word in line["words"]])
-                print(line_text)
-        if search_query:
-            search_results = search_word(exported, search_query)
-            print("Search Results:", search_results)
-        visualize_page(page_dict, image)
-        plt.show()
+def ocr_and_visualize(file, search_query=None):
+    doc, exported = extract_on_document(file)
+    if doc is not None and hasattr(doc, "__iter__"):
+        # OCR result (images)
+        for page_idx, (page_dict, image) in enumerate(zip(exported["pages"], doc)):
+            print(f"---- PAGE {page_idx+1} ----")
+            for block in page_dict.get("blocks", []):
+                if isinstance(block, dict):
+                    for line in block.get("lines", []):
+                        line_text = " ".join([word["value"] for word in line.get("words", [])])
+                        print(line_text)
+            if search_query:
+                search_results = search_word(exported, search_query)
+                print("Search Results:", search_results)
+            visualize_page(page_dict, image)
+            plt.show()
+    else:
+        # Digital PDF (text extraction)
+        for page_idx, page_dict in enumerate(exported.get("pages", [])):
+            print(f"---- PAGE {page_idx+1} ----")
+            print(page_dict.get("text", ""))
+
+# ...existing code...
+
+
+def save_ocr_layer(exported, output_path):
+    """
+    Save the structured OCR output (exported) as a JSON file.
+    """
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(exported, f, ensure_ascii=False, indent=2)
+
+def load_ocr_layer(json_path):
+    """
+    Load the OCR layer from a JSON file.
+    """
+    with open(json_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def search_word_in_ocr_layer(exported, query):
+    """
+    Search for words in the OCR layer and return their bounding boxes.
+    """
+    matches = []
+    for page_idx, page in enumerate(exported["pages"]):
+        for block in page.get("blocks", []):
+            for line in block.get("lines", []):
+                for word in line.get("words", []):
+                    if query.lower() in word["value"].lower():
+                        matches.append({
+                            "page": page_idx,
+                            "word": word["value"],
+                            "box": word["geometry"]  # (x_min, y_min, x_max, y_max)
+                        })
+    return matches
+
+def visualize_word_boxes(image, matches, color=(255, 0, 0), thickness=2):
+    """
+    Draw bounding boxes for matched words on the image.
+    image: numpy array (RGB)
+    matches: list of {"box": [x_min, y_min, x_max, y_max], ...}
+    """
+    import cv2
+    h, w = image.shape[:2]
+    img_vis = image.copy()
+    for match in matches:
+        x_min, y_min, x_max, y_max = match["box"]
+        # Geometry is normalized, so scale to image size
+        pt1 = (int(x_min * w), int(y_min * h))
+        pt2 = (int(x_max * w), int(y_max * h))
+        cv2.rectangle(img_vis, pt1, pt2, color, thickness)
+        cv2.putText(img_vis, match["word"], (pt1[0], pt1[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    return img_vis
+
 
 # Example usage:
 if __name__ == "__main__":
-    print("Running OCR and visualization...")
-    pages = collect_all_pages("SampMulti.pdf")
-    for page in pages:
-        print(f"Page {page['page_number']} Text:\n{page['text']}\n")
-        print(page["text"])
-        visualize_page(page["ocr_data"], page["image"])
-        plt.show()
-        input("Press Enter to go to the next page...")
-    # print("Extracting tables from image...")
-    # result = detect_table_layout("table3.jpg")# python -m services.ocr_service
-    # print(result)
-    # visualize_table_layout("table3.jpg", result)
+    # 1. Run OCR and save layer
+    doc = DocumentFile.from_images("samp2.jpg")
+    result = ocr_model(doc)
+    exported = result.export()
+    save_ocr_layer(exported, "samp_ocr_layer.json")
+
+    # 2. Load OCR layer and search for a word
+    ocr_layer = load_ocr_layer("samp_ocr_layer.json")
+    matches = search_word_in_ocr_layer(ocr_layer, "CAMPUS")
+    print("Matches:", matches)
+
+    # 3. Visualize
+    image = doc[0]  # PIL Image or numpy array
+    if isinstance(image, Image.Image):
+        image = np.array(image.convert("RGB"))
+    vis_img = visualize_word_boxes(image, matches)
+    plt.imshow(vis_img)
+    plt.axis("off")
+    plt.show()

@@ -16,16 +16,16 @@ async def lifespan(app: FastAPI):
 
     print("Loading NER models...")
     # For Resume Parsing
-    tokenizer_resume = AutoTokenizer.from_pretrained("elastic/distilbert-base-uncased-finetuned-conll03-english")
-    model_resume = AutoModelForTokenClassification.from_pretrained("elastic/distilbert-base-uncased-finetuned-conll03-english")
-    ner_parsing_pipeline = pipeline("token-classification", model=model_resume, tokenizer=tokenizer_resume, aggregation_strategy="simple")
+    tokenizer_resume = AutoTokenizer.from_pretrained("./model/resume-ner-model")
+    model_resume = AutoModelForTokenClassification.from_pretrained("./model/resume-ner-model")
+    ner_resume_pipeline = pipeline("token-classification", model=model_resume, tokenizer=tokenizer_resume, aggregation_strategy="simple")
     
     #For General OCR usage
     tokenizer_general = AutoTokenizer.from_pretrained("dbmdz/bert-large-cased-finetuned-conll03-english")
     model_general = AutoModelForTokenClassification.from_pretrained("dbmdz/bert-large-cased-finetuned-conll03-english")
     general_ner_pipeline = pipeline("token-classification", model=model_general, tokenizer=tokenizer_general, aggregation_strategy="simple")
 
-    app.state.ner_parsing_pipeline = ner_parsing_pipeline
+    app.state.ner_resume_pipeline = ner_resume_pipeline
     app.state.general_ner_pipeline = general_ner_pipeline
     print("Models ready!")
     
