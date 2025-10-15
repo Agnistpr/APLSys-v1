@@ -1084,3 +1084,13 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
     at App.emit (node:events:518:28)
     at App.<anonymous> (node:electron/js2c/browser_init:2:134423)
     at App.emit (node:events:518:28)
+[2025-10-15T12:42:50.932Z] App started
+[2025-10-15T12:42:51.275Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-15T12:42:51.280Z] [NER_API ERROR] File "C:\Users\JayAxeil\Documents\IT\VScode\APLSys-v2\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+ModuleNotFoundError: No module named 'fastapi'
+[2025-10-15T12:42:51.299Z] [NER_API] exited with code 1
+[2025-10-15T13:02:43.891Z] Stopping backend...
+[2025-10-15T13:02:44.297Z] taskkill error: Error: Command failed: taskkill /PID 14580 /T /F
+ERROR: The process "14580" not found.
+

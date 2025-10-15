@@ -1,59 +1,26 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 import { Client } from "pg";
 
-// 🔧 CONFIGURATION
-const NUM_APPLICANTS = 5;         // Number of random applicants (not hired)
-const NUM_EMPLOYEES = 10;         // Number of employees to seed
-const ATTENDANCE_DAYS = 10;       // Number of days of attendance before today
-const NUM_LEAVES = 5;             // Number of leave records to generate
-const NUM_INVENTORY_LOGS = 2;     // Number of inventory log records
+const NUM_APPLICANTS = 5;
+const NUM_EMPLOYEES = 25;
+const ATTENDANCE_DAYS = 10;
+const NUM_LEAVES = 5;
+const NUM_INVENTORY_LOGS = 2;
 
-// PG Connection
-// const client = new Client({
-//   user: "client",
-//   host: "localhost",
-//   database: "postgres",
-//   password: "@PLSys",
-//   port: 5432,
-// });
-
-// SUPBASE  Connection
-// postgresql://postgres:[YOUR-PASSWORD]@db.ntsvoexuhippdbfnivud.supabase.co:5432/postgres
 const client = new Client({
-  connectionString: 
+  connectionString:
     "postgresql://postgres.ntsvoexuhippdbfnivud:GO2bHiZvgXTSp3YG@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require",
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: { rejectUnauthorized: false },
 });
 
-// await client.connect();
-// console.log("✅ Connected to Supabase Shared Pooler!");
-
-// client.connect()
-//   .then(() => console.log("✅ Connected to Supabase!"))
-//   .catch(err => console.error("❌ Connection error:", err));
-
-// Sample data pools
 const firstNames = ["John", "Jane", "Mike", "Anna", "Paul", "Mary", "Chris", "Laura", "David", "Emma"];
 const lastNames = ["Doe", "Smith", "Johnson", "Brown", "Williams", "Jones", "Taylor", "Davis", "Miller", "Wilson"];
 const genders = ["Male", "Female"];
 const empTypes = ["Regular", "Contractual", "Resigned"];
 const leaveStatuses = ["Approved", "Request"];
-const leaveReasons = [
-  "Vacation leave",
-  "Sick leave",
-  "Family emergency",
-  "Personal matters",
-  "Medical appointment",
-  "Travel",
-];
-const items = [
-  "Hard Hat", "Safety Gloves", "Boots", "Earplugs", "Safety Goggles",
-  "Reflective Vest", "First Aid Kit", "Tool Belt", "Face Mask", "Harness"
-];
+const leaveReasons = ["Vacation leave", "Sick leave", "Family emergency", "Personal matters", "Medical appointment", "Travel"];
+const items = ["Hard Hat", "Safety Gloves", "Boots", "Earplugs", "Safety Goggles", "Reflective Vest", "First Aid Kit", "Tool Belt", "Face Mask", "Harness"];
 
-// Utility helpers
 function getNameByIndex(i) {
   const firstIndex = i % firstNames.length;
   const lastIndex = Math.floor(i / firstNames.length) % lastNames.length;
@@ -68,12 +35,22 @@ function randomDate(start, end) {
 function formatDate(date) {
   return date.toISOString().split("T")[0];
 }
+function smartTimeIn() {
+  const hour = 8 + Math.floor(Math.random() * 2);
+  const minute = Math.floor(Math.random() * 20);
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+function smartTimeOut() {
+  const hour = 16 + Math.floor(Math.random() * 2);
+  const minute = Math.floor(Math.random() * 20);
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
 
 async function seedDatabase() {
   try {
     await client.connect();
+    console.log("Resetting database...");
 
-    console.log("⚡ Resetting database...");
     await client.query(`
       TRUNCATE TABLE 
         userlogs, users, attendance, leave, inventorylogs, document,
@@ -82,12 +59,13 @@ async function seedDatabase() {
       RESTART IDENTITY CASCADE
     `);
 
-    // Departments + Positions
     const deptRes = await client.query(`
       INSERT INTO department (departmentname) VALUES ('Office'), ('Production') RETURNING *;
     `);
+
     const posRes = await client.query(`
       INSERT INTO position (positionname, departmentid) VALUES
+        ('HR', ${deptRes.rows[0].departmentid}),
         ('Cutting', ${deptRes.rows[1].departmentid}),
         ('Delivery', ${deptRes.rows[1].departmentid}),
         ('Extrusion', ${deptRes.rows[1].departmentid}),
@@ -103,7 +81,6 @@ async function seedDatabase() {
       RETURNING *;
     `);
 
-    // Shifts
     const shiftInserts = [];
     let cur = 0;
     while (shiftInserts.length < 20) {
@@ -122,12 +99,10 @@ async function seedDatabase() {
       RETURNING *;
     `);
 
-    // Applicants (not hired)
     for (let i = 0; i < NUM_APPLICANTS; i++) {
       const { first, last } = getNameByIndex(i);
       const birthdate = randomDate(new Date(1985, 0, 1), new Date(2005, 0, 1));
       const age = new Date().getFullYear() - birthdate.getFullYear();
-
       await client.query(
         `INSERT INTO applicant (
           firstname, middlename, lastname, departmentid, positionid,
@@ -150,9 +125,29 @@ async function seedDatabase() {
       );
     }
 
-    // Employees
     const empRes = [];
-    for (let i = 0; i < NUM_EMPLOYEES; i++) {
+
+    const specialEmp = await client.query(
+      `INSERT INTO employee (firstname, middlename, lastname, departmentid, positionid, contact, address, email, shiftid, hiredate, sss_number, pagibig_number, philhealth_number, bir_number, leavecredit, type, employeeimage)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING employeeid`,
+      [
+        "Strator", "Admin", "I",
+        deptRes.rows[1].departmentid, 
+        posRes.rows[0].positionid, 
+        "09170000000",
+        "1 Admin St",
+        "admin1@gmail.com",
+        randomChoice(shiftRes.rows).shiftid,
+        "2022-01-01",
+        "SSS999", "PAG999", "PH999", "BIR999",
+        20,
+        "Regular",
+        null
+      ]
+    );
+    empRes.push(specialEmp.rows[0].employeeid);
+
+    for (let i = 1; i < NUM_EMPLOYEES; i++) {
       const { first, last } = getNameByIndex(i);
       const res = await client.query(
         `INSERT INTO employee (firstname, middlename, lastname, departmentid, positionid, contact, address, email, shiftid, hiredate, sss_number, pagibig_number, philhealth_number, bir_number, leavecredit, type, employeeimage)
@@ -175,7 +170,6 @@ async function seedDatabase() {
       empRes.push(res.rows[0].employeeid);
     }
 
-    // Attendance
     const today = new Date();
     const startDate = new Date(today);
     startDate.setDate(today.getDate() - ATTENDANCE_DAYS);
@@ -183,8 +177,8 @@ async function seedDatabase() {
     for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
       for (let emp of empRes) {
         if (Math.random() < 0.7 || d.toDateString() === today.toDateString()) {
-          const timeIn = `${String(8 + Math.floor(Math.random() * 2)).padStart(2, "0")}:${String(Math.floor(Math.random() * 60)).padStart(2, "0")}`;
-          const timeOut = `${String(17 + Math.floor(Math.random() * 2)).padStart(2, "0")}:${String(Math.floor(Math.random() * 60)).padStart(2, "0")}`;
+          const timeIn = smartTimeIn();
+          const timeOut = smartTimeOut();
           await client.query(
             `INSERT INTO attendance (date, employeeid, timein, timeout) VALUES ($1,$2,$3,$4)`,
             [formatDate(d), emp, timeIn, timeOut]
@@ -193,7 +187,6 @@ async function seedDatabase() {
       }
     }
 
-    // Inventory
     const itemRes = [];
     for (let i = 0; i < items.length; i++) {
       const res = await client.query(
@@ -216,13 +209,11 @@ async function seedDatabase() {
       );
     }
 
-    // Leaves
     for (let i = 0; i < NUM_LEAVES; i++) {
       const start = randomDate(new Date(2025, 6, 1), today);
       const duration = Math.floor(Math.random() * 3) + 1;
       const end = new Date(start);
       end.setDate(start.getDate() + duration);
-
       await client.query(
         `INSERT INTO leave (employeeid, reason, start_date, end_date, status)
          VALUES ($1, $2, $3, $4, $5)`,
@@ -236,18 +227,9 @@ async function seedDatabase() {
       );
     }
 
-    // Users
-    await client.query(
-      `INSERT INTO users (username, password, userimage) VALUES 
-       ('user1','passhash1',$1),
-       ('user2','passhash2',$2),
-       ('Jane Doe','admin123',$3)`,
-      [Buffer.from("UserImage1"), Buffer.from("UserImage2"), Buffer.from("JaneDoeImage")]
-    );
-
-    console.log("✅ Dummy data inserted successfully.");
+    console.log("Success");
   } catch (err) {
-    console.error("❌ Error:", err.stack);
+    console.error("Error:", err.stack);
   } finally {
     await client.end();
   }
