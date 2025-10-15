@@ -19,14 +19,11 @@ GEMINI_MODEL = "gemini-2.5-pro"
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Load once at startup
-ocr_model = ocr_predictor(det_arch="db_resnet34", reco_arch="crnn_vgg16_bn", pretrained=True)
-
-async def run_ocr(file):
+async def run_ocr(model, file):
     # This runs inference on each new document
     content = await file.read()
     doc = DocumentFile.from_images([content])
-    result = ocr_model(doc).export() #export() for structured JSON script, render() for raw text
+    result = model(doc).export() #export() for structured JSON script, render() for raw text
     
     #print extracted text page by page
     for page in result["pages"]:
@@ -75,7 +72,7 @@ def extract_tables_from_image(image_path):
 
     return table_results
 
-def extract_on_document(file):
+def extract_on_document(file, model):
     # If file is bytes (uploaded file content)
     if isinstance(file, bytes):
         # Try to read as PDF first
@@ -86,7 +83,6 @@ def extract_on_document(file):
         except Exception:
             # Not a PDF, treat as image
             doc = DocumentFile.from_images([file])
-            model = ocr_model
             result = model(doc)
             exported = result.export()
             return doc, exported
@@ -98,7 +94,6 @@ def extract_on_document(file):
     else:
         # File path to image or image bytes
         doc = DocumentFile.from_images(file)
-        model = ocr_model
         result = model(doc)
         exported = result.export()
         return doc, exported
@@ -118,8 +113,8 @@ async def search_word(exported_doc, query: str):
                         })
     return matches
 
-def collect_all_pages(file):
-    doc, exported = extract_on_document(file)
+def collect_all_pages(file, model):
+    doc, exported = extract_on_document(file, model)
     pages = []
     if doc is not None:
         # OCR result (images)
@@ -149,8 +144,8 @@ def collect_all_pages(file):
             })
     return pages
 
-def ocr_and_visualize(file, search_query=None):
-    doc, exported = extract_on_document(file)
+def ocr_and_visualize(model,file, search_query=None):
+    doc, exported = extract_on_document(file, model)
     if doc is not None and hasattr(doc, "__iter__"):
         # OCR result (images)
         for page_idx, (page_dict, image) in enumerate(zip(exported["pages"], doc)):
@@ -224,24 +219,24 @@ def visualize_word_boxes(image, matches, color=(255, 0, 0), thickness=2):
     return img_vis
 
 
-# Example usage:
-if __name__ == "__main__":
-    # 1. Run OCR and save layer
-    doc = DocumentFile.from_images("samp2.jpg")
-    result = ocr_model(doc)
-    exported = result.export()
-    save_ocr_layer(exported, "samp_ocr_layer.json")
+# # Example usage:
+# if __name__ == "__main__":
+#     # 1. Run OCR and save layer
+#     doc = DocumentFile.from_images("samp2.jpg")
+#     result = ocr_model(doc)
+#     exported = result.export()
+#     save_ocr_layer(exported, "samp_ocr_layer.json")
 
-    # 2. Load OCR layer and search for a word
-    ocr_layer = load_ocr_layer("samp_ocr_layer.json")
-    matches = search_word_in_ocr_layer(ocr_layer, "CAMPUS")
-    print("Matches:", matches)
+#     # 2. Load OCR layer and search for a word
+#     ocr_layer = load_ocr_layer("samp_ocr_layer.json")
+#     matches = search_word_in_ocr_layer(ocr_layer, "CAMPUS")
+#     print("Matches:", matches)
 
-    # 3. Visualize
-    image = doc[0]  # PIL Image or numpy array
-    if isinstance(image, Image.Image):
-        image = np.array(image.convert("RGB"))
-    vis_img = visualize_word_boxes(image, matches)
-    plt.imshow(vis_img)
-    plt.axis("off")
-    plt.show()
+#     # 3. Visualize
+#     image = doc[0]  # PIL Image or numpy array
+#     if isinstance(image, Image.Image):
+#         image = np.array(image.convert("RGB"))
+#     vis_img = visualize_word_boxes(image, matches)
+#     plt.imshow(vis_img)
+#     plt.axis("off")
+#     plt.show()
