@@ -14,12 +14,16 @@ import {
   Settings,
   Eye
 } from 'lucide-react';
-import { ImageViewer } from './ImageViewer';
+import { ImageViewer, entityToTag } from './ImageViewer';
 import { OCRPanel } from './OCRPanel';
 import { TagsPanel } from './TagsPanel';
 import { ExportPanel } from './ExportPanel';
+import { BatchOCRPanel } from './BatchOCRPanel';
+import { GeneralDocumentParser } from "./GeneralDocumentParser";
+import { DocumentUploadOCRPanel } from "./DocumentUploadOCRPanel";
+import { MetadataExtractorPanel } from './MetadataExtractorPanel';
 import { toast } from 'sonner';
-// import '../ocr.generated.css';
+import { parseDocumentText} from "../../api/ocr";
 
 export interface ExtractedText {
   id: string;
@@ -41,36 +45,57 @@ export interface DocumentData {
   timestamp: string;
 }
 
-const DEFAULT_TAGS = ['name', 'phone','address', 'skills', 'email','experience', 'education'];
+const DEFAULT_TAGS = ['name', 'phone','location', 'skills', 'email','experience', 'education', 'organization', 'misc'];
 
 export const DocumentScanner: React.FC = () => {
+  const [currentFile, setCurrentFile] = useState<File | null>(null);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
+  const [currentFileUrl, setCurrentFileUrl] = useState<string | null>(null);
+  const [currentFileType, setCurrentFileType] = useState<string | null>(null);
   const [extractedData, setExtractedData] = useState<ExtractedText[]>([]);
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activePanel, setActivePanel] = useState<'viewer' | 'ocr' | 'tags' | 'export'>('viewer');
+  const [activePanel, setActivePanel] = useState<'viewer' | 'ocr' | 'tags' | 'batch' | 'docupload' | 'metadata'>('ocr'); //to add, export
+  const [inputText, setInputText] = useState("");
+  const [entities, setEntities] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleImageUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.type.startsWith('image/')) {
-        const url = URL.createObjectURL(file);
-        setCurrentImage(url);
-        setExtractedData([]);
-        toast.success('Document loaded successfully');
-      } else {
-        toast.error('Please select a valid image file');
-      }
+  //to delete
+  // const handleImageUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  //   const file = event.target.files?.[0];
+  //   if (file) {
+  //     if (file.type.startsWith('image/')) {
+  //       const url = URL.createObjectURL(file);
+  //       setCurrentImage(url);
+  //       setExtractedData([]);
+  //       toast.success('Document loaded successfully');
+  //     } else {
+  //       toast.error('Please select a valid image file');
+  //     }
+  //   }
+  // }, []);
+
+  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const file = event.target.files?.[0];
+  if (file) {
+      const url = URL.createObjectURL(file);
+      setCurrentFile(file);
+      setCurrentFileUrl(url);
+      setCurrentFileType(file.type);
+      setExtractedData([]);
+      toast.success('Document loaded successfully');
     }
   }, []);
 
   const handleDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     const file = event.dataTransfer.files[0];
-    if (file && file.type.startsWith('image/')) {
+    if (file) {
       const url = URL.createObjectURL(file);
-      setCurrentImage(url);
+      setCurrentFile(file);
+      setCurrentFileUrl(url);
+      setCurrentFileType(file.type);
       setExtractedData([]);
       toast.success('Document loaded successfully');
     } else {
@@ -89,7 +114,7 @@ export const DocumentScanner: React.FC = () => {
       const results: ExtractedText[] = [];
 
       for (const block of blocks) {
-        const response = await fetch("http://localhost:8000/classify", {
+        const response = await fetch("http://127.0.0.1:8000/parser/parse-document", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: block.text }), // match backend schema
@@ -98,7 +123,9 @@ export const DocumentScanner: React.FC = () => {
         const data = await response.json();
 
         // Backend returns: { entities: [...] }
-        const tags = data.entities.map((ent: any) => ent.entity.toLowerCase());
+        const tags = data.entities
+          .map((ent: any) => typeof entityToTag(ent.entity_group) === "string" ? ent.entity.toLowerCase() : "")
+          .filter((tag: string) => tag);
 
         results.push({
           ...block,
@@ -126,6 +153,20 @@ export const DocumentScanner: React.FC = () => {
     setExtractedData(prev => prev.filter(item => item.id !== id));
     toast.success('Extraction deleted');
   }, []);
+
+  const handleParse = async () => {
+    setLoading(true);
+    setEntities([]);
+    try {
+      const result = await parseDocumentText(inputText);
+      setEntities(result);
+    } catch (err) {
+      setEntities([]);
+      alert("Failed to parse document.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const allTags = [...DEFAULT_TAGS, ...customTags];
 
@@ -174,9 +215,10 @@ export const DocumentScanner: React.FC = () => {
           {/* Main Content */}
           <div className="col-span-8">
             <Card className="h-full bg-surface border-border shadow-medium">
-              {currentImage ? (
+              {currentFileUrl ? (
                 <ImageViewer
-                  imageUrl={currentImage}
+                  fileUrl={currentFileUrl}
+                  fileType={currentFileType || ""}
                   onTextExtracted={handleTextExtracted}
                   extractedData={extractedData}
                 />
@@ -217,7 +259,11 @@ export const DocumentScanner: React.FC = () => {
                     { id: 'viewer', icon: Eye, label: 'View' },
                     { id: 'ocr', icon: FileText, label: 'OCR' },
                     { id: 'tags', icon: Settings, label: 'Tags' },
-                    { id: 'export', icon: Download, label: 'Export' }
+                    //{ id: 'export', icon: Download, label: 'Export' },
+                    {id: 'docupload', icon: Upload, label: 'Doc Parse'},
+                    { id: 'batch', icon: Upload, label: 'Batch OCR' },
+                    //{id: 'parse', icon: Upload, label: 'Parse'}
+                    { id: 'metadata', icon: FileText, label: 'Metadata'},
                   ].map(({ id, icon: Icon, label }) => (
                     <Button
                       key={id}
@@ -265,12 +311,24 @@ export const DocumentScanner: React.FC = () => {
                   />
                 )}
                 
-                {activePanel === 'export' && (
+                {/* {activePanel === 'export' && (
                   <ExportPanel
                     documentData={documentData}
                     hasData={extractedData.length > 0}
                   />
+                )} */}
+                {activePanel === 'batch' && (
+                  <BatchOCRPanel />
                 )}
+                {activePanel === 'docupload' && (
+                  <DocumentUploadOCRPanel />
+                )}
+                {activePanel === 'metadata' && (
+                  <MetadataExtractorPanel file={currentFile} fileUrl={currentFileUrl} />
+                )}
+                {/* {activePanel === 'parse' && (
+                  <GeneralDocumentParser />
+                )} */}
               </div>
             </Card>
           </div>
@@ -281,8 +339,8 @@ export const DocumentScanner: React.FC = () => {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
-        onChange={handleImageUpload}
+        accept="image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+        onChange={handleFileUpload}
         className="hidden"
       />
     </div>

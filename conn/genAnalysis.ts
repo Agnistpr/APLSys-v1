@@ -1,21 +1,25 @@
-import { Resume } from "app/lib/redux/types";
-import { JobRoles } from "app/data/jobRoles";
+//import { Resume } from "src/app/lib/redux/types";
+import { JOB_ROLES, JobRole } from "src/app/data/jobRoles";
 import axios from "axios";
 
-
-const BACKEND_URL = "http://localhost:5000/analyze-resume";
-
-export async function analyzeResumeWithGemini(prompt: string) {
+export async function analyzeResumeWithGemini(payload: {
+  resume: string;
+  job_role?: string;
+  job_description?: string;
+}) {
   try {
-    const response = await axios.post(BACKEND_URL, { prompt });
-    return response.data.result;
+    const response = await axios.post("http://127.0.0.1:8000/ai/analyze-resume", payload);
+    return response.data.result || response.data.error;
   } catch (error: any) {
     console.error("Backend Gemini error:", error.response?.data || error.message);
     return "Error: Unable to analyze resume.";
   }
 }
 
-export function generateResumeAnalysisPrompt(resume: string, JobRoles?: string, jobDescription?: string) {
+export function generateResumeAnalysisPrompt(
+  resume: string, 
+  JobRoleObj?: JobRole, 
+  jobDescription?: string) {
   let basePrompt = `
 ## Overall Assessment
 [Provide a detailed & summarized assessment of the resume's overall quality, effectiveness, and alignment with industry standards. Include specific observations about formatting, content organization, and general impression. Be thorough and specific.]
@@ -38,12 +42,15 @@ Resume Data:
 ${JSON.stringify(resume, null, 2)}
 `;
 
-  if (JobRoles) {
+  if (JobRoleObj) {
     basePrompt += `
-The candidate is targeting a role as: ${JobRoles}
+The candidate is targeting a role as: ${JobRoleObj.description}
+
+Required Skills for this Role:
+${JobRoleObj.required_skills.join(", ")}
 
 ## Role Alignment Analysis
-[Analyze how well the resume aligns with the target role of ${JobRoles}. Provide specific recommendations to better align the resume with this role.]
+[Analyze how well the resume aligns with the target role. Provide specific recommendations to better align the resume with this role.]
 `;
   }
 

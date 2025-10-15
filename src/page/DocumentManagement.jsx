@@ -16,6 +16,7 @@ const recentDocuments = Array(8).fill({
 });
 
 const DocumentManagement = () => {
+  
   return (
     <div className="docContainer">
       <div className="docContent">

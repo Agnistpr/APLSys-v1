@@ -64,7 +64,7 @@ const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activ
   }, []);
 
   const fetchAllEmployees = async () => {
-    const data = await window.fileAPI.getEmployees();
+    const data = await window.employeeAPI.getEmployees();
     setEmployees(data);
     setCurrentPage(1);
   };

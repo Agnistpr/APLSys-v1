@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import logoIcon from '../assets/logo1.png';
 
 const Login = ({ onLogin }) => {
   const [username, setUsername] = useState("");
@@ -29,7 +30,9 @@ const Login = ({ onLogin }) => {
 
   return (
     <div className="loginContainer">
-      <div className="loginLogo">LOGO</div>
+      <div className="loginLogo">
+        <img src={logoIcon} className="logoIcon" alt="logoIcon" />
+      </div>
 
       <label htmlFor="email">
         USERNAME <span className="required">*</span>

@@ -1,7 +1,7 @@
 import { ipcMain, dialog, app } from "electron";
 import fs from "fs";
 import path from "path";
-import { dbClient } from "./db.js";
+import supabase from "./supabaseClient.js";
 
 const logPath = app.isPackaged
   ? path.join(app.getPath("userData"), "log.txt")
@@ -19,33 +19,248 @@ process.on("unhandledRejection", (reason, p) => {
   logMessage(`UNHANDLED REJECTION: ${reason}`);
 });
 
-// -------queries---------------
-ipcMain.handle("getUser", async (event, { username, password }) => {
+// --- helpers -----------------------------------------------------------------
+function formatDateToISO(date) {
+  if (!date) return "";
   try {
-    logMessage(`Attempting login for user: ${username}, ${password}`);
-    const res = await dbClient.query(
-      "SELECT userid, username, createddate, userimage FROM users WHERE username = $1 AND password = $2 LIMIT 1",
-      [username, password]
+    // date may already be a string 'YYYY-MM-DD' or a Date object
+    if (typeof date === "string") {
+      // normalize if it includes time
+      return date.split("T")[0];
+    }
+    return new Date(date).toISOString().split("T")[0];
+  } catch (e) {
+    return String(date);
+  }
+}
+
+function formatTime12(timeStr) {
+  if (!timeStr && timeStr !== 0) return "";
+  // timeStr might be "HH:MM:SS" or "HH:MM"
+  const t = String(timeStr);
+  const parts = t.split(":");
+  if (parts.length < 2) return t;
+  let h = parseInt(parts[0], 10);
+  const m = parts[1].padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${String(h).padStart(2, "0")}:${m} ${ampm}`;
+}
+
+function timeToMinutes(timeStr) {
+  if (!timeStr && timeStr !== 0) return null;
+  const t = String(timeStr);
+  const parts = t.split(":");
+  if (parts.length < 2) return null;
+  const h = parseInt(parts[0], 10) || 0;
+  const m = parseInt(parts[1], 10) || 0;
+  return h * 60 + m;
+}
+
+function buildCSV(rows) {
+  if (!rows || rows.length === 0) return "";
+  const headers = Object.keys(rows[0]);
+  const csv = [
+    headers.join(","),
+    ...rows.map((row) => headers.map((h) => `"${(row[h] ?? "").toString().replace(/"/g, '""')}"`).join(",")),
+  ].join("\n");
+  return csv;
+}
+
+function toBase64IfNeeded(val) {
+  if (!val) return "";
+  // Supabase may return bytea as string or Uint8Array/Buffer depending on client
+  if (typeof val === "string") return val; // assume already base64 or text
+  try {
+    return Buffer.from(val).toString("base64");
+  } catch (e) {
+    return String(val);
+  }
+}
+
+// -----------------------------------------------------------------------------
+ipcMain.handle("getAttendanceColumns", async () => {
+  try {
+    const { data, error } = await supabase.from("attendance").select("*").limit(1);
+    if (error) {
+      logMessage(`getAttendanceColumns Supabase error: ${error.message}`);
+      return [];
+    }
+    if (!data?.length) return [];
+    return Object.keys(data[0]).filter((col) => col !== "attendanceid");
+  } catch (err) {
+    logMessage(`getAttendanceColumns error: ${err.message}`);
+    return [];
+  }
+});
+
+ipcMain.handle("checkDuplicates", async (event, csvData) => {
+  try {
+    const normalizeDate = (d) => {
+      if (!d) return "";
+      const str = String(d).trim();
+      if (str.includes("T")) return str.split("T")[0];
+      if (str.includes("/")) {
+        const [m, day, y] = str.split(/[/-]/);
+        if (y && m && day && y.length === 4)
+          return `${y}-${m.padStart(2, "0")}-${day.padStart(2, "0")}`;
+      }
+      return str;
+    };
+
+    const normalize = (r) => ({
+      date: normalizeDate(r.date),
+      employeeid: String(r.employeeid ?? "").trim(),
+      timein: String(r.timein || "").trim().slice(0, 5),
+      timeout: String(r.timeout || "").trim().slice(0, 5),
+    });
+
+    // 🔹 Get existing records
+    const { data: existing, error } = await supabase
+      .from("attendance")
+      .select("date, employeeid");
+    if (error) throw error;
+
+    const existingSet = new Set(
+      existing.map((e) => {
+        const n = normalize(e);
+        return `${n.date}|${n.employeeid}`;
+      })
     );
 
-    if (res.rows.length > 0) {
-      return res.rows[0];
-    } else {
+    // 🔹 Find duplicates in CSV
+    const duplicates = csvData.filter((r) => {
+      const n = normalize(r);
+      const key = `${n.date}|${n.employeeid}`;
+      return existingSet.has(key);
+    });
+
+    return { duplicates };
+  } catch (err) {
+    logMessage(`checkDuplicates error: ${err.message}`);
+    return { duplicates: [], error: err.message };
+  }
+});
+
+ipcMain.handle("importAttendance", async (event, rows) => {
+  try {
+    logMessage(`Starting import of ${rows.length} attendance rows`);
+
+    const normalizeDate = (d) => {
+      if (!d) return "";
+      const str = String(d).trim();
+      if (str.includes("T")) return str.split("T")[0];
+      if (str.includes("/")) {
+        const [m, day, y] = str.split(/[/-]/);
+        if (y && m && day && y.length === 4)
+          return `${y}-${m.padStart(2, "0")}-${day.padStart(2, "0")}`;
+      }
+      return str;
+    };
+
+    const normalize = (r) => ({
+      date: normalizeDate(r.date),
+      employeeid: String(r.employeeid ?? "").trim(),
+      timein: String(r.timein || "").trim().slice(0, 5),
+      timeout: String(r.timeout || "").trim().slice(0, 5),
+    });
+
+    // 🧹 1️⃣ Clean
+    const cleanedRows = rows.map(({ attendanceid, firstname, lastname, fullname, ...rest }) => {
+      const n = normalize(rest);
+      return { ...rest, ...n };
+    });
+
+    // 🧠 2️⃣ Remove CSV-internal duplicates
+    const uniqueMap = new Map();
+    for (const r of cleanedRows) {
+      const n = normalize(r);
+      const key = `${n.date}|${n.employeeid}`;
+      if (!uniqueMap.has(key)) uniqueMap.set(key, r);
+    }
+    const uniqueRows = Array.from(uniqueMap.values());
+    logMessage(`Filtered CSV duplicates: kept ${uniqueRows.length} of ${cleanedRows.length}`);
+
+    // 📦 3️⃣ Fetch existing
+    const { data: existing, error: fetchError } = await supabase
+      .from("attendance")
+      .select("date, employeeid");
+    if (fetchError) throw fetchError;
+
+    const existingSet = new Set(
+      existing.map((e) => {
+        const n = normalize(e);
+        return `${n.date}|${n.employeeid}`;
+      })
+    );
+
+    // 🚫 4️⃣ Filter out already existing
+    const newRows = uniqueRows.filter((r) => {
+      const n = normalize(r);
+      const key = `${n.date}|${n.employeeid}`;
+      return !existingSet.has(key);
+    });
+
+    logMessage(`Filtered ${newRows.length} new rows (duplicates removed: ${uniqueRows.length - newRows.length})`);
+
+    if (newRows.length === 0) {
+      logMessage("No new attendance records to insert (all duplicates).");
+      return {
+        success: true,
+        inserted: 0,
+        message: "All rows were duplicates.",
+        type: "attendance",
+      };
+    }
+
+    const cleanedForInsert = newRows.map(({ firstname, lastname, fullname, ...rest }) => rest);
+
+    const { error: insertError } = await supabase
+      .from("attendance")
+      .insert(cleanedForInsert);
+    if (insertError) throw insertError;
+
+    logMessage(`Inserted ${newRows.length} new attendance records`);
+    return { success: true, inserted: newRows.length, type: "attendance" };
+  } catch (err) {
+    logMessage(`DB importAttendanceData error: ${err.message}`);
+    return { success: false, error: err.message || "Unknown error" };
+  }
+});
+
+// -----too bothered to organize for now---
+
+ipcMain.handle("getUser", async (event, { username, password }) => {
+  try {
+    logMessage(`Attempting login for user: ${username}`);
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("userid, username, createddate, userimage")
+      .eq("username", username)
+      .eq("password", password)
+      .limit(1)
+      .single();
+
+    if (error) {
+      console.error("Supabase getUser error:", error);
       return null;
     }
+
+    return data || null;
   } catch (err) {
     console.error("DB error:", err);
     throw err;
   }
 });
 
-ipcMain.handle('logAction', async (event, { userid, useraction, description }) => {
+ipcMain.handle("logAction", async (event, { userid, useraction, description }) => {
   try {
-    await dbClient.query(`
-      INSERT INTO userlogs (useraction, description, userid)
-      VALUES ($1, $2, $3)
-    `, [useraction, description, userid]);
-    // logMessage("It worked");
+    const { error } = await supabase.from("userlogs").insert([
+      { useraction, description, userid },
+    ]);
+    if (error) throw error;
     return { success: true };
   } catch (err) {
     logMessage(`Error: ${err.stack || err}`);
@@ -55,47 +270,62 @@ ipcMain.handle('logAction', async (event, { userid, useraction, description }) =
 
 ipcMain.handle("exportEmployees", async () => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-        e.employeeid,
-        e.lastname,
-        e.firstname,
-        e.middlename,
-        e.contact,
-        e.address,
-        e.email,
-        e.hiredate,
-        e.sss_number,
-        e.pagibig_number,
-        e.philhealth_number,
-        e.bir_number,
-        e.leavecredit,
-        d.departmentname AS department,
-        p.positionname AS position,
-        s.timestart AS shiftstart,
-        s.timeend AS shiftend,
-        e.type,
-        e.employeeimage
-      FROM public.employee e
-      LEFT JOIN public.department d ON e.departmentid = d.departmentid
-      LEFT JOIN public.position p   ON e.positionid = p.positionid
-      LEFT JOIN public.shift s      ON e.shiftid = s.shiftid
-      ORDER BY e.employeeid ASC
-    `);
+    const { data, error } = await supabase
+      .from("employee")
+      .select(`
+        employeeid,
+        lastname,
+        firstname,
+        middlename,
+        contact,
+        address,
+        email,
+        hiredate,
+        sss_number,
+        pagibig_number,
+        philhealth_number,
+        bir_number,
+        leavecredit,
+        department:departmentid ( departmentname ),
+        position:positionid ( positionname ),
+        shift:shiftid ( timestart, timeend ),
+        type,
+        employeeimage
+      `)
+      .order("employeeid", { ascending: true });
 
-    const rows = res.rows;
-    if (rows.length === 0) return { success: false, message: "No employees to export" };
+    if (error) throw error;
+    const rowsRaw = data || [];
+    if (rowsRaw.length === 0) return { success: false, message: "No employees to export" };
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => headers.map(h => `"${row[h] ?? ""}"`).join(","))
-    ].join("\n");
+    const rows = rowsRaw.map((r) => ({
+      employeeid: r.employeeid,
+      lastname: r.lastname,
+      firstname: r.firstname,
+      middlename: r.middlename,
+      contact: r.contact,
+      address: r.address,
+      email: r.email,
+      hiredate: formatDateToISO(r.hiredate),
+      sss_number: r.sss_number,
+      pagibig_number: r.pagibig_number,
+      philhealth_number: r.philhealth_number,
+      bir_number: r.bir_number,
+      leavecredit: r.leavecredit,
+      department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : "") ?? "",
+      position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : "") ?? "",
+      shiftstart: r.shift?.timestart ?? (Array.isArray(r.shift) ? r.shift[0]?.timestart : "") ?? "",
+      shiftend: r.shift?.timeend ?? (Array.isArray(r.shift) ? r.shift[0]?.timeend : "") ?? "",
+      type: r.type,
+      employeeimage: toBase64IfNeeded(r.employeeimage),
+    }));
+
+    const csv = buildCSV(rows);
 
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Employee Export",
       defaultPath: "employees.csv",
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
@@ -112,47 +342,66 @@ ipcMain.handle("exportEmployees", async () => {
 
 ipcMain.handle("exportAttendance", async () => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-          a.attendanceid,
-          TO_CHAR(a.date, 'YY-MM-DD') AS date,
-          e.lastname,
-          e.firstname,
-          e.middlename,
-          TO_CHAR(a.timein, 'HH12:MI AM') AS "timeIn",
-          TO_CHAR(a.timeout, 'HH12:MI AM') AS "timeOut",
-          TO_CHAR(s.timestart, 'HH12:MI AM') AS "shiftStart",
-          TO_CHAR(s.timeend, 'HH12:MI AM') AS "shiftEnd",
-          ROUND(EXTRACT(EPOCH FROM (a.timeout - a.timein)) / 60 
-              - EXTRACT(EPOCH FROM (s.timeend - s.timestart)) / 60) AS "UT/OT (Minutes)",
-          CASE 
-              WHEN ABS(EXTRACT(EPOCH FROM (a.timeout - a.timein)) / 60 
-                      - EXTRACT(EPOCH FROM (s.timeend - s.timestart)) / 60) <= 10 
-                  THEN 'On Time'
-              WHEN (a.timeout - a.timein) > (s.timeend - s.timestart) 
-                  THEN 'Overtime'
-              ELSE 'Undertime'
-          END AS "Status"
-      FROM attendance a
-      LEFT JOIN employee e ON a.employeeid = e.employeeid
-      LEFT JOIN position p ON e.positionid = p.positionid
-      LEFT JOIN shift s ON e.shiftid = s.shiftid
-      ORDER BY a.date DESC;
-    `);
+    const { data: attendance, error: attErr } = await supabase
+      .from("attendance")
+      .select("attendanceid, date, timein, timeout, employee:employeeid ( employeeid, lastname, firstname, middlename, shiftid )")
+      .order("date", { ascending: false });
 
-    const rows = res.rows;
+    if (attErr) throw attErr;
+
+    const { data: shifts } = await supabase.from("shift").select("shiftid, timestart, timeend");
+    const shiftMap = new Map((shifts || []).map((s) => [s.shiftid, s]));
+
+    const rows = (attendance || []).map((a) => {
+      const emp = a.employee ?? (Array.isArray(a.employee) ? a.employee[0] : {});
+      const shift = shiftMap.get(emp?.shiftid) || {};
+
+      const timeInRaw = a.timein;
+      const timeOutRaw = a.timeout;
+
+      const timeIn = formatTime12(timeInRaw);
+      const timeOut = formatTime12(timeOutRaw);
+      const shiftStart = formatTime12(shift?.timestart);
+      const shiftEnd = formatTime12(shift?.timeend);
+
+      const timeInMin = timeToMinutes(timeInRaw);
+      const timeOutMin = timeToMinutes(timeOutRaw);
+      const shiftDurMin = (timeToMinutes(shift?.timeend) ?? 0) - (timeToMinutes(shift?.timestart) ?? 0);
+
+      let utot = "";
+      let status = "";
+      if (timeInMin != null && timeOutMin != null) {
+        const worked = timeOutMin - timeInMin;
+        const diff = Math.round(worked - shiftDurMin);
+        utot = String(diff);
+        if (Math.abs(diff) <= 10) status = "On Time";
+        else if (worked > shiftDurMin) status = "Overtime";
+        else status = "Undertime";
+      }
+
+      return {
+        attendanceid: a.attendanceid,
+        date: formatDateToISO(a.date),
+        employeeid: emp?.employeeid ?? "",
+        lastname: emp?.lastname ?? "",
+        firstname: emp?.firstname ?? "",
+        middlename: emp?.middlename ?? "",
+        timeIn,
+        timeOut,
+        shiftStart,
+        shiftEnd,
+        "UT/OT (Minutes)": utot,
+        Status: status,
+      };
+    });
+
     if (rows.length === 0) return { success: false, message: "No attendance records to export" };
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => headers.map(h => `"${row[h] ?? ""}"`).join(","))
-    ].join("\n");
-
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Attendance Export",
       defaultPath: "attendance.csv",
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
@@ -169,48 +418,68 @@ ipcMain.handle("exportAttendance", async () => {
 
 ipcMain.handle("exportTodayAttendance", async () => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-          a.attendanceid,
-          TO_CHAR(a.date, 'YY-MM-DD') AS date,
-          e.lastname,
-          e.firstname,
-          e.middlename,
-          TO_CHAR(a.timein, 'HH12:MI AM') AS "timeIn",
-          TO_CHAR(a.timeout, 'HH12:MI AM') AS "timeOut",
-          TO_CHAR(s.timestart, 'HH12:MI AM') AS "shiftStart",
-          TO_CHAR(s.timeend, 'HH12:MI AM') AS "shiftEnd",
-          ROUND(EXTRACT(EPOCH FROM (a.timeout - a.timein)) / 60 
-              - EXTRACT(EPOCH FROM (s.timeend - s.timestart)) / 60) AS "UT/OT (Minutes)",
-          CASE 
-              WHEN ABS(EXTRACT(EPOCH FROM (a.timeout - a.timein)) / 60 
-                      - EXTRACT(EPOCH FROM (s.timeend - s.timestart)) / 60) <= 10 
-                  THEN 'On Time'
-              WHEN (a.timeout - a.timein) > (s.timeend - s.timestart) 
-                  THEN 'Overtime'
-              ELSE 'Undertime'
-          END AS "Status"
-      FROM attendance a
-      LEFT JOIN employee e ON a.employeeid = e.employeeid
-      LEFT JOIN position p ON e.positionid = p.positionid
-      LEFT JOIN shift s ON e.shiftid = s.shiftid
-      WHERE a.date = CURRENT_DATE
-      ORDER BY a.timeIn ASC;
-    `);
+    const today = formatDateToISO(new Date());
 
-    const rows = res.rows;
+    const { data: attendance, error: attErr } = await supabase
+      .from("attendance")
+      .select("attendanceid, date, timein, timeout, employee:employeeid ( employeeid, lastname, firstname, middlename, shiftid )")
+      .eq("date", today)
+      .order("timein", { ascending: true });
+
+    if (attErr) throw attErr;
+
+    const { data: shifts } = await supabase.from("shift").select("shiftid, timestart, timeend");
+    const shiftMap = new Map((shifts || []).map((s) => [s.shiftid, s]));
+
+    const rows = (attendance || []).map((a) => {
+      const emp = a.employee ?? (Array.isArray(a.employee) ? a.employee[0] : {});
+      const shift = shiftMap.get(emp?.shiftid) || {};
+
+      const timeInRaw = a.timein;
+      const timeOutRaw = a.timeout;
+
+      const timeIn = formatTime12(timeInRaw);
+      const timeOut = formatTime12(timeOutRaw);
+      const shiftStart = formatTime12(shift?.timestart);
+      const shiftEnd = formatTime12(shift?.timeend);
+
+      const timeInMin = timeToMinutes(timeInRaw);
+      const timeOutMin = timeToMinutes(timeOutRaw);
+      const shiftDurMin = (timeToMinutes(shift?.timeend) ?? 0) - (timeToMinutes(shift?.timestart) ?? 0);
+
+      let utot = "";
+      let status = "";
+      if (timeInMin != null && timeOutMin != null) {
+        const worked = timeOutMin - timeInMin;
+        const diff = Math.round(worked - shiftDurMin);
+        utot = String(diff);
+        if (Math.abs(diff) <= 10) status = "On Time";
+        else if (worked > shiftDurMin) status = "Overtime";
+        else status = "Undertime";
+      }
+
+      return {
+        attendanceid: a.attendanceid,
+        date: formatDateToISO(a.date),
+        lastname: emp?.lastname ?? "",
+        firstname: emp?.firstname ?? "",
+        middlename: emp?.middlename ?? "",
+        timeIn,
+        timeOut,
+        shiftStart,
+        shiftEnd,
+        "UT/OT (Minutes)": utot,
+        Status: status,
+      };
+    });
+
     if (rows.length === 0) return { success: false, message: "No attendance records for today" };
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => headers.map(h => `"${row[h] ?? ""}"`).join(","))
-    ].join("\n");
-
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Attendance Export",
-      defaultPath: `attendance_${new Date().toISOString().split("T")[0]}.csv`,
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      defaultPath: `attendance_${today}.csv`,
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
@@ -227,71 +496,51 @@ ipcMain.handle("exportTodayAttendance", async () => {
 
 ipcMain.handle("exportAbsence", async (event, date) => {
   try {
-    let res;
-    if (!date) {
-      res = await dbClient.query(`
-        SELECT 
-          e.employeeid AS "ID",
-          e.lastname AS "Last Name",
-          e.firstname AS "First Name",
-          e.middlename AS "Middle Name",
-          d.departmentname AS "Department",
-          p.positionname AS "Position",
-          TO_CHAR(s.timestart, 'HH12:MI AM') AS "Shift Start",
-          TO_CHAR(s.timeend, 'HH12:MI AM') AS "Shift End",
-          TO_CHAR(CURRENT_DATE, 'YY-MM-DD') AS "Date"
-        FROM employee e
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN shift s ON e.shiftid = s.shiftid
-        WHERE e.employeeid NOT IN (
-          SELECT employeeid FROM attendance WHERE date = CURRENT_DATE
-        )
-        AND e.employeeid NOT IN (
-          SELECT employeeid FROM leave WHERE date = CURRENT_DATE
-        )
-        ORDER BY e.lastname
-      `);
-    } else {
-      res = await dbClient.query(`
-        SELECT 
-          e.employeeid AS "ID",
-          e.lastname AS "Last Name",
-          e.firstname AS "First Name",
-          e.middlename AS "Middle Name",
-          d.departmentname AS "Department",
-          p.positionname AS "Position",
-          TO_CHAR(s.timestart, 'HH12:MI AM') AS "Shift Start",
-          TO_CHAR(s.timeend, 'HH12:MI AM') AS "Shift End",
-          TO_CHAR(CURRENT_DATE, 'YY-MM-DD') AS "Date"
-        FROM employee e
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN shift s ON e.shiftid = s.shiftid
-        WHERE e.employeeid NOT IN (
-          SELECT employeeid FROM attendance WHERE date = $1::date
-        )
-        AND e.employeeid NOT IN (
-          SELECT employeeid FROM leave WHERE date = $1::date
-        )
-        ORDER BY e.lastname
-      `, [date]);
-    }
+    const targetDate = date ? formatDateToISO(date) : formatDateToISO(new Date());
 
-    const rows = res.rows;
-    if (rows.length === 0) return { success: false, message: "No absent employees to export" };
+    // Fetch all employees with related dept/pos/shift
+    const { data: employees, error: empErr } = await supabase
+      .from("employee")
+      .select(`
+        employeeid,
+        lastname,
+        firstname,
+        middlename,
+        department:departmentid ( departmentname ),
+        position:positionid ( positionname ),
+        shift:shiftid ( timestart, timeend )
+      `)
+      .order("lastname", { ascending: true });
+    if (empErr) throw empErr;
 
-    // Build CSV
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => headers.map(h => `"${row[h] ?? ""}"`).join(",")),
-    ].join("\n");
+    // Fetch attendance and leave for the target date
+    const { data: attendance } = await supabase.from("attendance").select("employeeid").eq("date", targetDate);
+    const { data: leaves } = await supabase.from("leave").select("employeeid").eq("date", targetDate);
 
-    // Save dialog
+    const presentIds = new Set((attendance || []).map((r) => r.employeeid));
+    const leaveIds = new Set((leaves || []).map((r) => r.employeeid));
+
+    const absent = (employees || []).filter((e) => !presentIds.has(e.employeeid) && !leaveIds.has(e.employeeid));
+
+    if (absent.length === 0) return { success: false, message: "No absent employees to export" };
+
+    // Flatten and format
+    const rows = absent.map((r) => ({
+      ID: r.employeeid,
+      "Last Name": r.lastname,
+      "First Name": r.firstname,
+      "Middle Name": r.middlename,
+      Department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : "") ?? "",
+      Position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : "") ?? "",
+      "Shift Start": r.shift?.timestart ?? (Array.isArray(r.shift) ? r.shift[0]?.timestart : "") ?? "",
+      "Shift End": r.shift?.timeend ?? (Array.isArray(r.shift) ? r.shift[0]?.timeend : "") ?? "",
+      Date: targetDate,
+    }));
+
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Absent Employees Export",
-      defaultPath: `absent_${date || new Date().toISOString().split("T")[0]}.csv`,
+      defaultPath: `absent_${targetDate}.csv`,
       filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
@@ -309,36 +558,26 @@ ipcMain.handle("exportAbsence", async (event, date) => {
 
 ipcMain.handle("exportInventory", async () => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-        i.itemid AS "Item ID",
-        i.itemname AS "Item Name",
-        i.quantity AS "Quantity",
-        TO_CHAR(i.lastmodified, 'YY-MM-DD') AS "Last Modified"
-      FROM inventory i
-      ORDER BY i.itemid;
-    `);
+    const { data, error } = await supabase.from("inventory").select("itemid, itemname, quantity, lastmodified").order("itemid", { ascending: true });
+    if (error) throw error;
 
-    const rows = res.rows;
-    if (rows.length === 0) {
-      return { success: false, message: "No inventory records to export" };
-    }
+    const rows = (data || []).map((r) => ({
+      "Item ID": r.itemid,
+      "Item Name": r.itemname,
+      Quantity: r.quantity,
+      "Last Modified": formatDateToISO(r.lastmodified),
+    }));
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => headers.map(h => `"${row[h] ?? ""}"`).join(","))
-    ].join("\n");
+    if (rows.length === 0) return { success: false, message: "No inventory records to export" };
 
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Inventory Export",
       defaultPath: "inventory.csv",
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
-    if (!filePath) {
-      return { success: false, message: "Export cancelled" };
-    }
+    if (!filePath) return { success: false, message: "Export cancelled" };
 
     fs.writeFileSync(filePath, csv, "utf8");
     logMessage?.(`Inventory exported to ${filePath}`);
@@ -352,68 +591,55 @@ ipcMain.handle("exportInventory", async () => {
 
 ipcMain.handle("exportInventoryLogs", async (event, date) => {
   try {
-    let res;
-    if (!date) {
-      res = await dbClient.query(`
-        SELECT 
-          e.employeeid AS "ID",
-          e.lastname AS "Last Name",
-          e.firstname AS "First Name",
-          e.middlename AS "Middle Name",
-          d.departmentname AS "Department",
-          p.positionname AS "Position",
-          i.itemname AS "Item",
-          l.quantity AS "Quantity",
-          TO_CHAR(l.date, 'YY-MM-DD') AS "Date"
-        FROM inventorylogs l
-        LEFT JOIN employee e ON l.employeeid = e.employeeid
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN inventory i ON l.itemid = i.itemid
-        ORDER BY l.date DESC
-      `);
-    } else {
-      res = await dbClient.query(`
-        SELECT 
-          e.employeeid AS "ID",
-          e.lastname AS "Last Name",
-          e.firstname AS "First Name",
-          e.middlename AS "Middle Name",
-          d.departmentname AS "Department",
-          p.positionname AS "Position",
-          i.itemname AS "Item",
-          l.quantity AS "Quantity",
-          TO_CHAR(l.date, 'YY-MM-DD') AS "Date"
-        FROM inventorylogs l
-        LEFT JOIN employee e ON l.employeeid = e.employeeid
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN inventory i ON l.itemid = i.itemid
-        WHERE l.date = $1::date
-        ORDER BY l.date DESC
-      `, [date]);
-    }
+    const targetDate = date ? formatDateToISO(date) : null;
 
-    const rows = res.rows;
-    if (rows.length === 0) {
-      return { success: false, message: "No inventory log records to export" };
-    }
+    // fetch logs
+    const q = supabase.from("inventorylogs").select("inventorylogid, employeeid, itemid, quantity, date").order("date", { ascending: false });
+    let result;
+    if (targetDate) result = await q.eq("date", targetDate);
+    else result = await q;
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => headers.map(h => `"${row[h] ?? ""}"`).join(","))
-    ].join("\n");
+    if (result.error) throw result.error;
+    const logs = result.data || [];
 
+    if (logs.length === 0) return { success: false, message: "No inventory log records to export" };
+
+    // fetch employees & departments/positions maps
+    const { data: employees } = await supabase.from("employee").select("employeeid, lastname, firstname, middlename, departmentid, positionid");
+    const empMap = new Map((employees || []).map((e) => [e.employeeid, e]));
+
+    const { data: departments } = await supabase.from("department").select("departmentid, departmentname");
+    const deptMap = new Map((departments || []).map((d) => [d.departmentid, d.departmentname]));
+
+    const { data: positions } = await supabase.from("position").select("positionid, positionname");
+    const posMap = new Map((positions || []).map((p) => [p.positionid, p.positionname]));
+
+    const { data: inventory } = await supabase.from("inventory").select("itemid, itemname");
+    const itemMap = new Map((inventory || []).map((i) => [i.itemid, i.itemname]));
+
+    const rows = logs.map((l) => {
+      const e = empMap.get(l.employeeid) || {};
+      return {
+        ID: e.employeeid || "",
+        "Last Name": e.lastname || "",
+        "First Name": e.firstname || "",
+        "Middle Name": e.middlename || "",
+        Department: deptMap.get(e.departmentid) || "",
+        Position: posMap.get(e.positionid) || "",
+        Item: itemMap.get(l.itemid) || "",
+        Quantity: l.quantity,
+        Date: formatDateToISO(l.date),
+      };
+    });
+
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Inventory Export",
       defaultPath: "inventorylogs.csv",
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
-    if (!filePath) {
-      return { success: false, message: "Export cancelled" };
-    }
+    if (!filePath) return { success: false, message: "Export cancelled" };
 
     fs.writeFileSync(filePath, csv, "utf8");
     logMessage?.(`Inventory logs exported to ${filePath}`);
@@ -427,51 +653,57 @@ ipcMain.handle("exportInventoryLogs", async (event, date) => {
 
 ipcMain.handle("exportApplicants", async (event, status) => {
   try {
-    const res = await dbClient.query(
-      `
-      SELECT 
-        a.applicantid as "ID",
-        a.lastname AS "Last Name",
-        a.firstname AS "First Name",
-        a.middlename AS "Middle Name",
-        d.departmentname AS "Department",
-        p.positionname AS "Position",
-        a.contact AS "Contact",
-        a.address AS "Address",
-        a.email AS "Email",
-        a.sss_number AS "SSS Number",
-        a.pagibig_number AS "Pag-IBIG Number",
-        a.philhealth_number AS "PhilHealth Number",
-        a.bir_number AS "BIR Number",
-        a.status AS "Status",
-        TO_CHAR(a.applicationdate, 'YY-MM-DD') AS "Application Date"
-      FROM public.applicant a
-      LEFT JOIN public.department d ON a.departmentid = d.departmentid
-      LEFT JOIN public.position p   ON a.positionid = p.positionid
-      WHERE a.status = $1
-        AND a.trainingdate IS NULL
-      ORDER BY a.applicantid ASC
-      `,
-      [status]
-    );
+    const { data, error } = await supabase
+      .from("applicant")
+      .select(`
+        applicantid,
+        lastname,
+        firstname,
+        middlename,
+        department:departmentid ( departmentname ),
+        position:positionid ( positionname ),
+        contact,
+        address,
+        email,
+        sss_number,
+        pagibig_number,
+        philhealth_number,
+        bir_number,
+        status,
+        applicationdate,
+        trainingdate
+      `)
+      .eq("status", status)
+      .is("trainingdate", null)
+      .order("applicantid", { ascending: true });
 
-    const rows = res.rows;
-    if (rows.length === 0) {
-      return { success: false, message: `No applicants with status "${status}" to export` };
-    }
+    if (error) throw error;
+    const rowsRaw = data || [];
+    if (rowsRaw.length === 0) return { success: false, message: `No applicants with status "${status}" to export` };
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => 
-        headers.map(h => `"${row[h] ?? ""}"`).join(",")
-      )
-    ].join("\n");
+    const rows = rowsRaw.map((r) => ({
+      ID: r.applicantid,
+      "Last Name": r.lastname,
+      "First Name": r.firstname,
+      "Middle Name": r.middlename,
+      Department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : "") ?? "",
+      Position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : "") ?? "",
+      Contact: r.contact,
+      Address: r.address,
+      Email: r.email,
+      "SSS Number": r.sss_number,
+      "Pag-IBIG Number": r.pagibig_number,
+      "PhilHealth Number": r.philhealth_number,
+      "BIR Number": r.bir_number,
+      Status: r.status,
+      "Application Date": formatDateToISO(r.applicationdate),
+    }));
 
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Applicant Export",
       defaultPath: `applicants_${status}.csv`,
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
@@ -488,49 +720,56 @@ ipcMain.handle("exportApplicants", async (event, status) => {
 
 ipcMain.handle("exportAllApplicants", async (event) => {
   try {
-    const res = await dbClient.query(
-      `
-      SELECT 
-        a.applicantid as "ID",
-        a.lastname AS "Last Name",
-        a.firstname AS "First Name",
-        a.middlename AS "Middle Name",
-        d.departmentname AS "Department",
-        p.positionname AS "Position",
-        a.contact AS "Contact",
-        a.address AS "Address",
-        a.email AS "Email",
-        a.sss_number AS "SSS Number",
-        a.pagibig_number AS "Pag-IBIG Number",
-        a.philhealth_number AS "PhilHealth Number",
-        a.bir_number AS "BIR Number",
-        a.status AS "Status",
-        TO_CHAR(a.applicationdate, 'YY-MM-DD') AS "Application Date"
-      FROM public.applicant a
-      LEFT JOIN public.department d ON a.departmentid = d.departmentid
-      LEFT JOIN public.position p   ON a.positionid = p.positionid
-      WHERE a.trainingdate IS NULL
-      ORDER BY a.applicantid ASC
-      `,
-    );
+    const { data, error } = await supabase
+      .from("applicant")
+      .select(`
+        applicantid,
+        lastname,
+        firstname,
+        middlename,
+        department:departmentid ( departmentname ),
+        position:positionid ( positionname ),
+        contact,
+        address,
+        email,
+        sss_number,
+        pagibig_number,
+        philhealth_number,
+        bir_number,
+        status,
+        applicationdate,
+        trainingdate
+      `)
+      .is("trainingdate", null)
+      .order("applicantid", { ascending: true });
 
-    const rows = res.rows;
-    if (rows.length === 0) {
-      return { success: false, message: `No applicants to export` };
-    }
+    if (error) throw error;
+    const rowsRaw = data || [];
+    if (rowsRaw.length === 0) return { success: false, message: `No applicants to export` };
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => 
-        headers.map(h => `"${row[h] ?? ""}"`).join(",")
-      )
-    ].join("\n");
+    const rows = rowsRaw.map((r) => ({
+      ID: r.applicantid,
+      "Last Name": r.lastname,
+      "First Name": r.firstname,
+      "Middle Name": r.middlename,
+      Department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : "") ?? "",
+      Position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : "") ?? "",
+      Contact: r.contact,
+      Address: r.address,
+      Email: r.email,
+      "SSS Number": r.sss_number,
+      "Pag-IBIG Number": r.pagibig_number,
+      "PhilHealth Number": r.philhealth_number,
+      "BIR Number": r.bir_number,
+      Status: r.status,
+      "Application Date": formatDateToISO(r.applicationdate),
+    }));
 
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Applicant Export",
       defaultPath: `applicants_all.csv`,
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
@@ -543,55 +782,60 @@ ipcMain.handle("exportAllApplicants", async (event) => {
     logMessage("Export failed: " + err.message);
     return { success: false, error: err.message };
   }
-}); 
+});
 
 ipcMain.handle("exportTrainees", async (event, status) => {
   try {
-    const res = await dbClient.query(
-      `
-      SELECT 
-        a.applicantid as "ID",
-        a.lastname AS "Last Name",
-        a.firstname AS "First Name",
-        a.middlename AS "Middle Name",
-        d.departmentname AS "Department",
-        p.positionname AS "Position",
-        a.contact AS "Contact",
-        a.address AS "Address",
-        a.email AS "Email",
-        a.sss_number AS "SSS Number",
-        a.pagibig_number AS "Pag-IBIG Number",
-        a.philhealth_number AS "PhilHealth Number",
-        a.bir_number AS "BIR Number",
-        a.status AS "Status",
-        TO_CHAR(a.trainingdate, 'YY-MM-DD') AS "Training Date"
-      FROM public.applicant a
-      LEFT JOIN public.department d ON a.departmentid = d.departmentid
-      LEFT JOIN public.position p   ON a.positionid = p.positionid
-      WHERE a.status = $1
-        AND a.trainingdate IS NOT NULL
-      ORDER BY a.applicantid ASC
-      `,
-      [status]
-    );
+    const { data, error } = await supabase
+      .from("applicant")
+      .select(`
+        applicantid,
+        lastname,
+        firstname,
+        middlename,
+        department:departmentid ( departmentname ),
+        position:positionid ( positionname ),
+        contact,
+        address,
+        email,
+        sss_number,
+        pagibig_number,
+        philhealth_number,
+        bir_number,
+        status,
+        trainingdate
+      `)
+      .eq("status", status)
+      .not("trainingdate", "is", null)
+      .order("applicantid", { ascending: true });
 
-    const rows = res.rows;
-    if (rows.length === 0) {
-      return { success: false, message: `No Trainees with status "${status}" to export` };
-    }
+    if (error) throw error;
+    const rowsRaw = data || [];
+    if (rowsRaw.length === 0) return { success: false, message: `No Trainees with status "${status}" to export` };
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => 
-        headers.map(h => `"${row[h] ?? ""}"`).join(",")
-      )
-    ].join("\n");
+    const rows = rowsRaw.map((r) => ({
+      ID: r.applicantid,
+      "Last Name": r.lastname,
+      "First Name": r.firstname,
+      "Middle Name": r.middlename,
+      Department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : "") ?? "",
+      Position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : "") ?? "",
+      Contact: r.contact,
+      Address: r.address,
+      Email: r.email,
+      "SSS Number": r.sss_number,
+      "Pag-IBIG Number": r.pagibig_number,
+      "PhilHealth Number": r.philhealth_number,
+      "BIR Number": r.bir_number,
+      Status: r.status,
+      "Training Date": formatDateToISO(r.trainingdate),
+    }));
 
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Trainees Export",
       defaultPath: `trainees_${status}.csv`,
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
@@ -608,49 +852,55 @@ ipcMain.handle("exportTrainees", async (event, status) => {
 
 ipcMain.handle("exportAllTrainees", async (event) => {
   try {
-    const res = await dbClient.query(
-      `
-      SELECT 
-        a.applicantid as "ID",
-        a.lastname AS "Last Name",
-        a.firstname AS "First Name",
-        a.middlename AS "Middle Name",
-        d.departmentname AS "Department",
-        p.positionname AS "Position",
-        a.contact AS "Contact",
-        a.address AS "Address",
-        a.email AS "Email",
-        a.sss_number AS "SSS Number",
-        a.pagibig_number AS "Pag-IBIG Number",
-        a.philhealth_number AS "PhilHealth Number",
-        a.bir_number AS "BIR Number",
-        a.status AS "Status",
-        TO_CHAR(a.trainingdate, 'YY-MM-DD') AS "Training Date"
-      FROM public.applicant a
-      LEFT JOIN public.department d ON a.departmentid = d.departmentid
-      LEFT JOIN public.position p   ON a.positionid = p.positionid
-      WHERE a.trainingdate IS NOT NULL
-      ORDER BY a.applicantid ASC
-      `,
-    );
+    const { data, error } = await supabase
+      .from("applicant")
+      .select(`
+        applicantid,
+        lastname,
+        firstname,
+        middlename,
+        department:departmentid ( departmentname ),
+        position:positionid ( positionname ),
+        contact,
+        address,
+        email,
+        sss_number,
+        pagibig_number,
+        philhealth_number,
+        bir_number,
+        status,
+        trainingdate
+      `)
+      .not("trainingdate", "is", null)
+      .order("applicantid", { ascending: true });
 
-    const rows = res.rows;
-    if (rows.length === 0) {
-      return { success: false, message: `No trainees to export` };
-    }
+    if (error) throw error;
+    const rowsRaw = data || [];
+    if (rowsRaw.length === 0) return { success: false, message: `No trainees to export` };
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => 
-        headers.map(h => `"${row[h] ?? ""}"`).join(",")
-      )
-    ].join("\n");
+    const rows = rowsRaw.map((r) => ({
+      ID: r.applicantid,
+      "Last Name": r.lastname,
+      "First Name": r.firstname,
+      "Middle Name": r.middlename,
+      Department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : "") ?? "",
+      Position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : "") ?? "",
+      Contact: r.contact,
+      Address: r.address,
+      Email: r.email,
+      "SSS Number": r.sss_number,
+      "Pag-IBIG Number": r.pagibig_number,
+      "PhilHealth Number": r.philhealth_number,
+      "BIR Number": r.bir_number,
+      Status: r.status,
+      "Training Date": formatDateToISO(r.trainingdate),
+    }));
 
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Trainees Export",
       defaultPath: `trainees_all.csv`,
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
@@ -667,47 +917,42 @@ ipcMain.handle("exportAllTrainees", async (event) => {
 
 ipcMain.handle("exportLogs", async (event, date) => {
   try {
-    let res;
+    let logsRes;
     if (!date) {
-      res = await dbClient.query(`
-        SELECT 
-          l.userlogid AS "Log ID", 
-          u.username AS "Username",
-          l.useraction AS "Action", 
-          l.description AS "Description", 
-          TO_CHAR(l.dateofaction, 'YY-MM-DD') AS "Date"
-        FROM userlogs l
-        LEFT JOIN users u ON u.userid = l.userid
-        ORDER BY dateofaction DESC
-      `);
+      logsRes = await supabase
+        .from("userlogs")
+        .select("userlogid, userid, useraction, description, dateofaction")
+        .order("dateofaction", { ascending: false });
     } else {
-      res = await dbClient.query(`
-        SELECT 
-          l.userlogid AS "Log ID", 
-          u.username AS "Username",
-          l.useraction AS "Action", 
-          l.description AS "Description", 
-          TO_CHAR(l.dateofaction, 'YY-MM-DD') AS "Date"
-        FROM userlogs l
-        LEFT JOIN users u ON u.userid = l.userid
-        WHERE DATE(dateofaction) = $1
-        ORDER BY dateofaction DESC
-      `, [date]);
+      const targetDate = formatDateToISO(date);
+      logsRes = await supabase
+        .from("userlogs")
+        .select("userlogid, userid, useraction, description, dateofaction")
+        .eq("dateofaction", targetDate)
+        .order("dateofaction", { ascending: false });
     }
 
-    const rows = res.rows;
-    if (rows.length === 0) return { success: false, message: "No logs to export" };
+    if (logsRes.error) throw logsRes.error;
+    const logs = logsRes.data || [];
+    if (logs.length === 0) return { success: false, message: "No logs to export" };
 
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","), 
-      ...rows.map(row => headers.map(h => `"${row[h] ?? ""}"`).join(","))
-    ].join("\n");
+    const userIds = [...new Set(logs.map((l) => l.userid))];
+    const { data: users } = await supabase.from("users").select("userid, username").in("userid", userIds);
+    const userMap = new Map((users || []).map((u) => [u.userid, u.username]));
 
+    const rows = logs.map((l) => ({
+      "Log ID": l.userlogid,
+      Username: userMap.get(l.userid) || "",
+      Action: l.useraction,
+      Description: l.description,
+      Date: formatDateToISO(l.dateofaction),
+    }));
+
+    const csv = buildCSV(rows);
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Logs Export",
       defaultPath: "logs.csv",
-      filters: [{ name: "CSV Files", extensions: ["csv"] }]
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
@@ -722,188 +967,191 @@ ipcMain.handle("exportLogs", async (event, date) => {
   }
 });
 
-ipcMain.handle('getDashboardCardData', async () => {
+ipcMain.handle("getDashboardCardData", async () => {
   try {
-    const totalEmployeesRes = await dbClient.query(`
-      SELECT COUNT(DISTINCT employeeid) AS total FROM employee
-    `);
+    const today = formatDateToISO(new Date());
+    const yesterday = formatDateToISO(new Date(Date.now() - 86400000));
 
-    const totalAttendanceRes = await dbClient.query(`
-      SELECT COUNT(*) AS total FROM attendance WHERE date = CURRENT_DATE
-    `);
+    const [
+      totalEmployeesRes,
+      totalAttendanceRes,
+      totalApprovedLeavesRes,
+      totalLeaveRequestsRes,
+    ] = await Promise.all([
+      supabase.from("employee").select("*", { count: "exact", head: true }),
+      supabase.from("attendance").select("*", { count: "exact", head: true }).eq("date", yesterday),
+      supabase.from("leave").select("*", { count: "exact", head: true }).eq("status", "Approved").lte("start_date", today).gte("end_date", today),
+      supabase.from("leave").select("*", { count: "exact", head: true }).eq("status", "Request").lte("start_date", today).gte("end_date", today),
+    ]);
 
-    const totalOnLeaveRes = await dbClient.query(`
-      SELECT COUNT(*) AS total FROM leave WHERE date = CURRENT_DATE
-    `);
+    const totalEmployees = Number(totalEmployeesRes.count || 0);
+    const totalAttendance = Number(totalAttendanceRes.count || 0);
+    const totalApprovedLeaves = Number(totalApprovedLeavesRes.count || 0);
+    const totalLeaveRequests = Number(totalLeaveRequestsRes.count || 0);
 
     return {
-      totalEmployees: totalEmployeesRes.rows[0].total,
-      totalAttendance: totalAttendanceRes.rows[0].total,
-      totalOnLeave: totalOnLeaveRes.rows[0].total,
+      totalEmployees,
+      totalAttendance,
+      totalApprovedLeaves,
+      totalLeaveRequests,
     };
   } catch (error) {
+    console.error("Dashboard error:", error);
     return {
       totalEmployees: 0,
       totalAttendance: 0,
-      totalOnLeave: 0,
+      totalApprovedLeaves: 0,
+      totalLeaveRequests: 0,
     };
   }
 });
 
-   
-ipcMain.handle('getEmployee', async (event, employeeId) => {
+ipcMain.handle("getEmployee", async (event, employeeId) => {
   try {
-    const res = await dbClient.query(
-      `
-      SELECT 
-        e.employeeid,
-        CONCAT(
-          e.lastname, ', ', 
-          e.firstname, ' ', 
-          COALESCE(LEFT(e.middlename, 1) || '.', '')
-        ) AS name,
-        d.departmentname AS department,
-        p.positionname AS position,
-        e.contact,
-        e.email,
-        e.address,
-        e.hiredate,
-        e.sss_number,
-        e.pagibig_number,
-        e.philhealth_number,
-        e.bir_number,
-        e.leavecredit,
-        s.timestart AS shiftstart,
-        s.timeend AS shiftend,
-        encode(employeeimage, 'base64') AS employeeimage
-      FROM employee e
-      LEFT JOIN department d ON e.departmentid = d.departmentid
-      LEFT JOIN position p ON e.positionid = p.positionid
-      LEFT JOIN shift s ON e.shiftid = s.shiftid
-      WHERE e.employeeid = $1
-      `,
-      [employeeId]
-    );
+    const { data, error } = await supabase
+      .from("employee")
+      .select(`
+        employeeid,
+        lastname,
+        firstname,
+        middlename,
+        contact,
+        email,
+        address,
+        hiredate,
+        sss_number,
+        pagibig_number,
+        philhealth_number,
+        bir_number,
+        leavecredit,
+        department:departmentid ( departmentid, departmentname ),
+        position:positionid ( positionid, positionname ),
+        shift:shiftid ( shiftid, timestart, timeend ),
+        employeeimage
+      `)
+      .eq("employeeid", employeeId)
+      .maybeSingle();
 
-    if (res.rows.length === 0) return null;
-    return res.rows[0];
+    if (error) throw error;
+    if (!data) return null;
+
+    const dep = data.department ?? (Array.isArray(data.department) ? data.department[0] : null);
+    const pos = data.position ?? (Array.isArray(data.position) ? data.position[0] : null);
+    const sh = data.shift ?? (Array.isArray(data.shift) ? data.shift[0] : null);
+
+    const name = `${data.lastname}, ${data.firstname}${data.middlename ? ` ${data.middlename.charAt(0)}.` : ""}`;
+
+    return {
+      employeeid: data.employeeid,
+      name,
+      department: dep?.departmentname ?? "",
+      position: pos?.positionname ?? "",
+      contact: data.contact,
+      email: data.email,
+      address: data.address,
+      hiredate: formatDateToISO(data.hiredate),
+      sss_number: data.sss_number,
+      pagibig_number: data.pagibig_number,
+      philhealth_number: data.philhealth_number,
+      bir_number: data.bir_number,
+      leavecredit: data.leavecredit,
+      shiftstart: sh?.timestart ?? "",
+      shiftend: sh?.timeend ?? "",
+      employeeimage: toBase64IfNeeded(data.employeeimage),
+    };
   } catch (err) {
-    console.error('Error fetching employee details:', err);
+    console.error("Error fetching employee details:", err);
     return null;
   }
 });
 
+// -----------------------------------------------------------------------------
+// Remaining handlers migrated from your original queries.js to use supabase-js
+// -----------------------------------------------------------------------------
+
 ipcMain.handle('getEmployees', async () => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-        e.employeeid,
-        CONCAT(
-          e.lastname, ', ', 
-          e.firstname, ' ', 
-          COALESCE(LEFT(e.middlename, 1) || '.', '')
-        ) AS name,
-        d.departmentname AS department,
-        p.positionname AS position,
-        CONCAT(s.timestart, ' - ', s.timeend) AS shift,
-        e.leavecredit
-      FROM employee e
-      LEFT JOIN department d ON e.departmentid = d.departmentid
-      LEFT JOIN position p ON e.positionid = p.positionid
-      LEFT JOIN shift s ON e.shiftid = s.shiftid
-      ORDER BY e.employeeid ASC
-    `);
-    return res.rows;
+    const { data, error } = await supabase
+      .from('employee')
+      .select(`
+        employeeid,
+        lastname,
+        firstname,
+        middlename,
+        leavecredit,
+        department:departmentid ( departmentname ),
+        position:positionid ( positionname ),
+        shift:shiftid ( timestart, timeend )
+      `)
+      .order('employeeid', { ascending: true });
+
+    if (error) throw error;
+
+    return (data || []).map((r) => ({
+      employeeid: r.employeeid,
+      name: `${r.lastname}, ${r.firstname}${r.middlename ? ` ${r.middlename.charAt(0)}.` : ''}`,
+      department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : '') ?? '',
+      position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : '') ?? '',
+      shift: `${r.shift?.timestart ?? ''} - ${r.shift?.timeend ?? ''}`,
+      leavecredit: r.leavecredit,
+    }));
   } catch (err) {
-    console.error('DB query error:', err);
+    console.error('getEmployees error:', err);
     return [];
   }
 });
 
-ipcMain.handle('getEmployeeAttendance', async (event, employeeId) => {
+ipcMain.handle('getEmployeeAttendance', async (event, employeeId, selectedDate) => {
   try {
-    const res = await dbClient.query(`
-      SELECT a.date, a.timein, a.timeout, s.timestart AS shiftstart, s.timeend AS shiftend
-      FROM attendance a
-      LEFT JOIN employee e ON a.employeeid = e.employeeid
-      LEFT JOIN shift s ON e.shiftid = s.shiftid
-      WHERE a.employeeid = $1
-      ORDER BY a.date DESC
-    `, [employeeId]);
+    let q = supabase
+      .from('attendance')
+      .select('date, timein, timeout, employee:employeeid ( employeeid, shiftid )')
+      .eq('employeeid', employeeId);
 
-    return res.rows;
+    if (selectedDate) q = q.eq('date', formatDateToISO(selectedDate));
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    // fetch shifts map
+    const { data: shifts } = await supabase.from('shift').select('shiftid, timestart, timeend');
+    const shiftMap = new Map((shifts || []).map((s) => [s.shiftid, s]));
+
+    return (data || []).map((a) => {
+      const emp = a.employee ?? (Array.isArray(a.employee) ? a.employee[0] : {});
+      const sh = shiftMap.get(emp?.shiftid) || {};
+      return {
+        date: formatDateToISO(a.date),
+        timein: a.timein,
+        timeout: a.timeout,
+        shiftstart: sh?.timestart ?? null,
+        shiftend: sh?.timeend ?? null,
+      };
+    });
   } catch (err) {
-    console.error('Failed to fetch attendance:', err);
+    console.error('getEmployeeAttendance failed:', err);
     return [];
   }
 });
 
-// ipcMain.handle('addEmployees', async (event, employeeId) => {
-//   try {
-//     const res = await dbClient.query(`
-//       SELECT a.date, a.timein, a.timeout, s.timestart AS shiftstart, s.timeend AS shiftend
-//       FROM attendance a
-//       LEFT JOIN employee e ON a.employeeid = e.employeeid
-//       LEFT JOIN shift s ON e.shiftid = s.shiftid
-//       WHERE a.employeeid = $1
-//       ORDER BY a.date DESC
-//     `, [employeeId]);
-
-//     return res.rows;
-//   } catch (err) {
-//     console.error('Failed to fetch attendance:', err);
-//     return [];
-//   }
-// });
-
-// ipcMain.handle('searchEmployees', async (event, searchTerm) => {
-//   try {
-//     const res = await dbClient.query(
-//       `
-//       SELECT 
-//         e.employeeid,
-//         CONCAT(
-//           e.lastname, ', ', 
-//           e.firstname, ' ', 
-//           COALESCE(LEFT(e.middlename, 1) || '.', '')
-//         ) AS "fullName",
-//         d.departmentname AS department,
-//         p.positionname AS position,
-//         s.timestart AS shiftstart,
-//         s.timeend AS shiftend,
-//         e.leavecredit
-//       FROM employee e
-//       LEFT JOIN department d ON e.departmentid = d.departmentid
-//       LEFT JOIN position p ON e.positionid = p.positionid
-//       LEFT JOIN shift s ON e.shiftid = s.shiftid
-//       WHERE
-//         CONCAT(e.firstname, ' ', COALESCE(LEFT(e.middlename,1) || '. ', ''), e.lastname) ILIKE $1
-//       ORDER BY e.employeeid ASC
-//       `,
-//       [`%${searchTerm}%`]
-//     );
-//     return res.rows;
-//   } catch (err) {
-//     console.error('Search failed:', err);
-//     return [];
-//   }
-// });
-
-ipcMain.handle("updateEmployee", async (event, { employeeId, field, value }) => {
+ipcMain.handle('updateEmployee', async (event, { employeeId, field, value }) => {
   try {
-    let finalValue = value;
+    let payload = { [field]: value };
 
-    if (field === "employeeimage" && typeof value === "string") {
-      finalValue = Buffer.from(value, "base64");
+    if (field === 'employeeimage' && typeof value === 'string') {
+      const base64Data = value.replace(/^data:image\/\w+;base64,/, '');
+      payload[field] = base64Data;
     }
 
-    const result = await dbClient.query(
-      `UPDATE employee SET ${field} = $1 WHERE employeeid = $2`,
-      [finalValue, employeeId]
-    );
+    const { data, error } = await supabase
+      .from('employee')
+      .update(payload)
+      .eq('employeeid', employeeId);
 
-    return { success: true, result };
+    if (error) throw error;
+    return { success: true, data };
   } catch (err) {
+    console.error('updateEmployee error:', err);
     return { success: false, error: err.message };
   }
 });
@@ -911,670 +1159,606 @@ ipcMain.handle("updateEmployee", async (event, { employeeId, field, value }) => 
 
 ipcMain.handle('updateEmployeeField', async (event, { employeeId, field, value }) => {
   try {
-    await dbClient.query(
-      `UPDATE employee SET ${field} = $1 WHERE employeeid = $2`,
-      [value, employeeId]
-    );
-    logMessage("EDIT SUCCESS", { employeeId, field, value });
+    const { error } = await supabase.from('employee').update({ [field]: value }).eq('employeeid', employeeId);
+    if (error) throw error;
+    logMessage(`EDIT SUCCESS: employee=${employeeId} field=${field}`);
     return { success: true };
   } catch (err) {
-    console.error('Update failed:', err);
+    console.error('updateEmployeeField failed:', err);
     return { success: false, error: err.message };
   }
 });
 
 ipcMain.handle('getAttendance', async () => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-        a.date,
-        e.employeeid,
-        CONCAT(
-          e.lastname, ', ', 
-          e.firstname, ' ', 
-          COALESCE(LEFT(e.middlename, 1) || '.', '')
-        ) AS "fullName",
-        p.positionname AS position,
-        a.timein AS "timeIn",
-        a.timeout AS "timeOut",
-        CONCAT(s.timestart, ' - ', s.timeend) AS shift,
-        CASE 
-          WHEN a.timein > s.timestart THEN CONCAT(EXTRACT(EPOCH FROM (a.timein - s.timestart))/60, ' mins')
-          WHEN a.timeout < s.timeend THEN CONCAT(EXTRACT(EPOCH FROM (s.timeend - a.timeout))/3600, ' h')
-          ELSE '0.00 h'
-        END AS utot
-      FROM attendance a
-      LEFT JOIN employee e ON a.employeeid = e.employeeid
-      LEFT JOIN position p ON e.positionid = p.positionid
-      LEFT JOIN shift s ON e.shiftid = s.shiftid
-      ORDER BY a.date DESC
-    `);
-    return res.rows;
+    const { data: attendance, error: attErr } = await supabase
+      .from('attendance')
+      .select('date, employeeid, timein, timeout, employee:employeeid ( lastname, firstname, middlename, positionid, shiftid )')
+      .order('date', { ascending: false });
+    if (attErr) throw attErr;
+
+    const positionIds = [...new Set((attendance || []).map(a => a.employee?.positionid).filter(Boolean))];
+    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
+
+    const { data: positions } = await supabase.from('position').select('positionid, positionname').in('positionid', positionIds);
+    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+
+    const { data: shifts } = await supabase.from('shift').select('shiftid, timestart, timeend').in('shiftid', shiftIds);
+    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
+
+    const rows = (attendance || []).map((a) => {
+      const emp = a.employee ?? (Array.isArray(a.employee) ? a.employee[0] : {});
+      const pos = posMap.get(emp.positionid) || '';
+      const sh = shiftMap.get(emp.shiftid) || {};
+
+      // compute utot similar to original
+      let utot = '';
+      try {
+        const timeInMin = timeToMinutes(a.timein);
+        const timeOutMin = timeToMinutes(a.timeout);
+        const shiftDur = (timeToMinutes(sh.timeend) || 0) - (timeToMinutes(sh.timestart) || 0);
+        if (timeInMin != null && timeOutMin != null) {
+          const worked = timeOutMin - timeInMin;
+          if (a.timein > sh.timestart) utot = `${Math.round((timeToMinutes(a.timein) - timeToMinutes(sh.timestart)))} mins`;
+          else if (a.timeout < sh.timeend) utot = `${Math.round((timeToMinutes(sh.timeend) - timeToMinutes(a.timeout)) / 60)} h`;
+          else utot = '0.00 h';
+        }
+      } catch (e) {
+        utot = '';
+      }
+
+      return {
+        date: formatDateToISO(a.date),
+        employeeid: a.employeeid,
+        fullName: `${emp.lastname || ''}, ${emp.firstname || ''}${emp.middlename ? ` ${emp.middlename.charAt(0)}.` : ''}`,
+        position: pos,
+        timeIn: a.timein,
+        timeOut: a.timeout,
+        shift: `${sh.timestart || ''} - ${sh.timeend || ''}`,
+        utot,
+      };
+    });
+
+    return rows;
   } catch (err) {
-    console.error('DB query error:', err);
+    console.error('getAttendance error:', err);
     return [];
   }
 });
 
 ipcMain.handle('getAttendanceByDate', async (event, date) => {
   try {
-    const res = await dbClient.query(
-      `
-      SELECT 
-        a.date,
-        CONCAT(
-          e.lastname, ', ', 
-          e.firstname, ' ', 
-          COALESCE(LEFT(e.middlename, 1) || '.', '')
-        ) AS "fullName",
-        e.employeeid,
-        p.positionname AS position,
-        a.timein AS "timeIn",
-        a.timeout AS "timeOut",
-        CONCAT(s.timestart, ' - ', s.timeend) AS shift
-      FROM attendance a
-      LEFT JOIN employee e ON a.employeeid = e.employeeid
-      LEFT JOIN position p ON e.positionid = p.positionid
-      LEFT JOIN shift s ON e.shiftid = s.shiftid
-      WHERE a.date = $1
-      ORDER BY a.timein
-      `,
-      [date]
-    );
-    return res.rows;
+    const { data, error } = await supabase
+      .from('attendance')
+      .select('date, employeeid, timein, timeout, employee:employeeid ( lastname, firstname, middlename, positionid, shiftid )')
+      .eq('date', formatDateToISO(date))
+      .order('timein', { ascending: true });
+    if (error) throw error;
+
+    // build position and shift maps
+    const positionIds = [...new Set((data || []).map(a => a.employee?.positionid).filter(Boolean))];
+    const shiftIds = [...new Set((data || []).map(a => a.employee?.shiftid).filter(Boolean))];
+
+    const { data: positions } = await supabase.from('position').select('positionid, positionname').in('positionid', positionIds);
+    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+
+    const { data: shifts } = await supabase.from('shift').select('shiftid, timestart, timeend').in('shiftid', shiftIds);
+    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
+
+    return (data || []).map((a) => {
+      const emp = a.employee ?? (Array.isArray(a.employee) ? a.employee[0] : {});
+      const pos = posMap.get(emp.positionid) || '';
+      const sh = shiftMap.get(emp.shiftid) || {};
+      return {
+        date: formatDateToISO(a.date),
+        fullName: `${emp.lastname || ''}, ${emp.firstname || ''}${emp.middlename ? ` ${emp.middlename.charAt(0)}.` : ''}`,
+        employeeid: a.employeeid,
+        position: pos,
+        timeIn: a.timein,
+        timeOut: a.timeout,
+        shift: `${sh.timestart || ''} - ${sh.timeend || ''}`,
+      };
+    });
   } catch (err) {
-    console.error('Error fetching attendance by date:', err);
+    console.error('getAttendanceByDate error:', err);
     return [];
   }
 });
 
 ipcMain.handle('getAbsent', async (event, date) => {
   try {
-    let res;
-    if (!date) { 
-      res = await dbClient.query(`
-        SELECT 
-          e.employeeid,
-          CONCAT(
-            e.lastname, ', ', 
-            e.firstname, ' ', 
-            COALESCE(LEFT(e.middlename, 1) || '.', '')
-          ) AS "fullName",
-          d.departmentname AS department,
-          p.positionname AS position,
-          s.timestart || ' - ' || s.timeend AS shift
-        FROM employee e
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN shift s ON e.shiftid = s.shiftid
-        WHERE e.employeeid NOT IN (
-          SELECT employeeid FROM attendance
-        )
-        AND e.employeeid NOT IN (
-          SELECT employeeid FROM leave
-        )
-        ORDER BY e.lastname
-      `);
-    } else {
-      res = await dbClient.query(`
-        SELECT 
-          e.employeeid,
-          CONCAT(
-            e.lastname, ', ', 
-            e.firstname, ' ', 
-            COALESCE(LEFT(e.middlename, 1) || '.', '')
-          ) AS "fullName",
-          d.departmentname AS department,
-          p.positionname AS position,
-          s.timestart || ' - ' || s.timeend AS shift
-        FROM employee e
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN shift s ON e.shiftid = s.shiftid
-        WHERE e.employeeid NOT IN (
-          SELECT employeeid FROM attendance WHERE date = $1
-        )
-        AND e.employeeid NOT IN (
-          SELECT employeeid FROM leave WHERE date = $1
-        )
-        ORDER BY e.lastname
-      `, [date]);
-    }
-    return res.rows;
+    // fetch employees with department/position/shift
+    const { data: employees, error: empErr } = await supabase
+      .from('employee')
+      .select('employeeid, lastname, firstname, middlename, department:departmentid ( departmentname ), position:positionid ( positionname ), shift:shiftid ( timestart, timeend )')
+      .order('lastname', { ascending: true });
+    if (empErr) throw empErr;
+
+    const targetDate = date ? formatDateToISO(date) : null;
+    const { data: attendance } = targetDate ? await supabase.from('attendance').select('employeeid').eq('date', targetDate) : await supabase.from('attendance').select('employeeid');
+    const { data: leaves } = targetDate ? await supabase.from('leave').select('employeeid').eq('date', targetDate) : await supabase.from('leave').select('employeeid');
+
+    const present = new Set((attendance || []).map(r => r.employeeid));
+    const onleave = new Set((leaves || []).map(r => r.employeeid));
+
+    const absent = (employees || []).filter(e => !present.has(e.employeeid) && !onleave.has(e.employeeid));
+
+    return absent.map((r) => ({
+      employeeid: r.employeeid,
+      fullName: `${r.lastname}, ${r.firstname}${r.middlename ? ` ${r.middlename.charAt(0)}.` : ''}`,
+      department: r.department?.departmentname ?? '',
+      position: r.position?.positionname ?? '',
+      shift: `${r.shift?.timestart ?? ''} - ${r.shift?.timeend ?? ''}`,
+    }));
   } catch (err) {
-    console.error('DB query error: ', err);
+    console.error('getAbsent error:', err);
     return [];
   }
 });
 
 ipcMain.handle('getLeave', async (event, date) => {
   try {
-    let res;
-    if (!date) {
-      res = await dbClient.query(`
-        SELECT 
-          l.date,
-          l.employeeid,
-          CONCAT(e.firstname, ' ', 
-            COALESCE(LEFT(e.middlename,1) || '. ', ''), 
-            e.lastname) AS "fullName",
-          p.positionname AS position,
-          d.departmentname AS department,
-          s.timestart || ' - ' || s.timeend AS shift,
-          l.reason
-        FROM leave l
-        LEFT JOIN employee e ON l.employeeid = e.employeeid
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN shift s ON e.shiftid = s.shiftid
-        ORDER BY e.lastname
-      `);
-    } else {
-      res = await dbClient.query(`
-        SELECT 
-          l.date,
-          l.employeeid,
-          CONCAT(e.firstname, ' ', 
-            COALESCE(LEFT(e.middlename,1) || '. ', ''), 
-            e.lastname) AS "fullName",
-          p.positionname AS position,
-          d.departmentname AS department,
-          s.timestart || ' - ' || s.timeend AS shift,
-          l.reason
-        FROM leave l
-        LEFT JOIN employee e ON l.employeeid = e.employeeid
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN shift s ON e.shiftid = s.shiftid
-        WHERE l.date = $1
-        ORDER BY e.lastname
-      `, [date]);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let query = supabase
+      .from('leave')
+      .select(`
+        leaveid, 
+        start_date, 
+        end_date, 
+        employeeid, 
+        reason, 
+        status, 
+        employee:employeeid (
+          firstname, 
+          middlename, 
+          lastname, 
+          positionid, 
+          departmentid, 
+          shiftid
+        )
+      `)
+      .order('employeeid', { ascending: true });
+
+    if (date) {
+      const targetDate = date;
+      // targetDate.setHours(0, 0, 0, 0); 
+      const nextDate = new Date(targetDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+
+      query = query
+        .gte('end_date', targetDate)
+        .lt('start_date', nextDate.toISOString());
     }
-    return res.rows;
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const positionIds = [...new Set((data || []).map(l => l.employee?.positionid).filter(Boolean))];
+    const departmentIds = [...new Set((data || []).map(l => l.employee?.departmentid).filter(Boolean))];
+    const shiftIds = [...new Set((data || []).map(l => l.employee?.shiftid).filter(Boolean))];
+
+    const [{ data: positions }, { data: departments }, { data: shifts }] = await Promise.all([
+      supabase.from('position').select('positionid, positionname').in('positionid', positionIds),
+      supabase.from('department').select('departmentid, departmentname').in('departmentid', departmentIds),
+      supabase.from('shift').select('shiftid, timestart, timeend').in('shiftid', shiftIds),
+    ]);
+
+    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+    const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
+    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
+
+    return (data || []).map((l) => {
+      const emp = l.employee ?? (Array.isArray(l.employee) ? l.employee[0] : {});
+      const endDate = new Date(l.end_date);
+      endDate.setHours(0, 0, 0, 0);
+
+      const rawDuration = Math.max(0, Math.ceil((endDate - today) / (1000 * 60 * 60 * 24)) + 1);
+      const Duration = rawDuration === 0 ? "Expired" : rawDuration;
+      // logMessage?.(`Leave ID ${l.leaveid} | StartDate: ${l.start_date} | EndDate: ${l.end_date} | Today: ${formatDateToISO(today)} | Duration calculated as ${Duration} days`);
+
+      return {
+        leaveid: l.leaveid,
+        start_date: formatDateToISO(l.start_date),
+        end_date: formatDateToISO(l.end_date),
+        employeeid: l.employeeid,
+        fullName: `${emp.firstname || ''} ${emp.middlename ? `${emp.middlename.charAt(0)}.` : ''} ${emp.lastname || ''}`.trim(),
+        position: posMap.get(emp.positionid) || '',
+        department: deptMap.get(emp.departmentid) || '',
+        shift: `${shiftMap.get(emp.shiftid)?.timestart || ''} - ${shiftMap.get(emp.shiftid)?.timeend || ''}`,
+        reason: l.reason,
+        status: l.status,
+        Duration,
+      };
+    });
+
   } catch (err) {
-    console.error('DB query error: ', err);
+    logMessage('getLeave error:', err);
     return [];
   }
 });
 
-ipcMain.handle('addLeave', async (event, employeeIds, date, reason) => {
-  try {
-    logMessage("Transaction started");
-    await dbClient.query('BEGIN');
+ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration) => {
+  const normalizeError = (err) => {
+    if (!err) return 'Unknown error';
+    if (typeof err === 'string') return err;
+    if (err.message) return err.message;
+    if (err.msg) return err.msg;
+    if (err.details) return err.details;
+    return JSON.stringify(err);
+  };
 
-    let insertedCount = 0;
-    let skippedCount = 0;
+  try {
+    logMessage('addLeave: start', { employeeIds, date, reason, duration });
+
+    const targetDate = formatDateToISO(date);
+    logMessage('addLeave: formatted targetDate', targetDate);
+
+    const startDate = new Date(targetDate);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + duration - 1);
+    const targetEndDate = endDate.toISOString().split('T')[0];
+    logMessage('addLeave: calculated targetEndDate', targetEndDate);
+
+    let inserted = 0;
+    let skipped = 0;
 
     for (const id of employeeIds) {
-      logMessage(`Processing employee ${id}`);
+      logMessage('addLeave: processing employee', id);
 
-      // Check existing leave
-      const { rows: existing } = await dbClient.query(
-        `SELECT 1 FROM leave WHERE employeeid = $1 AND date = $2`,
-        [id, date]
-      );
-      logMessage(`Checked existing leave for employee ${id}`);
+      // Check for overlapping leaves
+      const { data: existingLeave, error: leaveErr } = await supabase
+        .from('leave')
+        .select('leaveid')
+        .eq('employeeid', id)
+        .or(`and(start_date.lte.${targetEndDate},end_date.gte.${targetDate})`)
+        .limit(1);
+      if (leaveErr) throw new Error(normalizeError(leaveErr));
+      logMessage('addLeave: existingLeave', existingLeave);
 
-      if (existing.length > 0) {
-        skippedCount++;
-        logMessage(`Skipped employee ${id} (leave already exists)`);
+      // Check for attendance conflicts
+      const { data: existingAttendance, error: attErr } = await supabase
+        .from('attendance')
+        .select('attendanceid')
+        .eq('employeeid', id)
+        .gte('date', targetDate)
+        .lte('date', targetEndDate)
+        .limit(1);
+      if (attErr) throw new Error(normalizeError(attErr));
+      logMessage('addLeave: existingAttendance', existingAttendance);
+
+      if ((existingLeave && existingLeave.length) || (existingAttendance && existingAttendance.length)) {
+        logMessage('addLeave: skipping employee due to conflict', id);
+        skipped++;
         continue;
       }
 
-      // Get leave credits
-      const { rows: emp } = await dbClient.query(
-        `SELECT leavecredit FROM employee WHERE employeeid = $1 FOR UPDATE`,
-        [id]
-      );
-      logMessage(`Fetched leave credits for employee ${id}`);
+      // Fetch employee leave credit
+      const { data: empData, error: empErr } = await supabase
+        .from('employee')
+        .select('leavecredit')
+        .eq('employeeid', id)
+        .limit(1)
+        .single();
+      if (empErr) throw new Error(normalizeError(empErr));
+      if (!empData) throw new Error(`Employee ${id} not found`);
+      logMessage('addLeave: employee leave credit', { id, leavecredit: empData.leavecredit });
 
-      if (emp.length === 0) {
-        throw new Error(`Employee ${id} not found`);   
-      }
-
-      const leaveCredit = emp[0].leavecredit;
-      logMessage(`Employee ${id} has ${leaveCredit} leave credits`);
-
-      if (leaveCredit <= 0) {
-        throw new Error(`Employee ${id} has no leave credits left`);
+      if ((empData.leavecredit || 0) < duration) {
+        logMessage('addLeave: skipping employee due to insufficient leave credit', id);
+        skipped++;
+        continue;
       }
 
       // Deduct leave credit
-      await dbClient.query(
-        `UPDATE employee SET leavecredit = leavecredit - 1 WHERE employeeid = $1`,
-        [id]
-      );
-      logMessage(`Deducted 1 leave credit for employee ${id}`);
+      const { error: updErr } = await supabase
+        .from('employee')
+        .update({ leavecredit: empData.leavecredit - duration })
+        .eq('employeeid', id);
+      if (updErr) throw new Error(normalizeError(updErr));
+      logMessage('addLeave: updated leave credit', { id, newLeaveCredit: empData.leavecredit - duration });
 
       // Insert leave
-      await dbClient.query(
-        `INSERT INTO leave (employeeid, date, reason) VALUES ($1, $2, $3)`,
-        [id, date, reason]
-      );
-      logMessage(`Inserted leave record for employee ${id} on ${date}`);
+      const { error: insErr } = await supabase
+        .from('leave')
+        .insert([{ employeeid: id, start_date: targetDate, end_date: targetEndDate, reason }]);
+      if (insErr) throw new Error(normalizeError(insErr));
+      logMessage('addLeave: inserted leave', { id, start_date: targetDate, end_date: targetEndDate, reason });
 
-      insertedCount++;
+      inserted++;
     }
 
-    await dbClient.query('COMMIT');
-    logMessage("Transaction committed");
+    logMessage('addLeave: finished processing', { inserted, skipped });
 
-    if (insertedCount === 0) {
-      logMessage("No leave inserted (all skipped or no credits)");
-      return { success: false, message: "No leave added (duplicates or no credits)" };
+    if (inserted === 0) {
+      return { success: false, message: 'No leave added (duplicates, conflicts, or insufficient credits)', inserted: 0, skipped };
     }
 
-    logMessage(`Operation finished: inserted=${insertedCount}, skipped=${skippedCount}`);
-    return {
-      success: true,
-      inserted: insertedCount,
-      skipped: skippedCount
-    };
-
+    return { success: true, inserted, skipped };
   } catch (err) {
-    await dbClient.query('ROLLBACK');
-    logMessage(`Transaction rolled back due to error: ${err.message}`);
-    console.error('Error adding leave:', err);
+    logMessage('addLeave error caught', err);
+    return { success: false, error: normalizeError(err) };
+  }
+});
+
+ipcMain.handle('updateLeaveStatus', async (event, { ids, status }) => {
+  try {
+    if (!Array.isArray(ids) || ids.length === 0) return { success: false, error: 'No IDs provided' };
+    const { error, data } = await supabase.from('leave').update({ status }).in('leaveid', ids);
+    if (error) throw error;
+    return { success: true, changes: (data || []).length };
+  } catch (err) {
+    console.error('updateLeaveStatus error:', err);
     return { success: false, error: err.message };
   }
 });
 
-
 ipcMain.handle('getInventoryLogs', async (event, date) => {
   try {
-    let res;
-    if (!date) {
-      res = await dbClient.query(`
-        SELECT 
-          e.employeeid,
-          CONCAT(
-            e.lastname, ', ',
-            e.firstname, ' ',
-            COALESCE(LEFT(e.middlename, 1) || '.', '')
-          ) AS name,
-          d.departmentname AS department,
-          p.positionname AS position,
-          i.itemname,
-          l.quantity,
-          l.date
-        FROM inventorylogs l
-        LEFT JOIN employee e ON l.employeeid = e.employeeid
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN inventory i ON l.itemid = i.itemid
-        ORDER BY l.date DESC
-      `);
-    } else {
-      res = await dbClient.query(`
-        SELECT 
-          CONCAT(
-            e.lastname, ', ',
-            e.firstname, ' ',
-            COALESCE(LEFT(e.middlename, 1) || '.', '')
-          ) AS name,
-          d.departmentname AS department,
-          p.positionname AS position,
-          i.itemname,
-          l.quantity,
-          l.date
-        FROM inventorylogs l
-        LEFT JOIN employee e ON l.employeeid = e.employeeid
-        LEFT JOIN department d ON e.departmentid = d.departmentid
-        LEFT JOIN position p ON e.positionid = p.positionid
-        LEFT JOIN inventory i ON l.itemid = i.itemid
-        WHERE l.date = $1
-        ORDER BY l.date DESC
-      `, [date]);
-    }
+    let q = supabase.from('inventorylogs').select('inventorylogid, employeeid, itemid, quantity, date').order('date', { ascending: false });
+    if (date) q = q.eq('date', formatDateToISO(date));
+    const { data, error } = await q;
+    if (error) throw error;
 
-    return res.rows;
+    const employeeIds = [...new Set((data || []).map(l => l.employeeid))];
+    const { data: employees } = await supabase.from('employee').select('employeeid, lastname, firstname, middlename, departmentid, positionid').in('employeeid', employeeIds);
+    const empMap = new Map((employees || []).map(e => [e.employeeid, e]));
+
+    const { data: departments } = await supabase.from('department').select('departmentid, departmentname');
+    const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
+
+    const { data: positions } = await supabase.from('position').select('positionid, positionname');
+    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+
+    const { data: inventory } = await supabase.from('inventory').select('itemid, itemname');
+    const itemMap = new Map((inventory || []).map(i => [i.itemid, i.itemname]));
+
+    const rows = (data || []).map((l) => {
+      const e = empMap.get(l.employeeid) || {};
+      return {
+        name: `${e.lastname || ''}, ${e.firstname || ''}${e.middlename ? ` ${e.middlename.charAt(0)}.` : ''}`,
+        department: deptMap.get(e.departmentid) || '',
+        position: posMap.get(e.positionid) || '',
+        itemname: itemMap.get(l.itemid) || '',
+        quantity: l.quantity,
+        date: formatDateToISO(l.date),
+      };
+    });
+
+    return rows;
   } catch (err) {
-    console.error('DB query error: ', err);
+    console.error('getInventoryLogs error:', err);
     return [];
   }
 });
 
 ipcMain.handle('getInventoryCard', async () => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-        i.itemid,
-        i.itemname,
-        i.quantity,
-        i.lastmodified
-      FROM inventory i
-      ORDER BY i.itemid;
-    `);
-    return res.rows;
+    const { data, error } = await supabase.from('inventory').select('itemid, itemname, quantity, lastmodified').order('itemid', { ascending: true });
+    if (error) throw error;
+    return (data || []).map(r => ({ itemid: r.itemid, itemname: r.itemname, quantity: r.quantity, lastmodified: formatDateToISO(r.lastmodified) }));
   } catch (err) {
-    console.error('DB query error:', err);
+    console.error('getInventoryCard error:', err);
     return [];
   }
 });
 
 ipcMain.handle('updateItem', async (event, { itemid, itemname, quantity }) => {
   try {
-    await dbClient.query(
-      `UPDATE inventory
-       SET itemname = $1,
-           quantity = $2
-       WHERE itemid = $3`,
-      [itemname, quantity, itemid]
-    );
+    const { error } = await supabase.from('inventory').update({ itemname, quantity }).eq('itemid', itemid);
+    if (error) throw error;
     return { success: true };
   } catch (err) {
-    console.error(err);
+    console.error('updateItem error:', err);
     return { success: false, error: err.message };
   }
 });
 
 ipcMain.handle('getTrainees', async (event, status) => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-        a.applicantid,
-        CONCAT(
-          a.lastname, ', ',
-          a.firstname, ' ',
-          COALESCE(LEFT(a.middlename, 1) || '.', '')
-        ) AS "fullname",
-        d.departmentname AS department,
-        p.positionname AS position,
-        a.trainingdate
-      FROM applicant a
-      LEFT JOIN department d ON a.departmentid = d.departmentid
-      LEFT JOIN position p ON a.positionid = p.positionid
-      WHERE a.status = $1
-        AND a.trainingdate IS NOT NULL
-      ORDER BY a.applicantid ASC
-    `, [status]);
-
-    return res.rows;
+    const { data, error } = await supabase
+      .from('applicant')
+      .select('applicantid, lastname, firstname, middlename, department:departmentid ( departmentname ), position:positionid ( positionname ), trainingdate')
+      .eq('status', status)
+      .not('trainingdate', 'is', null)
+      .order('applicantid', { ascending: true });
+    if (error) throw error;
+    return (data || []).map(r => ({ applicantid: r.applicantid, fullname: `${r.lastname}, ${r.firstname}${r.middlename ? ` ${r.middlename.charAt(0)}.` : ''}`, department: r.department?.departmentname ?? '', position: r.position?.positionname ?? '', trainingdate: formatDateToISO(r.trainingdate) }));
   } catch (err) {
-    console.error('DB query error (getTrainees):', err);
+    console.error('getTrainees error:', err);
     return [];
   }
 });
 
 ipcMain.handle('getApplicants', async (event, status) => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-        a.applicantid,
-        CONCAT(
-          a.lastname, ', ',
-          a.firstname, ' ',
-          COALESCE(LEFT(a.middlename, 1) || '.', '')
-        ) AS "fullname",
-        d.departmentname AS department,
-        p.positionname AS position,
-        a.applicationdate
-      FROM applicant a
-      LEFT JOIN department d ON a.departmentid = d.departmentid
-      LEFT JOIN position p ON a.positionid = p.positionid
-      WHERE a.status = $1
-        AND a.trainingdate IS NULL
-      ORDER BY a.applicantid ASC
-    `, [status]);
-
-    return res.rows;
+    const { data, error } = await supabase
+      .from('applicant')
+      .select('applicantid, lastname, firstname, middlename, department:departmentid ( departmentname ), position:positionid ( positionname ), applicationdate')
+      .eq('status', status)
+      .is('trainingdate', null)
+      .order('applicantid', { ascending: true });
+    if (error) throw error;
+    
+    return (data || []).map(r => ({ applicantid: r.applicantid, fullname: `${r.lastname}, ${r.firstname}${r.middlename ? ` ${r.middlename.charAt(0)}.` : ''}`, department: r.department?.departmentname ?? '', position: r.position?.positionname ?? '', applicationdate: formatDateToISO(r.applicationdate) }));
   } catch (err) {
-    console.error('DB query error (getApplicants):', err);
+    logMessage('getApplicants error:', err);
     return [];
   }
 });
 
-// ipcMain.handle("addApplicant", async (event, applicant) => {
-//   try {
-//     const query = `
-//       INSERT INTO applicant 
-//         (firstname, middlename, lastname, contact, email, address, departmentid, positionid, sss_number, pagibig_number, philhealth_number, status, applicationdate, applicantimage) 
-//       VALUES 
-//         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13)
-//       RETURNING applicantid
-//     `;
-
-//     const values = [
-//       applicant.firstName,
-//       applicant.middleName,
-//       applicant.lastName,
-//       applicant.contact,
-//       applicant.email,
-//       applicant.address,
-//       applicant.departmentId,
-//       applicant.positionId,
-//       applicant.sss || null,
-//       applicant.pagibig || null,
-//       applicant.philhealth || null,
-//       applicant.status || "Pending",
-//       applicant.image ? Buffer.from(applicant.image.data, "base64") : null,
-//     ];
-
-//     const res = await dbClient.query(query, values);
-//     return res.rows[0];
-//   } catch (err) {
-//     console.error("DB insert error (addApplicant):", err);
-//     throw err;
-//   }
-// });
-
-ipcMain.handle("addApplicant", async (event, resume) => {
+ipcMain.handle('addApplicant', async (event, resume) => {
   try {
+    logMessage('🟢 addApplicant called');
+    logMessage(`Incoming resume: ${JSON.stringify(resume, null, 2)}`);
+
     const profile = resume?.profile || {};
 
-    // Map resume fields to DB columns
     const firstName = profile.firstName || null;
     const middleName = profile.middleName || null;
     const lastName = profile.lastName || null;
     const email = profile.email || null;
     const contact = profile.phone || null;
     const address = profile.location || null;
-    const gender = profile.gender || "Unspecified";
+    const gender = profile.gender || 'Unspecified';
     const age = profile.age ? parseInt(profile.age, 10) : null;
     const birthdate = profile.birthdate || null;
-    const status = "Pending"; 
-    const applicantImage = resume.image ? Buffer.from(resume.image.data, "base64") : null;
+    const status = 'Pending';
+    const applicantImage = resume.image ? resume.image.data || null : null;
 
     let departmentId = null;
     if (resume.departmentName) {
-      const deptRes = await dbClient.query(
-        `SELECT departmentid FROM department WHERE departmentName = $1 LIMIT 1`,
-        [resume.departmentName]
-      );
-      if (deptRes.rows.length) departmentId = deptRes.rows[0].departmentid;
+      const { data: deptData, error: deptErr } = await supabase
+        .from('department')
+        .select('departmentid')
+        .eq('departmentname', resume.departmentName)
+        .limit(1);
+
+      if (deptErr) logMessage(`❌ Department query error: ${JSON.stringify(deptErr)}`);
+      else logMessage(`✅ Department query result: ${JSON.stringify(deptData)}`);
+
+      if (deptData && deptData.length) departmentId = deptData[0].departmentid;
     }
 
     let positionId = null;
     if (resume.positionName) {
-      const posRes = await dbClient.query(
-        `SELECT positionid FROM position WHERE positionname = $1 LIMIT 1`,
-        [resume.positionName]
-      );
-      if (posRes.rows.length) positionId = posRes.rows[0].positionid;
+      const { data: posData, error: posErr } = await supabase
+        .from('position')
+        .select('positionid')
+        .eq('positionname', resume.positionName)
+        .limit(1);
+
+      if (posErr) logMessage(`❌ Position query error: ${JSON.stringify(posErr)}`);
+      else logMessage(`✅ Position query result: ${JSON.stringify(posData)}`);
+
+      if (posData && posData.length) positionId = posData[0].positionid;
     }
 
-    // Insert applicant (with resume JSONB)
-    const query = `
-      INSERT INTO applicant 
-        (firstname, middlename, lastname, contact, email, address, departmentid, positionid, gender, age, birthdate, status, applicationdate, applicantimage, resume)
-      VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13, $14)
-      RETURNING applicantid
-    `;
-
-    const values = [
-      firstName,
-      middleName,
-      lastName,
+    const insertPayload = {
+      firstname: firstName,
+      middlename: middleName,
+      lastname: lastName,
       contact,
       email,
       address,
-      departmentId,
-      positionId,
+      departmentid: departmentId,
+      positionid: positionId,
       gender,
       age,
       birthdate,
       status,
-      applicantImage,
-      resume
-    ];
+      applicantimage: applicantImage,
+      resume: resume,
+      applicationdate: new Date().toISOString(),
+    };
 
-    const res = await dbClient.query(query, values);
-    return res.rows[0];
+    logMessage(`📦 Insert Payload: ${JSON.stringify(insertPayload, null, 2)}`);
 
+    const { data, error } = await supabase
+      .from('applicant')
+      .insert([insertPayload])
+      .select('applicantid')
+      .single();
+
+    if (error) {
+      logMessage(`❌ Supabase insert error: ${JSON.stringify(error, null, 2)}`);
+      throw error;
+    }
+
+    logMessage(`✅ Applicant inserted successfully: ${JSON.stringify(data)}`);
+    return data;
   } catch (err) {
-    console.error("DB insert error (addApplicantFromResume):", err);
+    logMessage(`💥 addApplicant error (catch): ${err.stack || JSON.stringify(err, null, 2)}`);
     throw err;
   }
 });
 
 ipcMain.handle('getLogs', async (event, date) => {
   try {
-    let res;
-    if (!date) {
-      res = await dbClient.query(`
-        SELECT 
-          l.userlogid, 
-          u.username,
-          l.useraction, 
-          l.description, 
-          l.dateofaction
-        FROM userlogs l
-        LEFT JOIN users u ON u.userid = l.userid
-        ORDER BY dateofaction DESC
-      `);
-    } else {
-      res = await dbClient.query(`
-        SELECT 
-          l.userlogid, 
-          u.username,
-          l.useraction, 
-          l.description, 
-          l.dateofaction
-        FROM userlogs l
-        LEFT JOIN users u ON u.userid = l.userid
-        WHERE DATE(dateofaction) = $1
-        ORDER BY dateofaction DESC
-      `, [date]);
-    }
+    let q = supabase.from('userlogs').select('userlogid, userid, useraction, description, dateofaction').order('dateofaction', { ascending: false });
+    if (date) q = q.filter('dateofaction', 'eq', formatDateToISO(date));
+    const { data, error } = await q;
+    if (error) throw error;
 
-    return res.rows;
+    const userIds = [...new Set((data || []).map(l => l.userid))];
+    const { data: users } = await supabase.from('users').select('userid, username').in('userid', userIds);
+    const userMap = new Map((users || []).map(u => [u.userid, u.username]));
+
+    return (data || []).map(l => ({ userlogid: l.userlogid, username: userMap.get(l.userid) || '', useraction: l.useraction, description: l.description, dateofaction: formatDateToISO(l.dateofaction) }));
   } catch (err) {
-    console.error('DB query error: ', err);
+    console.error('getLogs error:', err);
     return [];
   }
 });
 
 ipcMain.handle('updateApplicantsStatus', async (event, ids, options) => {
   try {
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return { success: false, message: "No applicants selected" };
-    }
+    if (!Array.isArray(ids) || ids.length === 0) return { success: false, message: 'No applicants selected' };
 
-    const { status, setTrainingDate, resetTraining, setApplicationDate } = options;
-    const now = new Date();
+    const { status, setTrainingDate, resetTraining, setApplicationDate } = options || {};
+    const nowISO = new Date().toISOString();
 
-    let query = `
-      UPDATE applicant
-      SET status = $1
-    `;
-    const params = [status];
+    const updates = { status };
+    if (setTrainingDate) updates.trainingdate = nowISO;
+    if (resetTraining) updates.trainingdate = null;
+    if (setApplicationDate) updates.applicationdate = nowISO;
 
-    if (setTrainingDate) {
-      query += `, trainingdate = $${params.length + 1}`;
-      params.push(now);
-    }
-    if (resetTraining) {
-      query += `, trainingdate = NULL`;
-    }
-    if (setApplicationDate) {
-      query += `, applicationdate = $${params.length + 1}`;
-      params.push(now);
-    }
+    const { data, error } = await supabase.from('applicant').update(updates).in('applicantid', ids).select('*');
+    if (error) throw error;
 
-    query += ` WHERE applicantid = ANY($${params.length + 1}::int[]) RETURNING *`;
-    params.push(ids);
-
-    const result = await dbClient.query(query, params);
-
-    if (status === "Hired" && result.rows.length > 0) {
-      for (const applicant of result.rows) {
-        const insertEmployeeQuery = `
-          INSERT INTO employee (
-            firstname,
-            middlename,
-            lastname,
-            departmentid,
-            positionid,
-            contact,
-            address,
-            email,
-            sss_number,
-            pagibig_number,
-            philhealth_number,
-            bir_number,
-            applicantid,
-            employeeimage,
-            type,
-            leavecredit,
-            shiftid,
-            hiredate
-          )
-          VALUES (
-            $1, $2, $3, $4, $5, 
-            $6, $7, $8, $9, $10, 
-            $11, $12, $13, $14,
-            'Regular', 0.00, 1, $15
-          )
-          RETURNING employeeid
-        `;
-
-        const employeeParams = [
-          applicant.firstname,
-          applicant.middlename,
-          applicant.lastname,
-          applicant.departmentid,
-          applicant.positionid,
-          applicant.contact,
-          applicant.address,
-          applicant.email,
-          applicant.sss_number,
-          applicant.pagibig_number,
-          applicant.philhealth_number,
-          applicant.bir_number,
-          applicant.applicantid,
-          applicant.applicantimage,
-          now
-        ];
-
-        await dbClient.query(insertEmployeeQuery, employeeParams);
+    if (status === 'Hired' && (data || []).length > 0) {
+      for (const applicant of data) {
+        const employeePayload = {
+          firstname: applicant.firstname,
+          middlename: applicant.middlename,
+          lastname: applicant.lastname,
+          departmentid: applicant.departmentid,
+          positionid: applicant.positionid,
+          contact: applicant.contact,
+          address: applicant.address,
+          email: applicant.email,
+          sss_number: applicant.sss_number,
+          pagibig_number: applicant.pagibig_number,
+          philhealth_number: applicant.philhealth_number,
+          bir_number: applicant.bir_number,
+          applicantid: applicant.applicantid,
+          employeeimage: applicant.applicantimage,
+          type: 'Regular',
+          leavecredit: 0.00,
+          shiftid: 1,
+          hiredate: nowISO,
+        };
+        await supabase.from('employee').insert([employeePayload]);
       }
     }
+
     return { success: true };
   } catch (err) {
-    logMessage("DB query error (updateApplicantsStatus):", err);
+    console.error('updateApplicantsStatus error:', err);
     return { success: false, message: err.message };
   }
 });
 
-ipcMain.handle("getDeptPos", async () => {
+ipcMain.handle('getDeptPos', async () => {
   try {
-    const res = await dbClient.query(`
-      SELECT 
-        d.departmentid,
-        d.departmentname,
-        p.positionid,
-        p.positionname
-      FROM department d
-      JOIN position p ON d.departmentid = p.departmentid
-      ORDER BY d.departmentname, p.positionname
-    `);
+    const { data, error } = await supabase
+      .from('department')
+      .select('departmentid, departmentname, positions:position ( positionid, positionname )')
+      .order('departmentname', { ascending: true });
+    if (error) throw error;
 
-    return res.rows;
+    // flatten to match original shape
+    const rows = [];
+    (data || []).forEach(d => {
+      (d.positions || []).forEach(p => {
+        rows.push({ departmentid: d.departmentid, departmentname: d.departmentname, positionid: p.positionid, positionname: p.positionname });
+      });
+    });
+
+    return rows;
   } catch (err) {
-    console.error("DB query error (getDepartmentsAndPositions):", err);
+    console.error('getDeptPos error:', err);
     return [];
   }
 });
-
-// -----------------------------

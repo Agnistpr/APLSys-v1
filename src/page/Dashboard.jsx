@@ -1,18 +1,72 @@
-import React, { useEffect, useState } from 'react';
-import { FaUsers, FaUserClock, FaBell } from 'react-icons/fa';
+import React, { useEffect, useState, useRef } from 'react';
+import { FaUserClock, FaClipboardCheck, FaClipboardList } from 'react-icons/fa';
 
-import AttendanceComponent from '../components/AttendanceComponent.jsx';
-import AbsenceComponent from '../components/AbsenceComponent.jsx';
-import LeaveComponent from '../components/OnLeaveComponent.jsx';
-import InventoryComponent from '../components/InventoryComponent.jsx';
+import AttendanceTab from '../tabs/AttendanceTab.jsx';
+import AbsenceTab from '../tabs/AbsenceTab.jsx';
+import LeaveTab from '../tabs/LeaveTab.jsx';
+import InventoryTab from '../tabs/InventoryTab.jsx';
 
-const Dashboard = ({ userId, setActivePage, setSelectedEmployeeId, setPreviousPage, selectedTab, setSelectedTab, setPreviousTab  }) => {
+function useFitText({ text, maxSize = 28, minSize = 12 }) {
+  const elementRef = useRef(null);
+
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element) return;
+
+    const resizeToFit = () => {
+      let currentSize = maxSize;
+      element.style.fontSize = `${currentSize}px`;
+
+      while (element.scrollWidth > element.clientWidth && currentSize > minSize) {
+        currentSize -= 1;
+        element.style.fontSize = `${currentSize}px`;
+      }
+    };
+
+    resizeToFit();
+
+    let observer;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(resizeToFit);
+      observer.observe(element);
+      if (element.parentElement) observer.observe(element.parentElement);
+    } else {
+      window.addEventListener('resize', resizeToFit);
+    }
+
+    return () => {
+      if (observer) observer.disconnect();
+      else window.removeEventListener('resize', resizeToFit);
+    };
+  }, [text, maxSize, minSize]);
+
+  return elementRef;
+}
+
+function CardValue({ value, max = 28, min = 12 }) {
+  const ref = useFitText({ text: value, maxSize: max, minSize: min });
+  return (
+    <div ref={ref} className="cardValue">
+      {value}
+    </div>
+  );
+}
+
+const Dashboard = ({ 
+  userId, 
+  setActivePage, 
+  setSelectedEmployeeId, 
+  setPreviousPage, 
+  selectedTab, 
+  setSelectedTab, 
+  setPreviousTab  
+}) => {
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
-
   const [totalEmployees, setTotalEmployees] = useState(0);
   const [totalAttendance, setTotalAttendance] = useState(0);
-  const [totalOnLeave, setTotalOnLeave] = useState(0);
+  const [totalApprovedLeaves, setTotalApprovedLeaves] = useState(0);
+  const [totalLeaveRequests, setTotalLeaveRequests] = useState(0);
 
   const handleTabChange = (tab) => setSelectedTab(tab);
 
@@ -20,20 +74,34 @@ const Dashboard = ({ userId, setActivePage, setSelectedEmployeeId, setPreviousPa
     try {
       const counts = await window.fileAPI.getDashboardCardData();
       if (counts) {
-        setTotalEmployees(counts.totalEmployees);
-        setTotalAttendance(counts.totalAttendance);
-        setTotalOnLeave(counts.totalOnLeave);
-      } else {
-        console.error('Counts is undefined');
+        setTotalEmployees(counts.totalEmployees || 0);
+        setTotalAttendance(counts.totalAttendance || 0);
+        setTotalApprovedLeaves(counts.totalApprovedLeaves || 0);
+        setTotalLeaveRequests(counts.totalLeaveRequests || 0);
       }
     } catch (err) {
       console.error('Failed to fetch dashboard counts:', err);
     }
   };
 
+  useEffect(() => {
+    const updateTimeAndData = async () => {
+      const now = new Date();
+      setDateStr(now.toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric'
+      }));
+      setTimeStr(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      await fetchCounts();
+    };
+
+    updateTimeAndData();
+    const interval = setInterval(updateTimeAndData, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   const tabComponents = {
     Attendance: (
-      <AttendanceComponent
+      <AttendanceTab
         userId={userId}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
@@ -45,7 +113,7 @@ const Dashboard = ({ userId, setActivePage, setSelectedEmployeeId, setPreviousPa
       />
     ),
     Absent: (
-      <AbsenceComponent
+      <AbsenceTab
         userId={userId}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
@@ -56,8 +124,22 @@ const Dashboard = ({ userId, setActivePage, setSelectedEmployeeId, setPreviousPa
         refreshDashboard={fetchCounts}
       />
     ),
-    "On Leave": (
-      <LeaveComponent
+    "Approved Leaves": (
+      <LeaveTab
+        type="Approved"
+        userId={userId}
+        setActivePage={(page) => {
+          setPreviousPage("Dashboard");
+          setPreviousTab(selectedTab);
+          setActivePage(page);
+        }}
+        setSelectedEmployeeId={setSelectedEmployeeId}
+        refreshDashboard={fetchCounts}
+      />
+    ),
+    "Leave Requests": (
+      <LeaveTab
+        type="Request"
         userId={userId}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
@@ -69,7 +151,7 @@ const Dashboard = ({ userId, setActivePage, setSelectedEmployeeId, setPreviousPa
       />
     ),
     "PPE Inventory": (
-      <InventoryComponent
+      <InventoryTab
         userId={userId}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
@@ -82,23 +164,7 @@ const Dashboard = ({ userId, setActivePage, setSelectedEmployeeId, setPreviousPa
     ),
   };
 
-  useEffect(() => {
-    const updateTimeAndData = async () => {
-      const now = new Date();
-      setDateStr(now.toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric'
-      }));
-      setTimeStr(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-
-      await fetchCounts();
-    };
-
-    updateTimeAndData();
-    const interval = setInterval(updateTimeAndData, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const tabs = ["Attendance", "Absent", "On Leave", "PPE Inventory"];
+  const tabs = ["Attendance", "Absent", "Approved Leaves", "Leave Requests", "PPE Inventory"];
 
   return (
     <div className="dashboardContainer">
@@ -110,33 +176,22 @@ const Dashboard = ({ userId, setActivePage, setSelectedEmployeeId, setPreviousPa
             <span className="divider">|</span>
             <span>{timeStr}</span>
           </div>
-          {/* <FaBell className="notifIcon" /> */}
         </div>
       </div>
 
       <div className="topCards">
         {[
-          ["Total Employees", totalEmployees, <FaUsers />, null],
-          ["Today's Attendance", totalAttendance, <FaUserClock />, "Attendance"],
-          ["On Leave Today", totalOnLeave, <FaUserClock />, "On Leave"]
-        ].map(([title, value, icon, redirectTab], idx) => (
+          [`Attendance (Yesterday)`, `${totalAttendance} / ${totalEmployees}`, <FaUserClock />],
+          ["Approved Leaves", String(totalApprovedLeaves), <FaClipboardCheck />],
+          ["Leave Requests", String(totalLeaveRequests), <FaClipboardList />],
+        ].map(([title, value, icon], idx) => (
           <div key={idx} className="dashboardCards">
             <div className="cardBody">
               <div className="cardIcon">{icon}</div>
               <div className="cardInfo">
                 <div className="cardTitle">{title}</div>
-                <div className="cardValue">{value}</div>
+                <CardValue value={value} />
               </div>
-            </div>
-            <div className="cardFooter">
-              <button
-                className="viewDetails"
-                onClick={() => {
-                  if (redirectTab) handleTabChange(redirectTab);
-                }}
-              >
-                View Details ➔
-              </button>
             </div>
           </div>
         ))}

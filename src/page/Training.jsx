@@ -601,26 +601,26 @@ const Training = ({ setActivePage, setSelectedApplicantId }) => {
                 <div>
                   <div className="actions">
                     {!showCheckboxes ? (
-                      <button className="addBtn" onClick={toggleCheckboxes}>
+                      <button className="actionBtn" onClick={toggleCheckboxes}>
                         Toggle
                       </button>
                     ) : (
                       <>
-                        <button className="addBtn" onClick={toggleCheckboxes}>
+                        <button className="actionBtn" onClick={toggleCheckboxes}>
                           Cancel
                         </button>
 
                         {selectedTab === "Training" && (
                           <>
                             <button
-                              className="addBtn"
+                              className="actionBtn"
                               onClick={handleApprove}
                               disabled={selectedIds.length === 0}
                             >
                               Hire
                             </button>
                             <button
-                              className="addBtn"
+                              className="actionBtn"
                               onClick={handleReject}
                               disabled={selectedIds.length === 0}
                             >
@@ -632,14 +632,14 @@ const Training = ({ setActivePage, setSelectedApplicantId }) => {
                         {selectedTab === "Rejected" && (
                           <>
                             <button
-                              className="addBtn"
+                              className="actionBtn"
                               onClick={() => handleReject("Retrain")}
                               disabled={selectedIds.length === 0}
                             >
                               Retrain
                             </button>
                             <button
-                              className="addBtn"
+                              className="actionBtn"
                               onClick={() => handleReject("Re-screen")}
                               disabled={selectedIds.length === 0}
                             >

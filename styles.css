@@ -1,7 +1,7 @@
 /* #region [Main] */
-html {
+/* html {
   overflow-x: auto
-}
+} */
 
 .scrollContainer {
   overflow-x: auto;
@@ -31,7 +31,7 @@ h1 {
   margin: 0;
   font-size: 24px;
   font-weight: bold;
-  text-align: center;
+  /* text-align: center; */
 }
 
 p {
@@ -65,7 +65,7 @@ input {
 
 .content.expanded {
   margin-left: 220px;
-  overflow-x: auto;
+  /* overflow-x: auto; */
 }
 
 .content.collapsed {
@@ -181,6 +181,27 @@ input {
   justify-content: center;
 }
 
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 1rem;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #333;
+}
+
 .modalForm {
   display: flex;
   flex-direction: column;
@@ -258,7 +279,11 @@ input {
   display: block;
 }
 
-.leaveModalDateRow,
+.leaveModalDateRow {
+  margin-bottom: 1rem;
+  display: flex;
+  gap: 2rem ;
+}
 .leaveModalReasonRow {
   margin-bottom: 1rem;
 }
@@ -295,6 +320,7 @@ input {
   color: #fff;
 }
 
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -313,6 +339,16 @@ input {
   height: 100vh;
 }
 
+.modalContent .loadingContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  min-height: 200px;
+  text-align: center;
+  flex-direction: column;
+}
+
 .spinner {
   width: 40px;
   height: 40px;
@@ -326,7 +362,139 @@ input {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* Employee Search Dropdown Styles */
+.employeeSearchBox {
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  background-color: #f2f2f2;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.searchInput:focus {
+  background-color: #fff;
+  border-color: #981b1b;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(152, 27, 27, 0.15);
+}
+
+.suggestionList {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #ccc;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  max-height: 200px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 20;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  scrollbar-width: none; 
+}
+
+.suggestionList::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
+
+.suggestionItem {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px; /* horizontal padding matches input box */
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+
+  /* make sure inner content spans full width */
+  width: 100%;
+}
+
+.suggestionItem strong,
+.suggestionItem span {
+  margin: 0;      /* remove any default margin */
+  padding: 0;     /* remove any default padding */
+  width: 100%;    /* ensure full width for flex column alignment */
+}
+
+
+.suggestionItem:hover {
+  background-color: #f8f8f8;
+}
+
+.suggestionItem.selected {
+  background-color: #e8f0ff;
+}
+
+.selectedEmployees {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 1rem;
+}
+
+.employeeTag {
+  background-color: #f2f2f2;
+  border: 1px solid #ccc;
+  border-radius: 16px;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.employeeTag button {
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: #981b1b;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.employeeTag button:hover {
+  color: #c62828;
+}
 /* #endregion Global/Main Styles */
+
+/* #region [Component] */
+  .matchTabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .matchTab {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: #f5f5f5;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+  }
+  .matchTab.active {
+    background: #981b1b;
+    color: white;
+    border-color: #981b1b;
+  }
+  .matchTab:hover:not(.active) {
+    background: #eaeaea;
+  }
+/* #endregion Component Styles */
 
 /* #region [Sidebar] */
 .sidebar {
@@ -586,8 +754,18 @@ body.login .content {
   border-radius: 8px;
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
   width: 100%;
-  max-width: 360px; /* smaller width to prevent horizontal scroll */
-  box-sizing: border-box; /* include padding in width */
+  max-width: 360px;
+  box-sizing: border-box;
+}
+
+.logoIcon {
+  width: 100%;
+  height: 100%;
+}
+
+.forgot {
+  font-size: 12px;
+  margin-top: 10px;
 }
 
 .loginLogo {
@@ -619,7 +797,7 @@ body.login .content {
 }
 
 .loginButton {
-  margin-top: 20px;
+  margin-top: 10px;
   width: 100%;
   padding: 10px;
   background-color: #A12323;
@@ -684,7 +862,7 @@ body.login .content {
   display: flex;
   flex-wrap: wrap;
   gap: 20px;
-  margin-bottom: 30px;
+  margin-bottom: 60px;
   align-items: center;
 }
 
@@ -720,6 +898,7 @@ body.login .content {
   align-items: flex-end;
   text-align: right;
   flex-grow: 1;
+  min-width: 0; /* <-- important: allow flex child to shrink */
 }
 
 .cardTitle {
@@ -730,8 +909,14 @@ body.login .content {
 }
 
 .cardValue {
-  font-size: 28px;
   font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  display: inline-block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-size: 28px;
 }
 
 .cardFooter {
@@ -771,9 +956,14 @@ body.login .content {
 }
 
 .dashboardTabs {
-  display: flex;
-  overflow-x: auto;
+  /* display: flex;
+  overflow-x: auto; */
   /* background-color: transparent; */
+
+  display: flex;
+  /* gap: 10px;
+  margin: 15px 0; */
+  flex-wrap: wrap;
 }
 
 .dashboardTabs::-webkit-scrollbar {
@@ -1085,7 +1275,7 @@ body.login .content {
 .editCardBtn:hover { background-color: rgba(0,0,0,0.05); transform: scale(1.08); }
 .editCardBtn:active { transform: scale(0.98); }
 
-.addBtn {
+.actionBtn {
   background-color: #981b1b;
   color: #fff;
   border: none;
@@ -1332,10 +1522,10 @@ body.login .content {
 .filterValuesPanel {
   position: absolute;
   top: 45px;
-  right: -220px;
+  right: -221px;
   background: #fff;
   border: 1px solid black;
-  border-radius: 6px;
+  /* border-radius: 6px; */
   width: 220px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.15);
   z-index: 21;
@@ -1345,8 +1535,11 @@ body.login .content {
 .filterValuesHeader {
   background: #981b1b;
   color: #fff;
-  padding: 0.5rem;
+  padding: 0.63rem;
   font-weight: bold;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .filterValuesList {
@@ -1598,7 +1791,7 @@ body.login .content {
 
 .attendanceHeader {
   font-size: 1.3rem;
-  margin-bottom: 0.5rem;
+  /* margin-bottom: 0.5rem; */
 }
 
 .attendanceTableWrapper {
@@ -1691,11 +1884,10 @@ body.login .content {
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
+  margin-bottom: 1rem;;
 }
 
 .attendanceHeader {
-  font-size: 32px;
-  font-weight: bold;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -2811,19 +3003,18 @@ body.login .content {
 /* #endregion Logs Styles */
 
 /* #region [Analyzer] */
-:root {
+/* :root {
   --theme-purple: #5d52d9;
   --theme-blue: #4fc5eb;
   --top-nav-bar-height: 3.5rem;
   --resume-control-bar-height: 3rem;
   --resume-padding: 1.5rem;
-}
+} */
 
-/* Container Layout */
 .resume-parser-container {
   display: flex;
   gap: 1.5rem;
-  height: 100vh;
+  height: 98vh;
   padding: 1rem;
   background: #fafafa;
   box-sizing: border-box;

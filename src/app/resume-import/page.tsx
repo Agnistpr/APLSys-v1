@@ -1,6 +1,6 @@
 "use client";
-import { getHasUsedAppBefore } from "lib/redux/local-storage";
-import { ResumeDropzone } from "components/ResumeDropzone";
+import { getHasUsedAppBefore } from "../lib/redux/local-storage";
+import { ResumeDropzone } from "../components/ResumeDropzone";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 

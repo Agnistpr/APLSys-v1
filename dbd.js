@@ -1,33 +1,79 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 import { Client } from "pg";
 
+// 🔧 CONFIGURATION
+const NUM_APPLICANTS = 5;         // Number of random applicants (not hired)
+const NUM_EMPLOYEES = 10;         // Number of employees to seed
+const ATTENDANCE_DAYS = 10;       // Number of days of attendance before today
+const NUM_LEAVES = 5;             // Number of leave records to generate
+const NUM_INVENTORY_LOGS = 2;     // Number of inventory log records
+
+// PG Connection
+// const client = new Client({
+//   user: "client",
+//   host: "localhost",
+//   database: "postgres",
+//   password: "@PLSys",
+//   port: 5432,
+// });
+
+// SUPBASE  Connection
+// postgresql://postgres:[YOUR-PASSWORD]@db.ntsvoexuhippdbfnivud.supabase.co:5432/postgres
 const client = new Client({
-  user: "client",
-  host: "localhost",
-  database: "postgres",
-  password: "@PLSys",
-  port: 5432,
+  connectionString: 
+    "postgresql://postgres.ntsvoexuhippdbfnivud:GO2bHiZvgXTSp3YG@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require",
+  ssl: {
+    rejectUnauthorized: false,
+  },
 });
 
+// await client.connect();
+// console.log("✅ Connected to Supabase Shared Pooler!");
+
+// client.connect()
+//   .then(() => console.log("✅ Connected to Supabase!"))
+//   .catch(err => console.error("❌ Connection error:", err));
+
+// Sample data pools
 const firstNames = ["John", "Jane", "Mike", "Anna", "Paul", "Mary", "Chris", "Laura", "David", "Emma"];
 const lastNames = ["Doe", "Smith", "Johnson", "Brown", "Williams", "Jones", "Taylor", "Davis", "Miller", "Wilson"];
+const genders = ["Male", "Female"];
+const empTypes = ["Regular", "Contractual", "Resigned"];
+const leaveStatuses = ["Approved", "Request"];
+const leaveReasons = [
+  "Vacation leave",
+  "Sick leave",
+  "Family emergency",
+  "Personal matters",
+  "Medical appointment",
+  "Travel",
+];
+const items = [
+  "Hard Hat", "Safety Gloves", "Boots", "Earplugs", "Safety Goggles",
+  "Reflective Vest", "First Aid Kit", "Tool Belt", "Face Mask", "Harness"
+];
 
+// Utility helpers
 function getNameByIndex(i) {
   const firstIndex = i % firstNames.length;
   const lastIndex = Math.floor(i / firstNames.length) % lastNames.length;
-  return {
-    first: firstNames[firstIndex],
-    last: lastNames[lastIndex],
-  };
+  return { first: firstNames[firstIndex], last: lastNames[lastIndex] };
 }
-
 function randomChoice(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+function randomDate(start, end) {
+  return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
+}
+function formatDate(date) {
+  return date.toISOString().split("T")[0];
 }
 
 async function seedDatabase() {
   try {
     await client.connect();
 
+    console.log("⚡ Resetting database...");
     await client.query(`
       TRUNCATE TABLE 
         userlogs, users, attendance, leave, inventorylogs, document,
@@ -36,10 +82,10 @@ async function seedDatabase() {
       RESTART IDENTITY CASCADE
     `);
 
+    // Departments + Positions
     const deptRes = await client.query(`
       INSERT INTO department (departmentname) VALUES ('Office'), ('Production') RETURNING *;
     `);
-
     const posRes = await client.query(`
       INSERT INTO position (positionname, departmentid) VALUES
         ('Cutting', ${deptRes.rows[1].departmentid}),
@@ -57,6 +103,7 @@ async function seedDatabase() {
       RETURNING *;
     `);
 
+    // Shifts
     const shiftInserts = [];
     let cur = 0;
     while (shiftInserts.length < 20) {
@@ -66,9 +113,7 @@ async function seedDatabase() {
       let endHour = startHour + durationHours;
       if (endHour > 19) endHour = 19;
       const endMinute = startMinute;
-      const start = `${String(startHour).padStart(2, "0")}:${startMinute}`;
-      const end = `${String(endHour).padStart(2, "0")}:${endMinute}`;
-      shiftInserts.push(`('${start}', '${end}', ${Math.random() < 0.3 ? "NULL" : Math.floor(Math.random() * 5) + 1})`);
+      shiftInserts.push(`('${String(startHour).padStart(2, "0")}:${startMinute}', '${String(endHour).padStart(2, "0")}:${endMinute}', ${Math.random() < 0.3 ? "NULL" : Math.floor(Math.random() * 5) + 1})`);
       cur++;
     }
     const shiftRes = await client.query(`
@@ -77,29 +122,9 @@ async function seedDatabase() {
       RETURNING *;
     `);
 
-    function randomDate(start, end) {
-      return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
-    }
-
-    function formatDate(date) {
-      return date.toISOString().split("T")[0];
-    }
-
-    const statuses = ["Pending", "Training", "Rejected", "Hired"];
-    const genders = ["Male", "Female"];
-
-    for (let i = 0; i < 10; i++) {
+    // Applicants (not hired)
+    for (let i = 0; i < NUM_APPLICANTS; i++) {
       const { first, last } = getNameByIndex(i);
-
-      const applicationDate = randomDate(new Date(2024, 0, 1), new Date());
-      let trainingDate = null;
-      if (Math.random() < 0.5) {
-        trainingDate = randomDate(
-          new Date(applicationDate.getTime() + 24 * 60 * 60 * 1000),
-          new Date()
-        );
-      }
-
       const birthdate = randomDate(new Date(1985, 0, 1), new Date(2005, 0, 1));
       const age = new Date().getFullYear() - birthdate.getFullYear();
 
@@ -108,96 +133,32 @@ async function seedDatabase() {
           firstname, middlename, lastname, departmentid, positionid,
           contact, address, email, sss_number, pagibig_number,
           philhealth_number, bir_number, status, applicantimage,
-          applicationdate, trainingdate, gender, age, birthdate
-        ) VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-          $11,$12,$13,$14,$15,$16,$17,$18,$19
-        )`,
+          applicationdate, gender, age, birthdate
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Pending',$13,$14,$15,$16,$17)`,
         [
-          first,
-          "M",
-          last,
+          first, "M", last,
           randomChoice(deptRes.rows).departmentid,
           randomChoice(posRes.rows).positionid,
           `0917${Math.floor(1000000 + Math.random() * 8999999)}`,
           `${i + 1} Applicant St`,
           `applicant${i + 1}@example.com`,
-          `SSS${100 + i}`,
-          `PAG${100 + i}`,
-          `PH${100 + i}`,
-          `BIR${100 + i}`,
-          randomChoice(statuses),
+          `SSS${100 + i}`, `PAG${100 + i}`, `PH${100 + i}`, `BIR${100 + i}`,
           Buffer.from(`ImageData${i + 1}`),
-          formatDate(applicationDate),
-          trainingDate ? formatDate(trainingDate) : null,
-          randomChoice(genders),
-          age,
-          formatDate(birthdate)
+          formatDate(randomDate(new Date(2024, 0, 1), new Date())),
+          randomChoice(genders), age, formatDate(birthdate)
         ]
       );
     }
 
-    const hiredApplicantIds = [];
-    for (let i = 0; i < 100; i++) {
-      const { first, last } = getNameByIndex(i);
-
-      const applicationDate = randomDate(new Date(2024, 0, 1), new Date());
-      let trainingDate = null;
-      if (Math.random() < 0.7) {
-        trainingDate = randomDate(
-          new Date(applicationDate.getTime() + 24 * 60 * 60 * 1000),
-          new Date()
-        );
-      }
-
-      const birthdate = randomDate(new Date(1985, 0, 1), new Date(2005, 0, 1));
-      const age = new Date().getFullYear() - birthdate.getFullYear();
-
-      const res = await client.query(
-        `INSERT INTO applicant (
-          firstname, middlename, lastname, departmentid, positionid,
-          contact, address, email, sss_number, pagibig_number,
-          philhealth_number, bir_number, status, applicantimage,
-          applicationdate, trainingdate, gender, age, birthdate
-        ) VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-          $11,$12,'Hired',$13,$14,$15,$16,$17,$18
-        ) RETURNING applicantid`,
-        [
-          first,
-          "M",
-          last,
-          randomChoice(deptRes.rows).departmentid,
-          randomChoice(posRes.rows).positionid,
-          `0917${Math.floor(1000000 + Math.random() * 8999999)}`,
-          `${i + 1} Employee St`,
-          `employee${i + 1}@example.com`,
-          `SSS${200 + i}`,
-          `PAG${200 + i}`,
-          `PH${200 + i}`,
-          `BIR${200 + i}`,
-          Buffer.from(`ImageDataEmp${i + 1}`),
-          formatDate(applicationDate),
-          trainingDate ? formatDate(trainingDate) : null,
-          randomChoice(genders),
-          age,
-          formatDate(birthdate)
-        ]
-      );
-      hiredApplicantIds.push(res.rows[0].applicantid);
-    }
-
-    const empTypes = ["Regular", "Contractual", "Resigned"];
+    // Employees
     const empRes = [];
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < NUM_EMPLOYEES; i++) {
       const { first, last } = getNameByIndex(i);
       const res = await client.query(
-        `INSERT INTO employee (firstname, middlename, lastname, departmentid, positionid, contact, address, email, shiftid, hiredate, sss_number, pagibig_number, philhealth_number, bir_number, leavecredit, type, employeeimage, applicantid)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING employeeid`,
+        `INSERT INTO employee (firstname, middlename, lastname, departmentid, positionid, contact, address, email, shiftid, hiredate, sss_number, pagibig_number, philhealth_number, bir_number, leavecredit, type, employeeimage)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING employeeid`,
         [
-          first,
-          "M",
-          last,
+          first, "M", last,
           randomChoice(deptRes.rows).departmentid,
           randomChoice(posRes.rows).positionid,
           `0917${Math.floor(1000000 + Math.random() * 8999999)}`,
@@ -205,90 +166,83 @@ async function seedDatabase() {
           `employee${i + 1}@example.com`,
           randomChoice(shiftRes.rows).shiftid,
           `2022-01-${String((i % 28) + 1).padStart(2, "0")}`,
-          `SSS${300 + i}`,
-          `PAG${300 + i}`,
-          `PH${300 + i}`,
-          `BIR${300 + i}`,
+          `SSS${300 + i}`, `PAG${300 + i}`, `PH${300 + i}`, `BIR${300 + i}`,
           Math.floor(Math.random() * 20),
           randomChoice(empTypes),
-          null,
-          hiredApplicantIds[i],
+          null
         ]
       );
       empRes.push(res.rows[0].employeeid);
     }
 
-    const startDate = new Date("2025-07-20");
+    // Attendance
     const today = new Date();
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - ATTENDANCE_DAYS);
+
     for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
       for (let emp of empRes) {
-        if (Math.random() < 0.7) {
+        if (Math.random() < 0.7 || d.toDateString() === today.toDateString()) {
           const timeIn = `${String(8 + Math.floor(Math.random() * 2)).padStart(2, "0")}:${String(Math.floor(Math.random() * 60)).padStart(2, "0")}`;
           const timeOut = `${String(17 + Math.floor(Math.random() * 2)).padStart(2, "0")}:${String(Math.floor(Math.random() * 60)).padStart(2, "0")}`;
           await client.query(
             `INSERT INTO attendance (date, employeeid, timein, timeout) VALUES ($1,$2,$3,$4)`,
-            [d.toISOString().slice(0, 10), emp, timeIn, timeOut]
+            [formatDate(d), emp, timeIn, timeOut]
           );
         }
       }
     }
 
-    const items = [
-      "Hard Hat",
-      "Safety Gloves",
-      "Boots",
-      "Earplugs",
-      "Safety Goggles",
-      "Reflective Vest",
-      "First Aid Kit",
-      "Tool Belt",
-      "Face Mask",
-      "Harness"
-    ];
+    // Inventory
     const itemRes = [];
     for (let i = 0; i < items.length; i++) {
       const res = await client.query(
         `INSERT INTO inventory (itemname, quantity, lastmodified)
-        VALUES ($1, $2, NOW()) RETURNING itemid`,
+         VALUES ($1, $2, NOW()) RETURNING itemid`,
         [items[i], Math.floor(Math.random() * 100) + 1]
       );
       itemRes.push(res.rows[0].itemid);
     }
 
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < NUM_INVENTORY_LOGS; i++) {
       await client.query(
         `INSERT INTO inventorylogs (itemid, employeeid, quantity, date) VALUES ($1,$2,$3,$4)`,
         [
           randomChoice(itemRes),
           randomChoice(empRes),
           Math.floor(Math.random() * 5) + 1,
-          `2025-07-${String((i % 28) + 1).padStart(2, "0")}`,
+          formatDate(randomDate(new Date(2025, 6, 1), today)),
         ]
       );
     }
 
-    for (let i = 0; i < 50; i++) {
+    // Leaves
+    for (let i = 0; i < NUM_LEAVES; i++) {
+      const start = randomDate(new Date(2025, 6, 1), today);
+      const duration = Math.floor(Math.random() * 3) + 1;
+      const end = new Date(start);
+      end.setDate(start.getDate() + duration);
+
       await client.query(
-        `INSERT INTO leave (date, employeeid) VALUES ($1,$2)`,
+        `INSERT INTO leave (employeeid, reason, start_date, end_date, status)
+         VALUES ($1, $2, $3, $4, $5)`,
         [
-          `2025-07-${String((i % 28) + 1).padStart(2, "0")}`,
           randomChoice(empRes),
+          randomChoice(leaveReasons),
+          formatDate(start),
+          formatDate(end),
+          randomChoice(leaveStatuses)
         ]
       );
     }
 
-    const userRes = [];
-    for (let i = 1; i <= 2; i++) {
-      const res = await client.query(
-        `INSERT INTO users (username, password, userimage) VALUES ($1,$2,$3) RETURNING userid`,
-        [`user${i}`, `passhash${i}`, Buffer.from(`UserImage${i}`)]
-      );
-      userRes.push(res.rows[0].userid);
-    }
-
-    const janeRes = await client.query(
-      `INSERT INTO users (username, password, userimage) VALUES ($1,$2,$3) RETURNING userid`,
-      ["Jane Doe", "admin123", Buffer.from("JaneDoeImage")]
+    // Users
+    await client.query(
+      `INSERT INTO users (username, password, userimage) VALUES 
+       ('user1','passhash1',$1),
+       ('user2','passhash2',$2),
+       ('Jane Doe','admin123',$3)`,
+      [Buffer.from("UserImage1"), Buffer.from("UserImage2"), Buffer.from("JaneDoeImage")]
     );
 
     console.log("✅ Dummy data inserted successfully.");

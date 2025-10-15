@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { parseResumeFromPdf } from "lib/parse-resume-from-pdf";
+import { parseResumeFromPdf } from "../lib/parse-resume-from-pdf";
 import {
   getHasUsedAppBefore,
   saveStateToLocalStorage,
-} from "lib/redux/local-storage";
-import { type ShowForm, initialSettings } from "lib/redux/settingsSlice";
-import { cx } from "lib/cx";
-import { deepClone } from "lib/deep-clone";
+} from "../lib/redux/local-storage";
+import { type ShowForm, initialSettings } from "../lib/redux/settingsSlice";
+import { cx } from "../lib/cx";
+import { deepClone } from "../lib/deep-clone";
 import { useNavigate } from "react-router-dom";
 
 const defaultFileState = {

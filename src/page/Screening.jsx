@@ -421,7 +421,7 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
 
               <div className='applicantControls'>
                 {/* <button
-                  className="addBtn"
+                  className="actionBtn"
                   onClick={() => {
                     setPreviousPage(activePage);
                     setActivePage("DocumentManagement");
@@ -691,26 +691,26 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
                 <div>
                   <div className="actions">
                     {!showCheckboxes ? (
-                      <button className="addBtn" onClick={toggleCheckboxes}>
+                      <button className="actionBtn" onClick={toggleCheckboxes}>
                         Toggle
                       </button>
                     ) : (
                       <>
-                        <button className="addBtn" onClick={toggleCheckboxes}>
+                        <button className="actionBtn" onClick={toggleCheckboxes}>
                           Cancel
                         </button>
 
                         {selectedTab === "Pending" && (
                           <>
                             <button
-                              className="addBtn"
+                              className="actionBtn"
                               onClick={handleApprove}
                               disabled={selectedIds.length === 0}
                             >
                               Approve
                             </button>
                             <button
-                              className="addBtn"
+                              className="actionBtn"
                               onClick={handleReject}
                               disabled={selectedIds.length === 0}
                             >
@@ -722,14 +722,14 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
                         {selectedTab === "Approved" && (
                           <>
                             <button
-                              className="addBtn"
+                              className="actionBtn"
                               onClick={handleApprove}
                               disabled={selectedIds.length === 0}
                             >
                               Move to Training
                             </button>
                             <button
-                              className="addBtn"
+                              className="actionBtn"
                               onClick={handleReject}
                               disabled={selectedIds.length === 0}
                             >
@@ -740,7 +740,7 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
 
                         {selectedTab === "Rejected" && (
                           <button
-                            className="addBtn"
+                            className="actionBtn"
                             onClick={handleApprove}
                             disabled={selectedIds.length === 0}
                           >

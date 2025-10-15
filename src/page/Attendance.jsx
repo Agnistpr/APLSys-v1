@@ -119,7 +119,7 @@ const Attendance = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, act
         <div className="attendanceHeader">
           <h1>Attendance</h1>
           <button className="exportBtn" onClick={() => window.fileAPI.exportAttendance()}>
-            Export
+            Export All
           </button>
         </div>
 

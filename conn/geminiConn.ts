@@ -10,9 +10,10 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = "gemini-2.5-pro"
+const BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+const GEMINI_API_URL = `${BASE_URL}/models/${GEMINI_MODEL}:generateText`;
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 console.log("loaded key:", GEMINI_API_KEY);
 app.post("/analyze-resume", async (req, res) => {

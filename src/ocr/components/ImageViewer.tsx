@@ -10,26 +10,56 @@ import {
   Maximize
 } from 'lucide-react';
 import { toast } from 'sonner';
-import Tesseract from 'tesseract.js';
+import { ocrFullScan, ocrRegion, parseDocumentText } from '../../api/ocr';
 import type { ExtractedText } from './DocumentScanner';
-import { classifyText } from '@/ocr/lib/ner';
-
+import axios from "axios";
 
 //Mapping function for NER entity to tag
-function entityToTag(entity: String): string | null
-{
-  if (entity.endsWith('NAME') || entity.endsWith('B-PER') || entity.endsWith('I-PER')) return 'name';
-  if (entity.endsWith('PHONE')) return 'phone';
-  if (entity.endsWith('EMAIL')) return 'email';
-  if (entity.endsWith('EDUCATION') || entity.endsWith('B-ORG') || entity.endsWith('I-ORG')) return 'education';
-  //TO ADD: address, skills, experience
-  if (entity.endsWith('B-LOC') || entity.endsWith('I-LOC')) return 'address';
+export function entityToTag(entity: string): string | null {
+  if (!entity) return null;
+  // Standardize entity group mapping
+  const e = entity.toUpperCase();
+  if (e === 'PER' || e === 'PERSON' || e.endsWith('NAME')) return 'name';
+  if (e === 'ORG' || e === 'ORGANIZATION') return 'organization';
+  if (e === 'LOC' || e === 'LOCATION' || e === 'ADDRESS') return 'location';
+  if (e === 'MISC') return 'misc';
+  if (e === 'EMAIL') return 'email';
+  if (e === 'PHONE') return 'phone';
+  if (e === 'EDUCATION') return 'education';
+  if (e === 'SKILL' || e === 'SKILLS') return 'skills';
+  if (e === 'EXPERIENCE') return 'experience';
   return null;
 }
 
+// Utility to convert a data URL to a File object
+function dataURLtoFile(dataurl: string, filename: string) {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)?.[1] || '';
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
+
+// Example usage inside your OCR handler (e.g., handleFullScanOCR or performOCR)
+const sendImageToClassifier = async (imageDataUrl: string) => {
+  const file = dataURLtoFile(imageDataUrl, "image.png");
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await axios.post("http://localhost:8000/parser/parse-document", formData, {
+    headers: { "Content-Type": "multipart/form-data" }
+  });
+  return response.data;
+};
 
 interface ImageViewerProps {
-  imageUrl: string;
+  //imageUrl: string;
+  fileUrl: string;
+  fileType: string;
   onTextExtracted: (extraction: ExtractedText | ExtractedText[]) => void;
   extractedData: ExtractedText[];
 }
@@ -41,8 +71,19 @@ interface SelectionBox {
   height: number;
 }
 
+export async function classifyTextWithNER(text: string) {
+  const res = await axios.post("http://localhost:8000/parser/parse-document", { text });
+  return res.data.entities;
+}
+
+export async function classifyTextWithAI(text: string) {
+  const res = await axios.post("http://localhost:8000/ai/classify", { text });
+  return res.data.tag;
+}
+
 export const ImageViewer: React.FC<ImageViewerProps> = ({
-  imageUrl,
+  fileUrl,
+  fileType,
   onTextExtracted,
   extractedData
 }) => {
@@ -54,8 +95,9 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
   const [currentSelection, setCurrentSelection] = useState<SelectionBox | null>(null);
-  const [mode, setMode] = useState<'pan' | 'select'>('pan');
+  const [mode, setMode] = useState<'' | 'select'>('select');
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
+  const [parsing, setParsing] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -128,10 +170,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       setSelectionStart({ x, y });
       setCurrentSelection({ x, y, width: 0, height: 0 });
     } else {
-      setIsDragging(true);
-      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      setIsDragging(false);
+      //setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
     }
-  }, [mode, pan, getImageCoords]);
+  }, [mode, getImageCoords]);// pan,
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!imageRef.current) return;
@@ -148,12 +190,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         width: Math.abs(width),
         height: Math.abs(height),
       });
-    } else if (isDragging && mode === 'pan') {
-      setPan({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
-      });
-    }
+    } 
+    // else if (isDragging) { // && mode === 'pan'
+    //   setPan({
+    //     x: e.clientX - dragStart.x,
+    //     y: e.clientY - dragStart.y,
+    //   });
+    // }
   }, [isSelecting, isDragging, mode, selectionStart, dragStart, getImageCoords]);
 
   const handleMouseUp = useCallback(async () => {
@@ -167,130 +210,139 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   }, [isSelecting, currentSelection]);
 
   const handleFullScanOCR = useCallback(async () => {
-    if (!imageRef.current) return;
+  if (!imageRef.current) return;
 
-    setIsProcessingOCR(true);
-    toast.loading('Processing full scan OCR...', { id: 'ocr-process' });
+  setIsProcessingOCR(true);
+  toast.loading("Processing full scan OCR...", { id: "ocr-process" });
 
-    try {
-      const img = imageRef.current;
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas context not available');
+  try {
+    const img = imageRef.current;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas context not available");
 
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
 
-      const imageData = canvas.toDataURL('image/png');
-      const { data: { text, confidence } } = await Tesseract.recognize(imageData, 'eng', {
-        logger: m => console.log(m)
-      });
+    const imageData = canvas.toDataURL("image/png");
+    const result = await ocrFullScan(imageData);
 
-      const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    // If result is the doctr structured output:
+    let text = "";
+    if (result.pages) {
+      text = result.pages
+        .map(page =>
+          page.blocks
+            .map(block =>
+              block.lines
+                .map(line =>
+                  line.words.map(word => word.value).join(" ")
+                ).join("\n")
+            ).join("\n")
+        ).join("\n\n");
+    }
 
-      const extractions: ExtractedText[] = [];
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+
+    const extractions = await Promise.all(
+      lines.map(async (line, i) => {
         let tags: string[] = [];
         try {
-          const nerResult = await classifyText(line);
+          const nerResult = await classifyTextWithNER(line);
           tags = nerResult.entities
-            .map((ent: any) => entityToTag(ent.entity))
-            .filter((tag: string | null) => tag !== null);
-        } catch (e) {
+            .map((ent: any) => entityToTag(ent.entity_group || ent.entity))
+            .filter((tag: string | null) => tag !== null) as string[];
+        } catch {
           tags = [];
         }
-
-        extractions.push({
+        return {
           id: `${Date.now()}-${i}`,
           text: line,
           bbox: { x: 0, y: 0, width: 0, height: 0 },
           tags,
-          confidence: Math.round(confidence)
-        });
-      }
+        };
+      })
+    );
 
-      if (extractions.length > 0) {
-        onTextExtracted(extractions);
-        toast.success('Full scan OCR completed', { id: 'ocr-process' });
-      } else {
-        toast.error('No text found in image', { id: 'ocr-process' });
-      }
-    } catch (error) {
-      console.error('Full Scan OCR Error:', error);
-      toast.error('Failed to process full scan OCR', { id: 'ocr-process' });
-    } finally {
-      setIsProcessingOCR(false);
-      setCurrentSelection(null);
+    if (extractions.length > 0) {
+      onTextExtracted(extractions);
+      toast.success("Full scan OCR completed", { id: "ocr-process" });
+    } else {
+      toast.error("No text found in image", { id: "ocr-process" });
     }
-  }, [onTextExtracted]);
+  } catch (error) {
+    console.error("Full Scan OCR Error:", error);
+    toast.error("Failed to process full scan OCR", { id: "ocr-process" });
+  } finally {
+    setIsProcessingOCR(false);
+    setCurrentSelection(null);
+  }
+}, [onTextExtracted]);
 
   const performOCR = useCallback(async (selection: SelectionBox) => {
-    if (!imageRef.current) return;
+  if (!imageRef.current) return;
 
-    setIsProcessingOCR(true);
-    toast.loading('Processing OCR...', { id: 'ocr-process' });
+  setIsProcessingOCR(true);
+  toast.loading("Processing OCR...", { id: "ocr-process" });
 
-    try {
-      const img = imageRef.current;
-      const { gapX, gapY, dispWpre, dispHpre } = getPreTransformMetrics();
+  try {
+    const img = imageRef.current;
+    const { gapX, gapY, dispWpre, dispHpre } = getPreTransformMetrics();
 
-      // map selection (wrapper-pre coords) -> image-pre coords
-      const selXpre = selection.x - gapX;
-      const selYpre = selection.y - gapY;
+    const selXpre = selection.x - gapX;
+    const selYpre = selection.y - gapY;
 
-      // scale factors from pre-transform display -> natural pixels
-      const scaleX = img.naturalWidth  / dispWpre;
-      const scaleY = img.naturalHeight / dispHpre;
+    const scaleX = img.naturalWidth / dispWpre;
+    const scaleY = img.naturalHeight / dispHpre;
 
-      const sx = selXpre * scaleX;
-      const sy = selYpre * scaleY;
-      const sw = selection.width  * scaleX;
-      const sh = selection.height * scaleY;
+    const sx = selXpre * scaleX;
+    const sy = selYpre * scaleY;
+    const sw = selection.width * scaleX;
+    const sh = selection.height * scaleY;
 
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas context not available');
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas context not available");
 
-      canvas.width = Math.max(1, Math.round(sw));
-      canvas.height = Math.max(1, Math.round(sh));
+    canvas.width = Math.max(1, Math.round(sw));
+    canvas.height = Math.max(1, Math.round(sh));
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    const imageData = canvas.toDataURL("image/png");
+    const { text, confidence } = await ocrRegion(imageData);
 
-      const imageData = canvas.toDataURL('image/png');
-      const { data: { text, confidence } } = await Tesseract.recognize(imageData, 'eng', {
-        logger: m => console.log(m)
-      });
-
-      if (text.trim()) {
-        let tags: string[] = [];
-        try {
-          const nerResult = await classifyText(text.trim());
-          tags = nerResult.entities
-            .map((ent: any) => entityToTag(ent.entity))
-            .filter((tag: string | null) => tag !== null) as string[];
-        } catch { tags = []; }
-
-        onTextExtracted({
-          id: Date.now().toString(),
-          text: text.trim(),
-          bbox: selection,  // keep wrapper-pre coords for drawing
-          tags,
-          confidence: Math.round(confidence)
-        });
-        toast.success('Text extracted successfully', { id: 'ocr-process' });
-      } else {
-        toast.error('No text found in selected area', { id: 'ocr-process' });
+    if (typeof text === "string" && text.trim()) {
+      let tags: string[] = [];
+      try {
+        const nerResult = await classifyTextWithNER(text.trim());
+        tags = nerResult.entities
+          .map((ent: any) => entityToTag(ent.entity_group || ent.entity))
+          .filter((tag: string | null) => tag !== null) as string[];
+        console.log(tags)
+      } catch {
+        tags = [];
       }
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to process OCR', { id: 'ocr-process' });
-    } finally {
-      setIsProcessingOCR(false);
-      setCurrentSelection(null);
+
+      onTextExtracted({
+        id: Date.now().toString(),
+        text: text.trim(),
+        bbox: selection,
+        tags,
+        confidence: Math.round(confidence),
+      });
+      toast.success("Text extracted successfully", { id: "ocr-process" });
+    } else {
+      toast.error("No text found in selected area", { id: "ocr-process" });
     }
-  }, [onTextExtracted, zoom]);
+  } catch (err) {
+    console.error(err);
+    toast.error("Failed to process OCR", { id: "ocr-process" });
+  } finally {
+    setIsProcessingOCR(false);
+    setCurrentSelection(null);
+  }
+}, [onTextExtracted, zoom]);
 
   useEffect(() => {
     const handleGlobalMouseUp = () => {
@@ -302,96 +354,98 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
   }, []);
 
-  return (
-    <div className="h-full flex flex-col">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between p-4 border-b border-border bg-surface-dark">
-        <div className="flex items-center gap-2">
-          <Button
-            variant={mode === 'pan' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setMode('pan')}
-            className={mode === 'pan' ? 'bg-primary text-primary-foreground' : ''}
-          >
-            <Move className="w-4 h-4 mr-1" />
-            Pan
-          </Button>
-          <Button
-            variant={mode === 'select' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setMode('select')}
-            className={mode === 'select' ? 'bg-primary text-primary-foreground' : ''}
-          >
-            <Square className="w-4 h-4 mr-1" />
-            Select
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleFullScanOCR}
-            className="ml-2"
-          >
-            <Square className="w-4 h-4 mr-1" />
-            Full Scan OCR
-          </Button>
-        </div>
+  // Handler to send the displayed image to the classifier endpoint
+  const handleSendToClassifier = useCallback(async () => {
+    if (!imageRef.current) return;
+    // Draw the image to a canvas to get a data URL
+    const img = imageRef.current;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      toast.error("Canvas context not available");
+      return;
+    }
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+    const imageData = canvas.toDataURL("image/png");
 
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm" onClick={handleZoomOut}>
-            <ZoomOut className="w-4 h-4" />
-          </Button>
-          <span className="text-sm text-muted-foreground min-w-[4rem] text-center">
-            {Math.round(zoom * 100)}%
-          </span>
-          <Button variant="outline" size="sm" onClick={handleZoomIn}>
-            <ZoomIn className="w-4 h-4" />
-          </Button>
-          <div className="w-px h-6 bg-border mx-1" />
-          {/* <Button variant="outline" size="sm" onClick={handleRotateCounterclockwise}>
-            <RotateCcw className="w-4 h-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleRotate}>
-            <RotateCw className="w-4 h-4" />
-          </Button> */}
-          <Button variant="outline" size="sm" onClick={handleReset}>
-            <Maximize className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
+    try {
+      toast.loading("Sending image to classifier...", { id: "classifier-process" });
+      const result = await sendImageToClassifier(imageData);
+      toast.success("Image classified!", { id: "classifier-process" });
+      // You can handle the result here, e.g., display it or pass to parent
+      console.log("Classifier result:", result);
+    } catch (err) {
+      toast.error("Failed to classify image", { id: "classifier-process" });
+      console.error(err);
+    }
+  }, []);
 
-      {/* Image Container */}
+  // Helper to extract text from digital documents (PDF, TXT, DOCX)
+  const extractTextFromDocument = async (fileUrl: string, fileType: string) => {
+    // For PDF: use pdfjs or send to backend for extraction
+    // For DOCX/TXT: send to backend for extraction
+    // Here, assume you have a backend endpoint /extract-text that returns { text }
+    const formData = new FormData();
+    formData.append("file", await fetch(fileUrl).then(r => r.blob()), "document");
+    const res = await fetch("http://localhost:8000/extract-text", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json();
+    return data.text;
+  };
+
+  const handleParseDocument = async () => {
+    setParsing(true);
+    try {
+      const text = await extractTextFromDocument(fileUrl, "application/pdf");
+      const entities = await parseDocumentText(text);
+      onTextExtracted(
+        entities.map((ent: any, idx: number) => ({
+          id: `${Date.now()}-${idx}`,
+          text: ent.word,
+          tags: [entityToTag(ent.entity_group)].filter(Boolean),
+          bbox: { x: 0, y: 0, width: 0, height: 0 },
+          confidence: ent.score,
+        }))
+      );
+      toast.success("Document parsed successfully!");
+    } catch (err) {
+      toast.error("Failed to parse document.");
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  // Render logic
+  if (fileType.startsWith("image/")) {
+    // Image OCR UI
+    return (
       <div
         ref={containerRef}
-        className="overflow-hidden relative bg-viewer-bg cursor-crosshair h-[600px] w-[800px] flex-none"
-        style={{ cursor: mode === 'pan' ? 'grab' : 'crosshair' }}
-      >
-      <div
-        className="absolute inset-0 flex items-center justify-center"
-        style={{
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
-          transformOrigin: 'center',
-          transition: isDragging || isSelecting ? 'none' : 'transform 0.2s ease-out'
-        }}
+        className="relative w-full h-full overflow-hidden bg-black flex items-center justify-center"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        style={{ cursor: mode === 'select' ? "crosshair" : "default"}}
       >
         <img
           ref={imageRef}
-          src={imageUrl}
+          src={fileUrl}
           alt="Document"
-          className="select-none"
           style={{
-            width: 'auto',
-            height: '100%',
-            maxWidth: 'none',
-            cursor: mode === 'pan' ? 'grab' : 'crosshair',
-            transition: isDragging || isSelecting ? 'none' : 'transform 0.2s ease-out',
+            transform: `scale(${zoom}) rotate(${rotation}deg) translate(${pan.x}px, ${pan.y}px)`,
+            transition: "transform 0.2s",
+            maxWidth: "100%",
+            maxHeight: "100%",
+            userSelect: "none",
+            pointerEvents: "auto",
           }}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
           draggable={false}
         />
-
-        {/* Selection overlay — now inside the transformed wrapper */}
+        {/* Selection overlay */}
         {currentSelection && mode === 'select' && (
           <div
             className="absolute border-2 border-primary bg-primary/10 pointer-events-none"
@@ -403,32 +457,77 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
             }}
           />
         )}
-
-        {/* Existing extractions */}
-        {extractedData.map((extraction) => (
-          <div
-            key={extraction.id}
-            className="absolute border border-success bg-success/20 pointer-events-none"
-            style={{
-              left: extraction.bbox.x,
-              top: extraction.bbox.y,
-              width: extraction.bbox.width,
-              height: extraction.bbox.height
-            }}
-          />
-        ))}
+        {/* ...OCR image controls... */}
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-10">
+          <Button size="sm" onClick={handleZoomIn} title="Zoom In"><ZoomIn /></Button>
+          <Button size="sm" onClick={handleZoomOut} title="Zoom Out"><ZoomOut /></Button>
+          <Button size="sm" onClick={handleRotate} title="Rotate Clockwise"><RotateCw /></Button>
+          <Button size="sm" onClick={handleRotateCounterclockwise} title="Rotate Counterclockwise"><RotateCcw /></Button>
+          <Button size="sm" onClick={handleReset} title="Reset View"><Maximize /></Button>
+          <Button size="sm" onClick={handleFullScanOCR} disabled={isProcessingOCR} title="Full Scan OCR">Full Scan OCR</Button>
+          <Button
+            variant={mode === 'select' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setMode(mode === 'select' ? '' : 'select')}
+            className={mode === 'select' ? 'bg-primary text-primary-foreground' : ''}
+          >
+            <Square className="w-4 h-4 mr-1" />
+            Select
+          </Button>
+        </div>
       </div>
-
-        {/* Processing overlay */}
-        {isProcessingOCR && (
-          <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
-            <div className="bg-surface rounded-lg p-6 shadow-strong text-center">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">Processing OCR...</p>
-            </div>
-          </div>
-        )}
+    );
+  } else if (fileType === "application/pdf") {
+    // PDF preview + Parse button
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full">
+        <iframe
+          src={fileUrl}
+          title="PDF Preview"
+          style={{ width: "100%", height: "60vh", border: "1px solid #ccc", marginBottom: 16 }}
+        />
+        <Button onClick={handleParseDocument} disabled={parsing}>
+          {parsing ? "Parsing..." : "Parse Document"}
+        </Button>
       </div>
-    </div>
-  );
+    );
+  } else if (fileType === "text/plain") {
+    // Text file preview + Parse button
+    const [textPreview, setTextPreview] = useState<string>("");
+    useEffect(() => {
+      fetch(fileUrl)
+        .then(res => res.text())
+        .then(setTextPreview)
+        .catch(() => setTextPreview("Failed to load text preview."));
+    }, [fileUrl]);
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full">
+        <pre style={{ width: "100%", maxHeight: 300, overflow: "auto", background: "#f9f9f9", border: "1px solid #ccc", marginBottom: 16 }}>
+          {textPreview}
+        </pre>
+        <Button onClick={handleParseDocument} disabled={parsing}>
+          {parsing ? "Parsing..." : "Parse Document"}
+        </Button>
+      </div>
+    );
+  } else if (fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    // DOCX preview not natively supported, show a message + Parse button
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full">
+        <div className="mb-4 text-muted-foreground">
+          DOCX preview not supported. You can still parse the document.
+        </div>
+        <Button onClick={handleParseDocument} disabled={parsing}>
+          {parsing ? "Parsing..." : "Parse Document"}
+        </Button>
+      </div>
+    );
+  } else {
+    // Unsupported file type
+    return (
+      <div className="flex items-center justify-center h-full text-gray-500">
+        Unsupported file type.
+      </div>
+    );
+  }
 };

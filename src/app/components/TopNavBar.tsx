@@ -1,6 +1,6 @@
 "use client";
 import { usePathname } from "next/navigation";
-import { cx } from "lib/cx";
+import { cx } from "../lib/cx";
 
 export const TopNavBar = () => {
   const pathName = usePathname();

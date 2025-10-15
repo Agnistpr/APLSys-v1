@@ -11,7 +11,6 @@ contextBridge.exposeInMainWorld('fileAPI', {
 
   getUser: (username, password) => ipcRenderer.invoke("getUser", { username, password }),
 
-  // db
   logAction: (userid, useraction, description) => ipcRenderer.invoke('logAction', { userid, useraction, description }),
 
   exportEmployees: () => ipcRenderer.invoke('exportEmployees'),
@@ -26,29 +25,26 @@ contextBridge.exposeInMainWorld('fileAPI', {
   exportAllTrainees: () => ipcRenderer.invoke('exportAllTrainees'),
   exportLogs: (date) => ipcRenderer.invoke('exportLogs', date),
 
-  getEmployees: () => ipcRenderer.invoke('getEmployees'),
   getEmployee: (id) => ipcRenderer.invoke('getEmployee', id),
   getEmployeeTableColumns: () => ipcRenderer.invoke('getEmployeeTableColumns'),
   searchEmployees: (term) => ipcRenderer.invoke('searchEmployees', term),
-
   updateEmployee: (employeeId, field, value) => {
     return ipcRenderer.invoke("updateEmployee", {
       employeeId: String(employeeId),
       field: String(field),
-      value: value  // no stringify
+      value: value
     });
   },
 
-  // importEmployees: (payload) => ipcRenderer.invoke('importEmployees', payload),
-  // getCSV: () => ipcRenderer.invoke('getCSV'),
   getFilteredEmployees: (filters, mode) => ipcRenderer.invoke('getFilteredEmployees', { filters, mode }),
   getFilterOptions: () => ipcRenderer.invoke('getFilterOptions'),
-  getEmployeeAttendance: (id) => ipcRenderer.invoke('getEmployeeAttendance', id),
+
+  getEmployeeAttendance: (id, date) => ipcRenderer.invoke('getEmployeeAttendance', id, date),
   getAttendance: () => ipcRenderer.invoke('getAttendance'),
   getAttendanceByDate: (date) => ipcRenderer.invoke('getAttendanceByDate', date),
   getAbsent: (date) => ipcRenderer.invoke('getAbsent', date),
   getLeave: (date) => ipcRenderer.invoke('getLeave', date),
-  addLeave: (employeeIds, date, reason) => ipcRenderer.invoke('addLeave', employeeIds, date, reason),
+  addLeave: (employeeIds, date, reason, duration, type) => ipcRenderer.invoke('addLeave', employeeIds, date, reason, duration, type),
   getDashboardCardData: () => ipcRenderer.invoke('getDashboardCardData'),
   getInventoryLogs: (date) => ipcRenderer.invoke('getInventoryLogs', date),
   getInventoryCard: () => ipcRenderer.invoke('getInventoryCard'),
@@ -60,4 +56,21 @@ contextBridge.exposeInMainWorld('fileAPI', {
 
   addApplicant: (resume) => ipcRenderer.invoke("addApplicant", resume),
   getDeptPos: () => ipcRenderer.invoke("getDeptPos"),
+
+  updateLeaveStatus: (ids, status) => ipcRenderer.invoke("updateLeaveStatus", { ids, status }),
+
+});
+
+contextBridge.exposeInMainWorld('employeeAPI', {
+  getEmployees: () => ipcRenderer.invoke('getEmployees'),
+});
+
+contextBridge.exposeInMainWorld('importAPI', {
+  checkDuplicates: (data) => ipcRenderer.invoke("checkDuplicates", data),
+  resolveConflicts: (data, action) => ipcRenderer.invoke("resolveConflicts", data, action),
+  importAttendance: (data) => ipcRenderer.invoke("importAttendance", data),
+});
+
+contextBridge.exposeInMainWorld('columnAPI', {
+  getAttendanceColumns: () => ipcRenderer.invoke("getAttendanceColumns"),
 });

@@ -4,8 +4,9 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import contextMenu from "electron-context-menu";
 import { spawn, exec } from "child_process";
+import 'dotenv/config';
 
-import { initDatabase, startDatabase, stopDatabase, closeDatabaseConnection, connectToDatabase } from "./db.js";
+// import { initDatabase, startDatabase, stopDatabase, closeDatabaseConnection, connectToDatabase } from "./db.js";
 import "./files.js";
 import "./queries.js";
 
@@ -53,10 +54,6 @@ contextMenu({
         label: "Reload",
         click: () => wc.reload(),
       },
-      {
-        label: "Print...",
-        click: () => wc.print(),
-      },
     ];
   },
 });
@@ -101,10 +98,10 @@ function stopBackend() {
 // App thingy
 app.on("ready", async () => {
   try {
-    initDatabase();
-    startDatabase();
-    connectToDatabase();
-    startBackend();
+    // initDatabase();
+    // startDatabase();
+    // connectToDatabase();
+    // startBackend();
 
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
     const mainWindow = new BrowserWindow({
@@ -135,13 +132,13 @@ app.on("before-quit", async (event) => {
   event.preventDefault();
   try {
     logMessage("Closing DB connection...");
-    await closeDatabaseConnection();
+    //await closeDatabaseConnection();
 
     logMessage("Shutting down DB...");
     stopDatabase();
 
     logMessage("Stopping backend...");
-    await stopBackend();
+    //await stopBackend();
   } catch (err) {
     logMessage(`Shutdown error: ${err.stack || err}`);
   } finally {

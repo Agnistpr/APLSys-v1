@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Toasts from "./components/Toast.jsx";
 import Login from './page/Login.jsx';
 import Dashboard from './page/Dashboard.jsx';
 import Sidebar from './components/Sidebar.jsx';
@@ -197,6 +198,7 @@ const App = () => {
           setSelectedApplicantId={setSelectedApplicantId}
         />
       )}
+      <Toasts />
       <div className={`content ${isSidebarCollapsed ? 'collapsed' : 'expanded'}`}>
         {renderPage()}
       </div>

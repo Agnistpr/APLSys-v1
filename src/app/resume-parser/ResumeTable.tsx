@@ -1,8 +1,8 @@
 import { Fragment } from "react";
-import type { Resume } from "lib/redux/types";
-import { initialEducation, initialWorkExperience } from "lib/redux/resumeSlice";
-import { deepClone } from "lib/deep-clone";
-import { cx } from "lib/cx";
+import type { Resume } from "../lib/redux/types";
+import { initialEducation, initialWorkExperience } from "../lib/redux/resumeSlice";
+import { deepClone } from "../lib/deep-clone";
+import { cx } from "../lib/cx";
 
 const TableRowHeader = ({ children }: { children: React.ReactNode }) => (
   <tr>
@@ -43,18 +43,20 @@ const TableRow = ({
         )
       ) : onFieldChange ? (
         <textarea
-          value={value.join("\n")}
+          value={Array.isArray(value) ? value.join("\n") : ""}
           onChange={(e) => onFieldChange(fieldKey, e.target.value)}
           className="border px-2 py-1 rounded"
-          rows={Math.max(5, value.length)}
+          rows={Math.max(5, Array.isArray(value) ? value.length : 5)}
         />
       ) : (
-        value.map((x, idx) => (
-          <Fragment key={idx}>
-            • {x}
-            <br />
-          </Fragment>
-        ))
+        Array.isArray(value)
+          ? value.map((x, idx) => (
+              <Fragment key={idx}>
+                • {x}
+                <br />
+              </Fragment>
+            ))
+          : null
       )}
     </td>
   </tr>
@@ -81,17 +83,20 @@ export const ResumeTable = ({
   resume.profile.middleName = resume.profile.middleName || middleName;
   resume.profile.lastName = resume.profile.lastName || lastName;
 
-  const educations =
-    resume.educations.length === 0
-      ? [deepClone(initialEducation)]
-      : resume.educations;
+  const skillsArr = Array.isArray(resume.skills?.featuredSkills) ? resume.skills.featuredSkills : [];
+
+  const educations = 
+    Array.isArray(resume.educations) && 
+    resume.educations.length > 0
+    ? resume.educations
+    : [deepClone(initialEducation)];
   const workExperiences =
     resume.workExperiences.length === 0
       ? [deepClone(initialWorkExperience)]
       : resume.workExperiences;
   const skills = [...resume.skills.descriptions];
-  const featuredSkills = resume.skills.featuredSkills
-    .filter((item) => item.skill.trim())
+  const featuredSkills = skillsArr
+    .filter((item) => item.skill && item.skill.trim())
     .map((item) => item.skill)
     .join(", ")
     .trim();

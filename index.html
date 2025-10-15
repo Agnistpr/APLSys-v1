@@ -8,8 +8,9 @@
       img-src 'self' data: blob:;
       worker-src 'self' blob:;
       frame-src 'self' blob:;
-      connect-src 'self' blob: data: https://cdn.jsdelivr.net http://localhost:8000 https://generativelanguage.googleapis.com;
+      connect-src 'self' blob: data: http://127.0.0.1:8000/ http://localhost:8000 https://cdn.jsdelivr.net https://generativelanguage.googleapis.com;
     ">
+    <!-- NOTE TO SELF: need to remove unsafe-eval property pag deployment na-->
     <meta charset="UTF-8" />
     <!-- <link rel="icon" type="image/svg+xml" href="/vite.svg" /> -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
