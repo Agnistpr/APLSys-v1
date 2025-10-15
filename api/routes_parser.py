@@ -1,6 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Query, Request
 import pandas as pd
-from pydantic import BaseModel
 from doctr.io import DocumentFile
 import matplotlib.pyplot as plt
 from services.parsing_service import (
@@ -8,18 +7,13 @@ from services.parsing_service import (
     extract_tables_with_camelot,
     export_tables_to_csv,
     parse_document_text,
-    lbl_resume_text
+    map_entities_to_profile,
+    merge_ner_entities
 )
+from model.request_schema import DocumentParseRequest, ResumeParseRequest
 from typing import Optional
 
 router = APIRouter()
-
-class DocumentParseRequest(BaseModel):
-    text: str
-    
-class ResumeParseRequest(BaseModel):
-    text: str
-    
     
 @router.post("/parse-document")
 async def parse_document(request: DocumentParseRequest, fastapi_req: Request):
@@ -29,7 +23,13 @@ async def parse_document(request: DocumentParseRequest, fastapi_req: Request):
 @router.post("/label-tokens-resume")
 async def label_tokens_resume(request: ResumeParseRequest, fastapi_req: Request):
     ner_pipeline = fastapi_req.app.state.ner_resume_pipeline
-    return lbl_resume_text(request.text, ner_pipeline)
+    raw_entities = ner_pipeline(request.text)
+    for entity in raw_entities:
+        if "score" in entity:
+            entity["score"] = float(entity["score"])
+    merged_entities = merge_ner_entities(raw_entities)
+    profile = map_entities_to_profile(merged_entities)
+    return {"profile": profile, "entities": merged_entities}
 
 @router.post("/tabula_extract")
 async def tabula_extract(file: UploadFile = File(...), pages: Optional[str] = Query("all")):
@@ -70,8 +70,9 @@ async def export_csv(file: UploadFile = File(...), method: str = Query("camelot"
     return {"message": f"Exported {len(tables)} tables to CSV with base filename '{safe_base_filename}'."}
 
 
-@router.post("/parse-resume")
-async def parse_resume(request: Request, file: UploadFile = File(...)):
+@router.post("/extract-resume-text")
+async def extract_resume_txt(request: Request, file: UploadFile = File(...)):
+    print("File received. Waiting for extraction...")
     plain_text: str = ""
     # Access your DocTR model
     model = request.app.state.ocr_model
@@ -90,10 +91,10 @@ async def parse_resume(request: Request, file: UploadFile = File(...)):
         for block in page["blocks"]:
             for line in block["lines"]:
                 line_text = " ".join(word["value"] for word in line["words"])
-                plain_text += line_text + "\n"
+                plain_text += line_text + " \n"
     
     #Visualize result
-    result.show()
-    plt.show()
+    # result.show()
+    # plt.show()
     # Return extracted text or structure
     return plain_text
