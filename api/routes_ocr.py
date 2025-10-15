@@ -12,31 +12,31 @@ from doctr.models import ocr_predictor
 from model.request_schema import SearchRequest
 router = APIRouter()
 
-# Load once at startup
-ocr_model = ocr_predictor(det_arch="db_resnet34", reco_arch="crnn_vgg16_bn", pretrained=True)
 
 @router.post("/run-ocr-on-document-upload")
-async def run_ocr_document_upload(file: UploadFile = File(...)):
+async def run_ocr_document_upload(ocrreq: Request,file: UploadFile = File(...)):
     content = await file.read()
-    doc, exported = extract_on_document(content)
+    doc, exported = extract_on_document(content,ocrreq)
     return {"pages": exported["pages"]}
 
 @router.post("/search-word")
-async def search_word_endpoint(request: SearchRequest):
-    doc, exported = extract_on_document(request.file_path)
+async def search_word_endpoint(request: SearchRequest, ocrreq: Request):
+    doc, exported = extract_on_document(request.file_path,ocrreq)
     matches = []
     matches = search_word(exported, request.query)
     return {"matches": matches}
 
 @router.post("/batch-ocr")
-async def batch_ocr(files: List[UploadFile] = File(...)):
+async def batch_ocr(ocrreq: Request, files: List[UploadFile] = File(...)):
     """
     Run OCR on multiple uploaded files and return structured JSON for each.
     """
+    model = ocrreq.app.state.ocr_model
+    
     results = []
     for file in files:
         try:
-            ocr_result = await run_ocr(file)
+            ocr_result = await run_ocr(model, file)
             results.append({
                 "filename": file.filename,
                 "result": ocr_result
@@ -49,8 +49,8 @@ async def batch_ocr(files: List[UploadFile] = File(...)):
     return {"results": results}
 
 @router.post("/collect-all-pages")
-def collect_all_pages_endpoint(file_path: str = Query(..., description="Path to image or PDF file")):
-    pages = collect_all_pages(file_path)
+def collect_all_pages_endpoint(ocrreq:Request, file_path: str = Query(..., description="Path to image or PDF file")):
+    pages = collect_all_pages(file_path, ocrreq)
     # Remove image objects from response for JSON serialization
     for page in pages:
         if "image" in page:
@@ -58,19 +58,21 @@ def collect_all_pages_endpoint(file_path: str = Query(..., description="Path to 
     return {"pages": pages}
 
 @router.post("/extract-full")
-async def extract_text_full(file: UploadFile):
+async def extract_text_full(file: UploadFile, ocrreq: Request):
     """
     Run OCR on an uploaded file and return structured JSON.
     """
-    result = await run_ocr(file)
+    model = ocrreq.app.state.ocr_model
+    result = await run_ocr(model, file)
     return {"result": result}
 
 @router.post("/extract-region")
-async def extract_text_region(file: UploadFile = File(...)):
+async def extract_text_region( ocrreq: Request, file: UploadFile = File(...)):
     """
     Run OCR on an uploaded file and return extracted text and average confidence.
     """
-    result = await run_ocr(file)
+    model = ocrreq.app.state.ocr_model
+    result = await run_ocr(model, file)
     text = []
     confidences = []
     for page in result["pages"]:
@@ -85,7 +87,7 @@ async def extract_text_region(file: UploadFile = File(...)):
     return {"text": "\n".join(text), "confidence": avg_conf}
 
 @router.post("/extract-metadata")
-async def extract_metadata_from_image(file: UploadFile = File(...)):
+async def extract_metadata_from_image(ocrreq: Request, file: UploadFile = File(...)):
     """
     Extract metadata from an image using OCR.
     Returns both the full extracted text and the structured OCR layer.
@@ -94,6 +96,7 @@ async def extract_metadata_from_image(file: UploadFile = File(...)):
     content = await file.read()
     # Use the loaded OCR model from app state
     doc = DocumentFile.from_images([content])
+    ocr_model = ocrreq.app.state.ocr_model
     result = ocr_model(doc)
     exported = result.export()
 
@@ -112,10 +115,11 @@ async def extract_metadata_from_image(file: UploadFile = File(...)):
     }
 
 @router.post("/search")
-async def search_text(file: UploadFile, query: str):
+async def search_text(file: UploadFile, query: str, ocrreq: Request):
     """
     Run OCR and search for a word in the extracted text.
     """
-    result = await run_ocr(file)
+    model = ocrreq.app.state.ocr_model
+    result = await run_ocr(model, file)
     matches = await search_word(result, query)
     return {"matches": matches}
