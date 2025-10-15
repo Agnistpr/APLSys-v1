@@ -1,6 +1,5 @@
-# app/routers/ai_router.py
 from fastapi import APIRouter, UploadFile, File, Form
-from pydantic import BaseModel
+from model.request_schema import ClassifyRequest, ResumeAnalysisRequest
 import requests
 import os
 from dotenv import load_dotenv
@@ -9,6 +8,11 @@ from utils.img_to_b64 import image_to_base64
 from typing import List, Optional
 from PyPDF2 import PdfReader
 import io
+from model.request_schema import ResumeTextRequest
+from services.ai_service import (
+    gemini_extract_resume_profile,
+    gemini_extract_metadata_from_image
+)
 router = APIRouter()
 load_dotenv()
 
@@ -16,12 +20,7 @@ GEMINI_MODEL = "gemini-2.5-pro"
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-class PromptRequest(BaseModel):
-    prompt: str
-    
-class ClassifyRequest(BaseModel):
-    text: str
-    
+
 #- **Current Skills**: [List ALL skills the candidate demonstrates in their resume, categorized by type (technical, soft, domain-specific, etc.). Be comprehensive.]
 
 def build_prompt(req: ResumeAnalysisRequest) -> str:
@@ -70,6 +69,14 @@ Job Description:
 [List specific requirements from the job description that are not addressed in the resume, with recommendations on how to address each gap]
 """
     return base_prompt
+
+@router.post("/gemini-extract-resume-profile")
+async def gemini_extract_resume_profile_endpoint(req: ResumeTextRequest):
+    """
+    Extract a structured resume profile using Gemini fallback.
+    """
+    result = gemini_extract_resume_profile(req.text)
+    return result
 
 @router.post("/batch-analyze-resumes")
 async def batch_analyze_resumes(
@@ -222,6 +229,25 @@ def detect_table_layout(image_path):
     response = requests.post(url, headers=headers, json=payload)
     response.raise_for_status()
     return response.json()
+
+@router.post("/gemini-extract-metadata")
+async def gemini_extract_metadata_endpoint(file: UploadFile = File(...)):
+    """
+    Extract and label structured metadata from any document image using Gemini.
+    Returns a JSON object with all detected fields, key-value pairs, and inferred structure.
+    """
+    # Save uploaded file to a temporary location
+    contents = await file.read()
+    temp_path = f"temp_{file.filename}"
+    with open(temp_path, "wb") as f:
+        f.write(contents)
+    try:
+        result = gemini_extract_metadata_from_image(temp_path)
+    finally:
+        import os
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+    return result
 
 # Example usage:
 if __name__ == "__main__":
