@@ -62,7 +62,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
 
   useEffect(() => {
     const fetchEmployee = async () => {
-      const data = await window.fileAPI.getEmployee(employeeId);
+      const data = await window.employeeAPI.getEmployee(employeeId);
       setEmployee(data);
 
       if (data?.image) {
@@ -73,7 +73,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
       }
     };
     const fetchAttendance = async () => {
-      const data = await window.fileAPI.getEmployeeAttendance(employeeId, selectedDate);
+      const data = await window.attendanceAPI.getEmployeeAttendance(employeeId, selectedDate);
       setAttendance(data);
     };
     fetchEmployee();
@@ -112,7 +112,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
       setEmployee(updated);
       setEditingField(null);
 
-      await window.fileAPI.updateEmployee(employeeId, field, safeValue);
+      await window.employeeAPI.updateEmployee(employeeId, field, safeValue);
     }
   };
 
@@ -198,7 +198,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
   const saveProfileImage = async (image = selectedImage) => {
     if (!image) return;
     try {
-      const res = await window.fileAPI.updateEmployee(
+      const res = await window.employeeAPI.updateEmployee(
         employeeId,
         "employeeimage",
         image.data 

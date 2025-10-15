@@ -131,8 +131,8 @@ const Training = ({ setActivePage, setSelectedApplicantId }) => {
   }, []);
 
   const fetchAllApplicants = async () => {
-    const trainingData = await window.fileAPI.getTrainees('Training');
-    const rejectedData = await window.fileAPI.getTrainees('Rejected');
+    const trainingData = await window.applicantAPI.getTrainees('Training');
+    const rejectedData = await window.applicantAPI.getTrainees('Rejected');
 
     setTrainingTrainees(Array.isArray(trainingData) ? trainingData : []);
     setRejectedTrainees(Array.isArray(rejectedData) ? rejectedData : []);
@@ -301,7 +301,7 @@ const Training = ({ setActivePage, setSelectedApplicantId }) => {
     <div className="trainingContainer">
       <div className="trainingHeader">
         <h1 className="trainingTitle">Training</h1>
-        <button className="exportBtn" onClick={() => window.fileAPI.exportAllTrainees()}>
+        <button className="exportBtn" onClick={() => window.exportAPI.exportAllTrainees()}>
           Export All
         </button>
       </div>
@@ -652,7 +652,7 @@ const Training = ({ setActivePage, setSelectedApplicantId }) => {
                   </div>
                 </div>
           </div>
-          <button className="exportBtn" onClick={() => window.fileAPI.exportTrainees(selectedTab)}>
+          <button className="exportBtn" onClick={() => window.exportAPI.exportTrainees(selectedTab)}>
             Export Table
           </button>
         </div>

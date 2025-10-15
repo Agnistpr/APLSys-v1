@@ -29,7 +29,7 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
 
   useEffect(() => {
     const fetchAbsences = async () => {
-      const data = await window.fileAPI.getAbsent(selectedDate);
+      const data = await window.attendanceAPI.getAbsent(selectedDate);
       setAbsence(data);
     };
     fetchAbsences();
@@ -126,42 +126,43 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
         </div>
       </div>
 
-      {/* --- Table Section --- */}
-      <table className="tabTable">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Department</th>
-            <th>Position</th>
-            <th>Shift</th>
-          </tr>
-        </thead>
-        <tbody>
-          {paginated.length === 0 ? (
+      <div className="tableContainer">
+        <table className="tabTable">
+          <thead>
             <tr>
-              <td colSpan={4}>No records found.</td>
+              <th>Name</th>
+              <th>Department</th>
+              <th>Position</th>
+              <th>Shift</th>
             </tr>
-          ) : (
-            paginated.map((row, idx) => (
-              <tr
-                key={idx}
-                onClick={() => {
-                  setSelectedEmployeeId(row.employeeid);
-                  setActivePage("EmployeeInformation");
-                }}
-              >
-                <td>{row.fullName}</td>
-                <td>{row.department}</td>
-                <td>{row.position}</td>
-                <td>
-                  {formatTime(row.shift?.split(" - ")[0])} -{" "}
-                  {formatTime(row.shift?.split(" - ")[1])}
-                </td>
+          </thead>
+          <tbody>
+            {paginated.length === 0 ? (
+              <tr>
+                <td colSpan={4}>No records found.</td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              paginated.map((row, idx) => (
+                <tr
+                  key={idx}
+                  onClick={() => {
+                    setSelectedEmployeeId(row.employeeid);
+                    setActivePage("EmployeeInformation");
+                  }}
+                >
+                  <td>{row.fullName}</td>
+                  <td>{row.department}</td>
+                  <td>{row.position}</td>
+                  <td>
+                    {formatTime(row.shift?.split(" - ")[0])} -{" "}
+                    {formatTime(row.shift?.split(" - ")[1])}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {/* --- Footer / Pagination --- */}
       <div className="tableFooter">
@@ -172,13 +173,13 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
           totalItems={absence.length}
           onPageChange={setCurrentPage}
           onItemsPerPageChange={setItemsPerPage}
-          onExport={() => window.fileAPI.exportAbsence(selectedDate)}
+          onExport={() => window.exportAPI.exportAbsence(selectedDate)}
         />
 
         <div className="actions">
           <button
             className="exportBtn"
-            onClick={() => window.fileAPI.exportAbsence(selectedDate)}
+            onClick={() => window.exportAPI.exportAbsence(selectedDate)}
           >
             Export
           </button>

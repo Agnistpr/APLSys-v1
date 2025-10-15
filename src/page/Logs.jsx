@@ -36,7 +36,7 @@ const Logs = () => {
   // Fetch logs
   useEffect(() => {
     const fetchLogs = async () => {
-      const data = await window.fileAPI.getLogs(selectedDate);
+      const data = await window.utilityAPI.getLogs(selectedDate);
       setLogs(data);
     };
     fetchLogs();
@@ -155,7 +155,7 @@ const Logs = () => {
       <div className="logsHeaderRow">
         <div className="logsHeader">
           <h1>Logs</h1>
-          <button className="exportBtn" onClick={() => window.fileAPI.exportLogs()}>
+          <button className="exportBtn" onClick={() => window.exportAPI.exportLogs()}>
             Export
           </button>
         </div>

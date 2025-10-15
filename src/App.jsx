@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+
 import Toasts from "./components/Toast.jsx";
-import Login from './page/Login.jsx';
-import Dashboard from './page/Dashboard.jsx';
 import Sidebar from './components/Sidebar.jsx';
+
+import Auth from './page/Auth.jsx';
+import Dashboard from './page/Dashboard.jsx';
 import EmployeeInformation from './page/EmployeeInformation.jsx';
 import Employee from './page/Employees.jsx';
 import Attendance from './page/Attendance.jsx';
@@ -10,12 +12,9 @@ import Shifting from './page/Shifting.jsx';
 import Training from './page/Training.jsx';
 import Screening from './page/Screening.jsx';
 import Management from './page/Management.jsx';
-// import OCR from './page/OCR.jsx';
-// import DocumentManagement from './ocr/DocumentManagement.jsx';
 import Logs from './page/Logs.jsx';
+
 import '../styles.css';
-// import '../index.css'; 
-// import ResumeParser from "./app/resume-parser/page.tsx";
 
 import { Toaster } from "./ocr/components/ui/toaster.js";
 import { Toaster as Sonner } from "./ocr/components/ui/sonner.js";
@@ -24,16 +23,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocumentScanner } from "./ocr/components/DocumentScanner.tsx";
 
 import Analyzer from './app/resume-parser/page.tsx';
-// import ResumeParser from "./app/resume-parser/page.tsx";
-
 import ocrCssPath from './ocr/ocrstyles.css?url';
 
 const queryClient = new QueryClient();
 
 const App = () => {
-  const [userId, setUserId] = useState(() => {
-    return localStorage.getItem("userId") || null;
-  });
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [activePage, setActivePage] = useState('Dashboard');
   const [previousPage, setPreviousPage] = useState(null);
 
@@ -45,39 +41,21 @@ const App = () => {
   const [selectedApplicantId, setSelectedApplicantId] = useState(null);
   const [selectedResumeFile, setSelectedResumeFile] = useState(null);
 
-  // const [isCssReady, setIsCssReady] = useState(null);
+  useEffect(() => {
+    const getSession = async () => {
+      try {
+        const session = await window.authAPI.getSession();
+        if (session) setUser(session.user);
+      } catch (err) {
+        console.error("Error fetching session:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    getSession();
+  }, []);
 
-  // useEffect(() => {
-  //   let linkTag;
-  //
-  //   if (activePage === "DocumentManagement") {
-  //     setIsCssReady(false);
-  //
-  //     linkTag = document.createElement("link");
-  //     linkTag.rel = "stylesheet";
-  //     linkTag.type = "text/css";
-  //     linkTag.href = "dms.css";
-  //     linkTag.id = "document-css";
-  //
-  //     linkTag.onload = () => setIsCssReady(true);
-  //
-  //     document.head.appendChild(linkTag);
-  //   } else {
-  //     setIsCssReady(true);
-  //   }
-  //
-  //   return () => {
-  //     // Cleanup when leaving DocumentManagement
-  //     if (linkTag) {
-  //       linkTag.remove();
-  //       setIsCssReady(null);
-  //     } else {
-  //       const existing = document.getElementById("document-css");
-  //       if (existing) existing.remove();
-  //     }
-  //   };
-  // }, [activePage]);
-
+  // ✅ Dynamic OCR CSS loader
   useEffect(() => {
     let link;
     if (activePage === "Scanner") {
@@ -93,21 +71,19 @@ const App = () => {
     };
   }, [activePage]);
 
-
-  const loginAction = (id) => {
-    setUserId(id);
-    localStorage.setItem("userId", id);
+  const handleLogin = (user) => {
+    setUser(user);
     setActivePage("Dashboard");
   };
 
-  const logoutAction = () => {
-    setUserId(null);
-    localStorage.removeItem("userId");
-    setActivePage("Login");
+  const handleLogout = async () => {
+    await window.authAPI.logout();
+    setUser(null);
+    setActivePage("Auth");
   };
 
   const sharedProps = {
-    userId,
+    userId: user?.id,
     activePage,
     setActivePage,
     setSelectedEmployeeId,
@@ -117,23 +93,21 @@ const App = () => {
   };
 
   const renderPage = () => {
-    if (!userId) {
-      return <Login onLogin={loginAction} />;
-    }
+    if (!user) return <Auth onLogin={handleLogin} />;
 
-  if (activePage === "Scanner") {
-    return (
-      <div id="ocr-root">
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <DocumentScanner />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </div>
-    );
-  }
+    if (activePage === "Scanner") {
+      return (
+        <div id="ocr-root">
+          <QueryClientProvider client={queryClient}>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <DocumentScanner />
+            </TooltipProvider>
+          </QueryClientProvider>
+        </div>
+      );
+    }
 
     switch (activePage) {
       case "Dashboard":
@@ -145,7 +119,6 @@ const App = () => {
             setPreviousTab={setPreviousTab}
           />
         );
-
       case "Employee":
         return <Employee {...sharedProps} />;
       case "Attendance":
@@ -155,15 +128,25 @@ const App = () => {
       case "Training":
         return <Training {...sharedProps} />;
       case "Screening":
-        return <Screening {...sharedProps} selectedResumeFile={selectedResumeFile} setSelectedResumeFile={setSelectedResumeFile} />;
+        return (
+          <Screening
+            {...sharedProps}
+            selectedResumeFile={selectedResumeFile}
+            setSelectedResumeFile={setSelectedResumeFile}
+          />
+        );
       case "Analyzer":
-        return <Analyzer {...sharedProps} selectedResumeFile={selectedResumeFile} setSelectedResumeFile={setSelectedResumeFile} />;
+        return (
+          <Analyzer
+            {...sharedProps}
+            selectedResumeFile={selectedResumeFile}
+            setSelectedResumeFile={setSelectedResumeFile}
+          />
+        );
       case "Management":
         return <Management {...sharedProps} />;
       case "Logs":
         return <Logs />;
-      // case "Add Applicant":
-      //   return <ResumeParser />;
       case "EmployeeInformation":
         return (
           <EmployeeInformation
@@ -179,17 +162,22 @@ const App = () => {
             }}
           />
         );
-      }
-    };
+      default:
+        return <Dashboard {...sharedProps} />;
+    }
+  };
 
+  if (loading) {
+    return <div className="loading-screen">Checking session...</div>;
+  }
 
   return (
     <div>
-      {userId && (
+      {user && (
         <Sidebar
           activePage={activePage}
           setActivePage={setActivePage}
-          onLogout={logoutAction}
+          onLogout={handleLogout}
           isCollapsed={isSidebarCollapsed}
           setIsCollapsed={setIsSidebarCollapsed}
           selectedEmployeeId={selectedEmployeeId}

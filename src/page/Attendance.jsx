@@ -32,8 +32,8 @@ const Attendance = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, act
     const fetchData = async () => {
       try {
         const data = selectedDate
-          ? await window.fileAPI.getAttendanceByDate(selectedDate)
-          : await window.fileAPI.getAttendance();
+          ? await window.attendanceAPI.getAttendanceByDate(selectedDate)
+          : await window.attendanceAPI.getAttendance();
 
         const formatted = data.map(row => {
           const [shiftStart = '', shiftEnd = ''] = row.shift?.split(' - ') || [];
@@ -118,7 +118,7 @@ const Attendance = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, act
       <div className="attendanceHeaderRow">
         <div className="attendanceHeader">
           <h1>Attendance</h1>
-          <button className="exportBtn" onClick={() => window.fileAPI.exportAttendance()}>
+          <button className="exportBtn" onClick={() => window.exportAPI.exportAttendance()}>
             Export All
           </button>
         </div>

@@ -28,67 +28,58 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [itemsPerPage, setItemsPerPage] = useState(5);
 
-  const columns = ["fullName", "position", "shift", "timeIn", "timeOut", "status", "diffValue"];
+  const columns = [
+    "date",
+    "fullName",
+    "department",
+    "position",
+    "shift",
+    "timeIn",
+    "arrivalDiff",
+    "arrivalStatus",
+    "timeOut",
+    "hoursWorked",
+    "workStatus",
+  ];
+
   const columnLabelMap = {
+    date: "Date",
     fullName: "Name",
+    department: "Department",
     position: "Position",
     shift: "Shift",
     timeIn: "Time In",
+    arrivalDiff: "Arrival Diff",
+    arrivalStatus: "Arrival Status",
     timeOut: "Time Out",
-    status: "Status",
-    diffValue: "UT/OT",
-  };
-
-  const calculateMinutes = (start, end) => {
-    if (!start || !end) return 0;
-    const [h1, m1] = start.split(":").map(Number);
-    const [h2, m2] = end.split(":").map(Number);
-    return h2 * 60 + m2 - (h1 * 60 + m1);
+    hoursWorked: "Hours Worked",
+    workStatus: "Work Status",
   };
 
   useEffect(() => {
     const fetchAttendance = async () => {
-      const data = selectedDate
-        ? await window.fileAPI.getAttendanceByDate(selectedDate)
-        : await window.fileAPI.getAttendance();
-
-      const formatted = data.map((row) => {
-        const [shiftStart = '', shiftEnd = ''] = row.shift?.split(' - ') || [];
-        const expected = calculateMinutes(shiftStart, shiftEnd);
-        const actual = calculateMinutes(row.timeIn, row.timeOut);
-        const diff = actual - expected;
-        return {
-          ...row,
-          utot: `${Math.abs(diff)} min(s)`,
-          status: diff < 0 ? 'Undertime' : 'On time / Overtime',
-          diffValue: diff
-        };
-      });
-
-      setAttendance(formatted);
+      let data = [];
+      if (selectedDate) {
+        data = await window.attendanceAPI.getAttendanceByDate(selectedDate);
+      } else {
+        data = await window.attendanceAPI.getAttendance();
+      }
+      setAttendance(data || []);
     };
-
     fetchAttendance();
   }, [selectedDate]);
 
-  const formatTime = (time) => {
-    if (!time) return "";
-    const [hour, minute] = time.split(":");
-    const h = parseInt(hour);
-    const ampm = h >= 12 ? "PM" : "AM";
-    const formattedHour = h % 12 || 12;
-    return `${formattedHour}:${minute} ${ampm}`;
-  };
-
   const uniqueValues = useMemo(() => {
-    const values = { position: new Set(), status: new Set() };
+    const values = { position: new Set(), arrivalStatus: new Set(), workStatus: new Set() };
     attendance.forEach((row) => {
       values.position.add(row.position);
-      values.status.add(row.status);
+      values.arrivalStatus.add(row.arrivalStatus);
+      values.workStatus.add(row.workStatus);
     });
     return {
       position: Array.from(values.position),
-      status: Array.from(values.status),
+      arrivalStatus: Array.from(values.arrivalStatus),
+      workStatus: Array.from(values.workStatus),
     };
   }, [attendance]);
 
@@ -106,7 +97,9 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
     return [...filtered].sort((a, b) => {
       const aVal = a[sortColumn] ?? "";
       const bVal = b[sortColumn] ?? "";
-      if (sortColumn === "diffValue") return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
+      if (["arrivalDiff", "hoursWorked"].includes(sortColumn)) {
+        return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
+      }
       return sortOrder === "asc"
         ? String(aVal).localeCompare(String(bVal))
         : String(bVal).localeCompare(String(aVal));
@@ -119,6 +112,9 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
   }, [sorted, currentPage, itemsPerPage]);
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
+
+  const colorForArrival = (val) => (val > 0 ? "red" : val < 0 ? "green" : "black");
+  const colorForWork = (val) => (val < 0 ? "red" : val > 0 ? "green" : "black");
 
   return (
     <div className="tabSection">
@@ -158,47 +154,50 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
         </div>
       </div>
 
-      <table className="tabTable">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Position</th>
-            <th>Shift</th>
-            <th>Time-in</th>
-            <th>Time-out</th>
-            <th>UT/OT</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {paginated.length === 0 ? (
+      <div className="tableContainer">
+        <table className="tabTable">
+          <thead>
             <tr>
-              <td colSpan={7}>No records found.</td>
+              {columns.map((col) => (
+                <th key={col}>{columnLabelMap[col]}</th>
+              ))}
             </tr>
-          ) : (
-            paginated.map((row, idx) => (
-              <tr
-                key={idx}
-                onClick={() => {
-                  setSelectedEmployeeId(row.employeeid);
-                  setActivePage("EmployeeInformation");
-                }}
-              >
-                <td>{row.fullName}</td>
-                <td>{row.position}</td>
-                <td>
-                  {formatTime(row.shift?.split(" - ")[0])} -{" "}
-                  {formatTime(row.shift?.split(" - ")[1])}
-                </td>
-                <td>{formatTime(row.timeIn)}</td>
-                <td>{formatTime(row.timeOut)}</td>
-                <td style={{ color: row.diffValue < 0 ? "red" : "green" }}>{row.utot}</td>
-                <td>{row.status}</td>
+          </thead>
+          <tbody>
+            {paginated.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length}>No records found.</td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              paginated.map((row, idx) => (
+                <tr
+                  key={idx}
+                  onClick={() => {
+                    setSelectedEmployeeId(row.employeeid);
+                    setActivePage("EmployeeInformation");
+                  }}
+                >
+                  <td>{row.date}</td>
+                  <td>{row.fullName}</td>
+                  <td>{row.department}</td>
+                  <td>{row.position}</td>
+                  <td>{row.shift}</td>
+                  <td>{row.timeIn || "-"}</td>
+                  <td style={{ color: colorForArrival(row.arrivalDiff) }}>
+                    {row.arrivalDiff === 0 ? "-" : `${row.arrivalDiff > 0 ? "+" : ""}${row.arrivalDiff} mins`}
+                  </td>
+                  <td>{row.arrivalStatus}</td>
+                  <td>{row.timeOut || "-"}</td>
+                  <td style={{ color: colorForWork(row.hoursWorked) }}>
+                    {row.workDiff === 0 ? "-" : `${row.hoursWorked > 0 ? "+" : ""}${row.hoursWorked} mins`}
+                  </td>
+                  <td>{row.workStatus}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       <div className="tableFooter">
         <Pagination
@@ -209,13 +208,13 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
           onPageChange={setCurrentPage}
           onItemsPerPageChange={setItemsPerPage}
           onImport={() => setShowImportModal(true)}
-          onExport={() => window.fileAPI.exportAttendance()}
+          onExport={() => window.exportAPI.exportAttendance()}
         />
         <div className="actions">
           <button className="exportBtn" onClick={() => setShowImportModal(true)}>
             Import
           </button>
-          <button className="exportBtn" onClick={() => window.fileAPI.exportAttendance()}>
+          <button className="exportBtn" onClick={() => window.exportAPI.exportAttendance()}>
             Export
           </button>
         </div>
@@ -226,20 +225,8 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
         onClose={() => setShowImportModal(false)}
         onImportComplete={async () => {
           setShowImportModal(false);
-          const data = await window.fileAPI.getAttendanceByDate(selectedDate);
-          const formatted = data.map((row) => {
-            const [shiftStart = "", shiftEnd = ""] = row.shift?.split(" - ") || [];
-            const expected = calculateMinutes(shiftStart, shiftEnd);
-            const actual = calculateMinutes(row.timeIn, row.timeOut);
-            const diff = actual - expected;
-            return {
-              ...row,
-              utot: `${Math.abs(diff)} min(s)`,
-              status: diff < 0 ? "Undertime" : "On time / Overtime",
-              diffValue: diff,
-            };
-          });
-          setAttendance(formatted);
+          const data = await window.attendanceAPI.getAttendance();
+          setAttendance(data || []);
         }}
       />
     </div>

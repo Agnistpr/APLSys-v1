@@ -28,7 +28,7 @@ const SortDropdown = ({
         className="sortIcon"
         onClick={() => onSortChange(sortColumn, sortOrder === "asc" ? "desc" : "asc")}
       >
-        {sortOrder === "asc" ? <FaSortAmountDownAlt /> : <FaSortAmountUp />}
+        {sortOrder === "asc" ? <FaSortAmountDownAlt /> : <FaSortAmountUp />} |
       </div>
 
       <div className="sortText" onClick={() => setDropdownOpen((prev) => !prev)}>

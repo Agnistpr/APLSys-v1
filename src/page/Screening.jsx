@@ -52,7 +52,7 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
 
   useEffect(() => {
     const loadDeps = async () => {
-      const data = await window.fileAPI.getDeptPos();
+      const data = await window.utilityAPI.getDeptPos();
 
       const deptMap = {};
       data.forEach((row) => {
@@ -151,9 +151,9 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
   }, []);
 
   const fetchAllApplicants = async () => {
-    const pendingData = await window.fileAPI.getApplicants("Pending");
-    const approvedData = await window.fileAPI.getApplicants("Approved");
-    const rejectedData = await window.fileAPI.getApplicants("Rejected");
+    const pendingData = await window.applicantAPI.getApplicants("Pending");
+    const approvedData = await window.applicantAPI.getApplicants("Approved");
+    const rejectedData = await window.applicantAPI.getApplicants("Rejected");
 
     setPendingApplicants(Array.isArray(pendingData) ? pendingData : []);
     setApprovedApplicants(Array.isArray(approvedData) ? approvedData : []);
@@ -302,7 +302,7 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
   const updateStatus = async (ids, options) => {
     try {
       console.log("Sending to backend:", { ids, options });
-      const res = await window.fileAPI.updateApplicantsStatus(ids, options);
+      const res = await window.applicantAPI.updateApplicantsStatus(ids, options);
       if (!res.success) {
         console.error(res.message);
         return;
@@ -330,7 +330,7 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
     console.log("Submitting applicant:", formValues);
 
     try {
-      await window.fileAPI.addApplicant(formValues);
+      await window.applicantAPI.addApplicant(formValues);
       await fetchAllApplicants();
       setShowAddModal(false);
     } catch (err) {
@@ -343,7 +343,7 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
       <div className="screeningContent">
         <div className="screeningHeader">
           <h1>Applicant Screening Dashboard</h1>
-          <button className="exportBtn" onClick={() => window.fileAPI.exportAllApplicants()}>
+          <button className="exportBtn" onClick={() => window.exportAPI.exportAllApplicants()}>
             Export All
           </button>
         </div>
@@ -752,7 +752,7 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
                   </div>
                 </div>
             </div>
-            <button className="exportBtn" onClick={() => window.fileAPI.exportApplicants(selectedTab)}>
+            <button className="exportBtn" onClick={() => window.exportAPI.exportApplicants(selectedTab)}>
               Export Table
             </button>
           </div>

@@ -62,7 +62,7 @@ const InventoryComponent = ({ userId, setActivePage, setSelectedEmployeeId }) =>
   useEffect(() => {
     const fetchLogs = async () => {
       const dateParam = selectedDate?.trim() || "";
-      const data = await window.fileAPI.getInventoryLogs(dateParam);
+      const data = await window.inventoryAPI.getInventoryLogs(dateParam);
       setLogs(data);
     };
     fetchLogs();
@@ -70,7 +70,7 @@ const InventoryComponent = ({ userId, setActivePage, setSelectedEmployeeId }) =>
 
   useEffect(() => {
     const fetchCardData = async () => {
-      const data = await window.fileAPI.getInventoryCard();
+      const data = await window.inventoryAPI.getInventoryCard();
       setCardData(data);
     };
     fetchCardData();
@@ -145,7 +145,7 @@ const InventoryComponent = ({ userId, setActivePage, setSelectedEmployeeId }) =>
     <div className="tabSection">
       <div className="inventoryRow">
         <h2 className="tabTitle">Inventory</h2>
-        <button className="exportBtn" onClick={() => window.fileAPI.exportInventory()}>
+        <button className="exportBtn" onClick={() => window.exportAPI.exportInventory()}>
           Export
         </button>
       </div>
@@ -181,7 +181,7 @@ const InventoryComponent = ({ userId, setActivePage, setSelectedEmployeeId }) =>
       <div className="tabHeaderRow">
         <div className="inventoryRow">
           <h2 className="tabTitle">Inventory Logs</h2>
-          <button className="exportBtn" onClick={() => window.fileAPI.exportInventoryLogs(selectedDate)}>
+          <button className="exportBtn" onClick={() => window.exportAPI.exportInventoryLogs(selectedDate)}>
             Export
           </button>
         </div>
@@ -483,10 +483,10 @@ const InventoryComponent = ({ userId, setActivePage, setSelectedEmployeeId }) =>
                   onClick={async () => {
                     const oldItem = cardData.find((i) => i.itemid === editForm.itemid);
 
-                    await window.fileAPI.updateItem(editForm);
+                    await window.inventoryAPI.updateItem(editForm);
                     setEditModalOpen(false);
 
-                    const updated = await window.fileAPI.getInventoryCard();
+                    const updated = await window.inventoryAPI.getInventoryCard();
                     setCardData(updated);
 
                     if (oldItem) {
@@ -511,7 +511,7 @@ const InventoryComponent = ({ userId, setActivePage, setSelectedEmployeeId }) =>
 
                         const description = diffs.map(d => `- ${d}`).join("\n");
                         console.log("Logging with userId:", userId);
-                        await window.fileAPI.logAction(
+                        await window.userAPI.logAction(
                           userId,
                           `edited item "${oldName}"`,
                           description

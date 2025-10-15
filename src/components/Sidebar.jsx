@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import logoutIcon from '../assets/logout.png';
-import { FaChevronRight, FaChevronDown, FaBars, FaTachometerAlt, FaUsers, FaUserPlus, FaFileAlt, FaCog, FaChartBar, FaFileUpload } from 'react-icons/fa';
+import { FaChevronRight, FaChevronDown, FaBars, FaTachometerAlt, FaUsers, FaUserPlus, FaFileAlt, FaChartBar } from 'react-icons/fa';
 import { LuLogs, LuScan } from "react-icons/lu";
 import { MdManageSearch } from "react-icons/md";
 import {
@@ -27,16 +27,33 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
   const [showApplicants, setShowApplicants] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
 
-  // Collapse on small or zoom?
+  const [userName, setUserName] = useState('...');
+  const [userRole, setUserRole] = useState('...');
+
   useEffect(() => {
-    const handleResize = () => {
-      if (window.devicePixelRatio >= 1.5) {
-        setIsCollapsed(true);
-      } else {
-        setIsCollapsed(false);
+    const fetchUser = async () => {
+      try {
+        const session = await window.authAPI.getSession();
+        if (session?.user) {
+          const metadata = session.user.user_metadata || {};
+          setUserName(metadata.full_name || 'Unknown User');
+          setUserRole(metadata.userRole || 'Employee');
+        } else {
+          setUserName('Guest');
+          setUserRole('N/A');
+        }
+      } catch (err) {
+        console.error('Failed to load user session:', err);
       }
     };
 
+    fetchUser();
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsCollapsed(window.devicePixelRatio >= 1.5);
+    };
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -48,8 +65,8 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
         <div className="topBar">
           <div className="avatarPlaceholder" />
           <div className="userInfo">
-            <div className="role">HR</div>
-            <div className="name">Jane Doe</div>
+            <div className="role">{userRole}</div>
+            <div className="name">{userName}</div>
           </div>
         </div>
         <button
@@ -61,6 +78,7 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
         </button>
       </div>
 
+      {/* Nav Items */}
       <div className="navList">
         <div
           className={`sidebarNav ${activePage === 'Dashboard' ? 'activeTab' : ''}`}
@@ -80,7 +98,7 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
           </div>
           {showEmployees && (
             <div className="subNavList">
-              {['Employee', 'Attendance'].map((page, idx) => (
+              {['Employee'].map((page, idx) => (
                 <div
                   key={idx}
                   className={`subNavItem ${activePage === page ? 'activeSubTab' : ''}`}
@@ -88,7 +106,7 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
                   title={page}
                 >
                   {subNavIcons[page]}
-                  <span>{page.replace(/([A-Z])/g, ' $1').trim()}</span>
+                  <span>{page}</span>
                 </div>
               ))}
               {selectedEmployeeId && (
@@ -115,7 +133,7 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
           </div>
           {showApplicants && (
             <div className="subNavList">
-              {['Training', 'Screening'].map((page, idx) => (
+              {['Screening', 'Training'].map((page, idx) => (
                 <div
                   key={idx}
                   className={`subNavItem ${activePage === page ? 'activeSubTab' : ''}`}
@@ -140,12 +158,6 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
           )}
         </div>
 
-        {/* <div className={`sidebarNav ${activePage === 'OCR' ? 'activeTab' : ''}`} onClick={() => setActivePage('OCR')}>
-          <FaFileUpload />
-          <span>Document Scanning</span>
-        </div> */}
-
-        {/* Documents */}
         <div className="navSection">
           <div className="sidebarNav" onClick={() => setShowDocuments(!showDocuments)}>
             <FaFileAlt />
@@ -171,15 +183,13 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
           )}
         </div>
 
-        <div className={`sidebarNav ${activePage === 'Logs' ? 'activeTab' : ''}`} onClick={() => setActivePage('Logs')}>
+        <div
+          className={`sidebarNav ${activePage === 'Logs' ? 'activeTab' : ''}`}
+          onClick={() => setActivePage('Logs')}
+        >
           <LuLogs />
           <span>Logs</span>
         </div>
-
-        {/* <div className={`sidebarNav ${activePage === 'Settings' ? 'activeTab' : ''}`} onClick={() => setActivePage('Settings')}>
-          <FaCog />
-          <span>Settings</span>
-        </div> */}
       </div>
 
       <div className="logoutSection" onClick={onLogout}>

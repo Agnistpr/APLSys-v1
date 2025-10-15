@@ -101,7 +101,7 @@ app.on("ready", async () => {
     // initDatabase();
     // startDatabase();
     // connectToDatabase();
-    // startBackend();
+    startBackend();
 
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
     const mainWindow = new BrowserWindow({
@@ -112,13 +112,18 @@ app.on("ready", async () => {
         preload: path.join(__dirname, "preload.js"),
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: true
+        sandbox: true,
       },
     });
 
-    mainWindow.loadFile(
-      path.join(app.getAppPath(), "/dist-react/index.html")
-    );
+    // const isDev = process.env.NODE_ENV === "development";
+
+    // if (isDev) {
+    //   mainWindow.loadURL('http://localhost:8080');
+    //   mainWindow.webContents.openDevTools();
+    // } else {
+      mainWindow.loadFile(path.join(app.getAppPath(), "/dist-react/index.html"));
+    // }
 
     // Remove Menu on top - Comment out if debugging
     Menu.setApplicationMenu(null);
@@ -131,14 +136,14 @@ app.on("ready", async () => {
 app.on("before-quit", async (event) => {
   event.preventDefault();
   try {
-    logMessage("Closing DB connection...");
-    //await closeDatabaseConnection();
+    // logMessage("Closing DB connection...");
+    // await closeDatabaseConnection();
 
-    logMessage("Shutting down DB...");
-    stopDatabase();
+    // logMessage("Shutting down DB...");
+    // stopDatabase();
 
     logMessage("Stopping backend...");
-    //await stopBackend();
+    await stopBackend();
   } catch (err) {
     logMessage(`Shutdown error: ${err.stack || err}`);
   } finally {

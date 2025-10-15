@@ -19,7 +19,7 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
       setLoading(false);
 
       (async () => {
-        const cols = await window.columnAPI.getAttendanceColumns();
+        const cols = await window.attendanceAPI.getAttendanceColumns();
         const filtered = (cols || []).filter(
           (col) => col.toLowerCase() !== "attendanceid"
         );

@@ -737,7 +737,7 @@ body.login {
   align-items: center;
   height: 100vh; 
   margin: 0;
-  overflow: hidden; /* prevent scrollbars */
+  overflow: hidden;
 }
 
 body.login .content {
@@ -765,7 +765,27 @@ body.login .content {
 
 .forgot {
   font-size: 12px;
+  /* margin-top: 10px; */
+}
+
+.rememberMe {
   margin-top: 10px;
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.rememberMe input[type="checkbox"] {
+  margin-right: 8px;
+  accent-color: #007bff;
+  font-size: 14px;
+}
+
+.rememberMe label {
+  font-size: 13px;
+  color: #333;
+  user-select: none;
+  margin: 0;
 }
 
 .loginLogo {
@@ -1003,6 +1023,7 @@ body.login .content {
 .dashboardContent {
   padding: 30px;
   padding-top: 0px;
+  padding-bottom: 10px;
   background-color: #fff;
   border-top: 2px solid #981b1b;
 }
@@ -1015,6 +1036,7 @@ body.login .content {
   box-sizing: border-box;
   font-family: 'Helvetica Neue', sans-serif;
   overflow-x: auto;
+  position: relative;
 }
 
 .tabSection::-webkit-scrollbar {
@@ -1116,12 +1138,36 @@ body.login .content {
   transform: translateY(-50%);
 }
 
+.tableContainer {
+  overflow-x: auto;
+  overflow-y: hidden;
+  width: 100%;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #981b1b #f1f1f1;
+}
+.tableContainer::-webkit-scrollbar {
+  height: 8px;
+}
+.tableContainer::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+.tableContainer::-webkit-scrollbar-thumb {
+  background: #981b1b;
+  border-radius: 8px;
+}
+.tableContainer::-webkit-scrollbar-thumb:hover {
+  background: #b32b2b;
+}
+
 .tabTable {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
   border: 1px solid;
+  display: table;
+  min-width: 100%;
 }
 
 .tabTable th {

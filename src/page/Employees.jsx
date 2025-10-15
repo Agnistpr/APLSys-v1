@@ -162,7 +162,7 @@ const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activ
       <div className="employeeHeaderRow">
         <div className="employeeHeader">
           <h1>Employees</h1>
-          <button className="exportBtn" onClick={() => window.fileAPI.exportEmployees()}>
+          <button className="exportBtn" onClick={() => window.exportAPI.exportEmployees()}>
             Export All
           </button>
         </div>

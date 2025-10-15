@@ -48,7 +48,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
   };
 
   const fetchOnLeave = async () => {
-    const data = await window.fileAPI.getLeave(selectedDate);
+    const data = await window.attendanceAPI.getLeave(selectedDate);
     const filtered =
       type === "Approved"
         ? data.filter((l) => l.status === "Approved")
@@ -158,7 +158,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
 
     if (toAdd.length > 0) {
       try {
-        const result = await window.fileAPI.addLeave(toAdd, addLeaveDate, leaveReason, addLeaveDuration,);
+        const result = await window.attendanceAPI.addLeave(toAdd, addLeaveDate, leaveReason, addLeaveDuration,);
         if (!result.success) {
           addToast(`Error adding leave: ${result.error}`, "error");
           return;
@@ -182,7 +182,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
     if (selectedIds.length === 0) return;
 
     try {
-      await window.fileAPI.updateLeaveStatus(selectedIds, status);
+      await window.attendanceAPI.updateLeaveStatus(selectedIds, status);
       setSelectedIds([]);
       setShowCheckboxes(false);
       fetchOnLeave();

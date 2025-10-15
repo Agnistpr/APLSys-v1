@@ -72,7 +72,7 @@ const Dashboard = ({
 
   const fetchCounts = async () => {
     try {
-      const counts = await window.fileAPI.getDashboardCardData();
+      const counts = await window.utilityAPI.getDashboardCardData();
       if (counts) {
         setTotalEmployees(counts.totalEmployees || 0);
         setTotalAttendance(counts.totalAttendance || 0);
