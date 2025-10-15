@@ -1,22 +1,19 @@
 # app/routers/ocr_router.py
-from fastapi import APIRouter, UploadFile, File, Query
+from fastapi import APIRouter, UploadFile, File, Query, Request
 from services.ocr_service import (
     run_ocr,
     extract_on_document,
     search_word,
     collect_all_pages
 )
-from pydantic import BaseModel
-from typing import Optional, List
-
+from typing import List
+from doctr.io import DocumentFile
+from doctr.models import ocr_predictor
+from model.request_schema import SearchRequest
 router = APIRouter()
 
-
-class SearchRequest(BaseModel):
-    file_path: str
-    query: str
-
-
+# Load once at startup
+ocr_model = ocr_predictor(det_arch="db_resnet34", reco_arch="crnn_vgg16_bn", pretrained=True)
 
 @router.post("/run-ocr-on-document-upload")
 async def run_ocr_document_upload(file: UploadFile = File(...)):
@@ -25,38 +22,11 @@ async def run_ocr_document_upload(file: UploadFile = File(...)):
     return {"pages": exported["pages"]}
 
 @router.post("/search-word")
-def search_word_endpoint(request: SearchRequest):
+async def search_word_endpoint(request: SearchRequest):
     doc, exported = extract_on_document(request.file_path)
     matches = []
-    # search_word is async, but not awaited in your code; make it sync for router or use asyncio.run
-    import asyncio
-    matches = asyncio.run(search_word(exported, request.query))
+    matches = search_word(exported, request.query)
     return {"matches": matches}
-
-# @router.post("/ocr-and-visualize")
-# async def ocr_and_visualize_endpoint(file: UploadFile = File(...), search_query: Optional[str] = None):
-#     content = await file.read()
-#     doc, exported = extract_on_document(content)
-#     output = []
-#     for page_idx, page_dict in enumerate(exported["pages"]):
-#         lines = []
-#         if "blocks" in page_dict:
-#             for block in page_dict["blocks"]:
-#                 if isinstance(block, dict) and "lines" in block:
-#                     if isinstance(block, dict) and "lines" in block:
-#                         for line in block["lines"]:
-#                             words = line.get("words", []) if isinstance(line, dict) else []
-#                             line_text = " ".join([word if isinstance(word, str) else word.get("value", "") for word in words])
-#                             lines.append(line_text)
-#         elif "text" in page_dict:
-#             # Digital PDF: just use the text field
-#             lines = page_dict["text"].splitlines()
-#         output.append({"page": page_idx + 1, "lines": lines})
-#     search_results = None
-#     if search_query:
-#         import asyncio
-#         search_results = await search_word(exported, search_query)
-#     return {"pages": output, "search_results": search_results}
 
 @router.post("/batch-ocr")
 async def batch_ocr(files: List[UploadFile] = File(...)):
@@ -113,6 +83,33 @@ async def extract_text_region(file: UploadFile = File(...)):
                         confidences.append(word["confidence"])
     avg_conf = float(sum(confidences) / len(confidences)) if confidences else 0.0
     return {"text": "\n".join(text), "confidence": avg_conf}
+
+@router.post("/extract-metadata")
+async def extract_metadata_from_image(file: UploadFile = File(...)):
+    """
+    Extract metadata from an image using OCR.
+    Returns both the full extracted text and the structured OCR layer.
+    """
+    # Read image bytes
+    content = await file.read()
+    # Use the loaded OCR model from app state
+    doc = DocumentFile.from_images([content])
+    result = ocr_model(doc)
+    exported = result.export()
+
+    # Aggregate all text lines for convenience
+    full_text = []
+    for page in exported["pages"]:
+        for block in page.get("blocks", []):
+            for line in block.get("lines", []):
+                line_text = " ".join([word["value"] for word in line.get("words", [])])
+                full_text.append(line_text)
+    plain_text = "\n".join(full_text)
+
+    return {
+        "text": plain_text,
+        "ocr_layer": exported
+    }
 
 @router.post("/search")
 async def search_text(file: UploadFile, query: str):
