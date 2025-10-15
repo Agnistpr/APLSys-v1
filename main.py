@@ -1,9 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from api import routes_ocr, routes_ai, routes_ner, routes_debug, routes_parser
+from api import routes_ocr, routes_ai, routes_debug, routes_parser
 from doctr.models import ocr_predictor
-from transformers import AutoTokenizer, AutoModelForTokenClassification
 from transformers import pipeline
 import uvicorn as uv
 
@@ -16,14 +15,14 @@ async def lifespan(app: FastAPI):
 
     print("Loading NER models...")
     # For Resume Parsing
-    tokenizer_resume = AutoTokenizer.from_pretrained("./model/resume-ner-model")
-    model_resume = AutoModelForTokenClassification.from_pretrained("./model/resume-ner-model")
-    ner_resume_pipeline = pipeline("token-classification", model=model_resume, tokenizer=tokenizer_resume, aggregation_strategy="simple")
+    #tokenizer_resume = AutoTokenizer.from_pretrained("./model/resume-ner-model")
+    model_resume = "./model/resume-ner-model"
+    ner_resume_pipeline = pipeline(task ="token-classification", model=model_resume, aggregation_strategy="simple")
     
     #For General OCR usage
-    tokenizer_general = AutoTokenizer.from_pretrained("dbmdz/bert-large-cased-finetuned-conll03-english")
-    model_general = AutoModelForTokenClassification.from_pretrained("dbmdz/bert-large-cased-finetuned-conll03-english")
-    general_ner_pipeline = pipeline("token-classification", model=model_general, tokenizer=tokenizer_general, aggregation_strategy="simple")
+    #tokenizer_general = AutoTokenizer.from_pretrained("dbmdz/bert-large-cased-finetuned-conll03-english")
+    model_general = "dbmdz/bert-large-cased-finetuned-conll03-english"
+    general_ner_pipeline = pipeline(task = "token-classification", model=model_general, aggregation_strategy="simple")
 
     app.state.ner_resume_pipeline = ner_resume_pipeline
     app.state.general_ner_pipeline = general_ner_pipeline
