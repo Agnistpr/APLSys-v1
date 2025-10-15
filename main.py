@@ -11,7 +11,7 @@ import uvicorn as uv
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Loading OCR model...")
-    app.state.ocr_model = ocr_predictor(pretrained=True)
+    app.state.ocr_model = ocr_predictor(det_arch="db_resnet34", reco_arch="crnn_vgg16_bn", pretrained=True)
 
     print("Loading NER models...")
     # For Resume Parsing
