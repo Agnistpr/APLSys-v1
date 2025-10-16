@@ -64,7 +64,6 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "cors": "^2.8.5",
-    "csv-parse": "^6.1.0",
     "date-fns": "^3.6.0",
     "dotenv": "^17.2.2",
     "electron-context-menu": "4.1.0",

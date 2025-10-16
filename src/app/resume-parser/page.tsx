@@ -1,11 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+<<<<<<< HEAD
 //import { readPdf } from "../lib/parse-resume-from-pdf/read-pdf";
+=======
+>>>>>>> 2ce2aa93ddeb2d0d1e680650945ec09210ed57ea
 import type { TextItems } from "../lib/parse-resume-from-pdf/types";
-// import { groupTextItemsIntoLines } from "../lib/parse-resume-from-pdf/group-text-items-into-lines";
-// import { groupLinesIntoSections } from "../lib/parse-resume-from-pdf/group-lines-into-sections";
-// import { extractResumeFromSections } from "../lib/parse-resume-from-pdf/extract-resume-from-sections";
 import { ResumeDropzone } from "../components/ResumeDropzone";
 import { ResumeTable } from "./ResumeTable";
 import { analyzeResumeWithGemini } from "../../../conn/genAnalysis";
@@ -148,6 +148,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
   const jobDescription = selectedCategory && selectedJobRole ? JOB_ROLES[selectedCategory][selectedJobRole]?.description : "";
   const requiredSkills = selectedCategory && selectedJobRole ? JOB_ROLES[selectedCategory][selectedJobRole]?.required_skills : [];
 
+<<<<<<< HEAD
 //   useEffect(() => {
 //   if (!fileUrl || typeof fileUrl !== "string" || !fileUrl.startsWith("blob:")) {
 //     console.log("No file was uploaded, or an error has occured.");
@@ -174,6 +175,8 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 //   loadResume();
 // }, [fileUrl]);
 
+=======
+>>>>>>> 2ce2aa93ddeb2d0d1e680650945ec09210ed57ea
   useEffect(() => {
     if (fileUrl) {
       const name = fileUrl.split(/[\\/]/).pop() || "";

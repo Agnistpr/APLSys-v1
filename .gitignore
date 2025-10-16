@@ -10,6 +10,7 @@ log.txt
 
 db-data/
 logfile
+log.txt
 
 *.map
 __tests__/
