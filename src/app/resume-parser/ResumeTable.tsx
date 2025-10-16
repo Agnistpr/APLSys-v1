@@ -31,32 +31,19 @@ const TableRow = ({
     </th>
     <td className="px-3 py-2">
       {typeof value === "string" ? (
-        onFieldChange ? (
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => onFieldChange(fieldKey, e.target.value)}
-            className="border px-2 py-1 rounded"
-          />
-        ) : (
-          value
-        )
-      ) : onFieldChange ? (
-        <textarea
-          value={Array.isArray(value) ? value.join("\n") : ""}
-          onChange={(e) => onFieldChange(fieldKey, e.target.value)}
-          className="border px-2 py-1 rounded"
-          rows={Math.max(5, Array.isArray(value) ? value.length : 5)}
+        <input
+          type="text"
+          value={value || ""}  // Add fallback for null/undefined
+          onChange={(e) => onFieldChange?.(fieldKey, e.target.value)}
+          className="border px-2 py-1 rounded w-full"
         />
       ) : (
-        Array.isArray(value)
-          ? value.map((x, idx) => (
-              <Fragment key={idx}>
-                • {x}
-                <br />
-              </Fragment>
-            ))
-          : null
+        <textarea
+          value={Array.isArray(value) ? value.join("\n") : ""}
+          onChange={(e) => onFieldChange?.(fieldKey, e.target.value)}
+          className="border px-2 py-1 rounded w-full"
+          rows={Math.max(3, Array.isArray(value) ? value.length : 3)}
+        />
       )}
     </td>
   </tr>

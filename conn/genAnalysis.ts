@@ -2,17 +2,86 @@
 import { JOB_ROLES, JobRole } from "src/app/data/jobRoles";
 import axios from "axios";
 
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function parseRetryDelayFromError(err: any): Promise<number | null> {
+  try {
+    // Try HTTP header first
+    const retryAfter = err?.response?.headers?.["retry-after"];
+    if (retryAfter) {
+      const asNum = parseFloat(retryAfter);
+      if (!isNaN(asNum)) return asNum * 1000;
+    }
+
+    // Try Google API RetryInfo in response body (e.g. "retryDelay": "12s")
+    const details = err?.response?.data?.error?.details;
+    if (Array.isArray(details)) {
+      const retryInfo = details.find((d: any) => d["@type"]?.includes("RetryInfo") || d["@type"]?.includes("retryinfo"));
+      if (retryInfo?.retryDelay) {
+        const m = String(retryInfo.retryDelay).match(/(\d+)(?:\.(\d+))?s/);
+        if (m) {
+          const secs = parseInt(m[1], 10);
+          return secs * 1000;
+        }
+      }
+    }
+  } catch (_) {
+    // ignore parse errors
+  }
+  return null;
+}
+
 export async function analyzeResumeWithGemini(payload: {
   resume: string;
   job_role?: string;
   job_description?: string;
-}) {
-  try {
-    const response = await axios.post("http://127.0.0.1:8000/ai/analyze-resume", payload);
-    return response.data.result || response.data.error;
-  } catch (error: any) {
-    console.error("Backend Gemini error:", error.response?.data || error.message);
-    return "Error: Unable to analyze resume.";
+}, opts?: {maxRetries?: number}) {
+  const maxRetries = opts?.maxRetries ?? 4;
+  let attempt = 0;
+  let backoff = 1000; // 1s initial
+
+
+  while (true) {
+    try {
+      // Call your backend endpoint that forwards to Gemini
+      const res = await axios.post("http://127.0.0.1:8000/ai/analyze-resume", payload, 
+        { timeout: 120000,
+          headers: { "Content-Type": "application/json" }
+         });
+
+         // Validate response
+        if (!res.data) {
+          throw new Error("Empty response from server");
+        }
+
+        if (res.data.error) {
+          throw new Error(res.data.error);
+        }
+
+      return res.data;
+    } catch (err: any) {
+      attempt++;
+      const status = err?.response?.status;
+      // If rate limited (429) or server busy (503), try again with backoff
+      if ((status === 429 || status === 503 || status === 504) && attempt <= maxRetries) {
+        // Prefer server-suggested retry delay if present
+        const suggested = await parseRetryDelayFromError(err);
+        const wait = suggested ?? backoff;
+        console.warn(`gemini server error: ${status}. retrying in ${wait}ms (attempt ${attempt}/${maxRetries})`);
+        await sleep(wait);
+        backoff *= 2; // exponential backoff
+        continue;
+      }
+      // Otherwise rethrow
+      throw new Error(
+        err.response?.data?.error || 
+        err.response?.data?.message || 
+        err.message || 
+        "Failed to analyze resume"
+      );
+    }
   }
 }
 

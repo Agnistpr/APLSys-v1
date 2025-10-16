@@ -41,16 +41,24 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
       toast.error("No metadata to export");
       return;
     }
-    // You can customize this to include more metadata if needed
     const metadata = {
       extractedData,
       exported_at: new Date().toISOString(),
     };
     const filename = `scanned_photo__metadata.${format}`;
-    const blob = new Blob(
-      [format === "json" ? JSON.stringify(metadata, null, 2) : extractedData.map(e => e.text).join("\n")],
-      { type: format === "json" ? "application/json" : "text/plain" }
-    );
+    let content;
+    if (format === "json") {
+      content = JSON.stringify(metadata, null, 2);
+    } else {
+      // TXT: tag: extracted text (for each highlighted tag)
+      content = extractedData
+        .map(item =>
+          item.tags.map(tag => `${tag}: ${item.text}`).join("\n")
+        )
+        .filter(Boolean)
+        .join("\n\n");
+    }
+    const blob = new Blob([content], { type: format === "json" ? "application/json" : "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
