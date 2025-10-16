@@ -3,6 +3,10 @@
 APLSys is a desktop HRIS application utilizing OCR to optimize the recruitment process and additionally play a role in Document Management. It utilizes Electron, a simple yet famous framework with apps such as Discord being built with it. Its database is hosted on Supabase, an online PostgreSQL platform.\
 
 ---
+Required Software:
+ - Node.js
+ - Python
+---
 
 To run intially, run "npm install" to install all dependencies needed.
 
