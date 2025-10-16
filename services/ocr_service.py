@@ -5,13 +5,13 @@ import matplotlib.pyplot as plt
 import layoutparser as lp
 from layoutparser.models import Detectron2LayoutModel
 import cv2
-from PIL import Image
-import numpy as np
 import os
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
+from google.cloud import vision
 import io
 import json
+import requests
 load_dotenv()
 
 
@@ -35,6 +35,95 @@ async def run_ocr(model, file):
     
     return result
 
+def google_vision_ocr(image_bytes):
+    """
+    Run OCR using Google Vision API and return structured results.
+    """
+    client = vision.ImageAnnotatorClient()
+    image = vision.Image(content=image_bytes)
+    response = client.document_text_detection(image=image) # type: ignore[attr-defined]
+    annotations = response.full_text_annotation
+
+    # Structure the result similar to doctr's export()
+    result = {
+        "pages": []
+    }
+    for page in annotations.pages:
+        page_dict = {"blocks": []}
+        for block in page.blocks:
+            block_dict = {"lines": []}
+            for paragraph in block.paragraphs:
+                line_dict = {"words": []}
+                for word in paragraph.words:
+                    word_text = "".join([symbol.text for symbol in word.symbols])
+                    line_dict["words"].append({
+                        "value": word_text,
+                        "confidence": word.confidence,
+                        "geometry": [
+                            [v.x / page.width, v.y / page.height] for v in word.bounding_box.vertices
+                        ] if word.bounding_box.vertices else []
+                    })
+                block_dict["lines"].append(line_dict)
+            page_dict["blocks"].append(block_dict)
+        result["pages"].append(page_dict)
+    return result
+
+def ocr_space_ocr(image_bytes, api_key=None, language="eng"):
+    if api_key is None:
+        api_key = os.getenv("OCR_SPACE_API_KEY") or os.getenv("FREEOCR")
+    url = "https://api.ocr.space/parse/image"
+    files = {'file': ('image.jpg', image_bytes)}
+    data = {
+        'apikey': api_key,
+        'language': language,
+        'isTable': True,
+        'OCREngine': 2
+    }
+    response = requests.post(url, files=files, data=data)
+    response.raise_for_status()
+    result = response.json()
+    parsed = result.get("ParsedResults", [{}])[0]
+    page_text = parsed.get("ParsedText", "")
+    lines = []
+    for line in page_text.split("\n"):
+        words = [{"value": w, "confidence": None, "geometry": []} for w in line.split() if w]
+        if words:
+            lines.append({"words": words})
+    # Group all lines into a single block
+    blocks = [{"lines": lines}] if lines else []
+    print("Text:", blocks)
+    return {"pages": [{"blocks": blocks}]}
+
+# def ocr_space_ocr(image_bytes, api_key=None, language="eng"):
+#     """
+#     Run OCR using ocr.space API and return structured results.
+#     """
+#     if api_key is None:
+#         api_key = os.getenv("OCR_SPACE_API_KEY") or os.getenv("FREEOCR")
+#     url = "https://api.ocr.space/parse/image"
+#     files = {'file': ('image.jpg', image_bytes)}
+#     data = {
+#         'apikey': api_key,
+#         'language': language,
+#         'isTable': True,
+#         'OCREngine': 2
+#     }
+#     response = requests.post(url, files=files, data=data)
+#     response.raise_for_status()
+#     result = response.json()
+#     # Structure the result similar to previous format
+#     pages = []
+#     parsed_results = result.get("ParsedResults", [])
+#     for parsed in parsed_results:
+#         page_text = parsed.get("ParsedText", "")
+#         # Split into lines and words for compatibility
+#         blocks = []
+#         for line in page_text.split("\n"):
+#             words = [{"value": w, "confidence": None, "geometry": []} for w in line.split() if w]
+#             if words:
+#                 blocks.append({"lines": [{"words": words}]})
+#         pages.append({"blocks": blocks})
+#     return {"pages": pages}
 
 def extract_tables_from_image(image_path):
     """
@@ -240,3 +329,9 @@ def visualize_word_boxes(image, matches, color=(255, 0, 0), thickness=2):
 #     plt.imshow(vis_img)
 #     plt.axis("off")
 #     plt.show()
+
+if __name__ == "__main__":
+    from google.cloud import vision
+    client = vision.ImageAnnotatorClient()
+    print("Client loaded:", type(client))
+    print("Has method:", hasattr(client, "document_text_detection"))
