@@ -17,7 +17,6 @@ import axios from "axios";
 //Mapping function for NER entity to tag
 export function entityToTag(entity: string): string | null {
   if (!entity) return null;
-  // Standardize entity group mapping
   const e = entity.toUpperCase();
   if (e === 'PER' || e === 'PERSON' || e.endsWith('NAME')) return 'name';
   if (e === 'ORG' || e === 'ORGANIZATION') return 'organization';
@@ -77,8 +76,8 @@ export async function classifyTextWithNER(text: string) {
 }
 
 export async function classifyTextWithAI(text: string) {
-  const res = await axios.post("http://localhost:8000/ai/classify", { text });
-  return res.data.tag;
+  const res = await axios.post("http://localhost:8000/ai/gemini-label-extracted-text", { text });
+  return res.data;
 }
 
 export const ImageViewer: React.FC<ImageViewerProps> = ({
@@ -227,6 +226,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
     const imageData = canvas.toDataURL("image/png");
     const result = await ocrFullScan(imageData);
+    console.log("OCR result:", result);
 
     // If result is the doctr structured output:
     let text = "";
@@ -241,29 +241,47 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                 ).join("\n")
             ).join("\n")
         ).join("\n\n");
+      console.log("Extracted text for Gemini:", text);
+    }
+    if (!text.trim()) {
+      toast.error("No text found in image", { id: "ocr-process" });
+      return;
     }
 
-    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-
-    const extractions = await Promise.all(
-      lines.map(async (line, i) => {
-        let tags: string[] = [];
-        try {
-          const nerResult = await classifyTextWithNER(line);
-          tags = nerResult.entities
-            .map((ent: any) => entityToTag(ent.entity_group || ent.entity))
-            .filter((tag: string | null) => tag !== null) as string[];
-        } catch {
-          tags = [];
-        }
-        return {
+    // Use Gemini to label the full extracted text
+    const geminiResult = await classifyTextWithAI(text);
+    // Assume geminiResult has a structure like { tags: [...], ... }
+    // If it returns a flat object, convert to array for extraction display
+    let extractions: ExtractedText[] = [];
+    if (Array.isArray(geminiResult)) {
+      extractions = geminiResult.map((item: any, i: number) => ({
+        id: `${Date.now()}-${i}`,
+        text: item.text || item.word || "",
+        bbox: { x: 0, y: 0, width: 0, height: 0 },
+        tags: (item.entities || item.tags || [])
+          .map((ent: any) => typeof ent === "string" ? entityToTag(ent) : entityToTag(ent.entity || ent.tag || ent.key))
+          .filter(Boolean),
+        confidence: item.confidence || undefined,
+      }));
+    } else if (geminiResult && typeof geminiResult === "object" && Array.isArray(geminiResult.entities)) {
+      extractions = geminiResult.entities.map((ent: any, i: number) => ({
+        id: `${Date.now()}-${i}`,
+        text: ent.text || ent.word || "",
+        bbox: { x: 0, y: 0, width: 0, height: 0 },
+        tags: [entityToTag(ent.entity || ent.tag || ent.key)].filter(Boolean),
+        confidence: ent.confidence || undefined,
+      }));
+    } else if (geminiResult && typeof geminiResult === "object") {
+      extractions = Object.entries(geminiResult)
+        .filter(([_, value]) => typeof value === "string" && value.trim() !== "")
+        .map(([key, value], i) => ({
           id: `${Date.now()}-${i}`,
-          text: line,
+          text: String(value),
           bbox: { x: 0, y: 0, width: 0, height: 0 },
-          tags,
-        };
-      })
-    );
+          tags: [entityToTag(key)].filter(Boolean),
+          confidence: undefined,
+        }));
+    }
 
     if (extractions.length > 0) {
       onTextExtracted(extractions);
@@ -313,13 +331,19 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     const { text, confidence } = await ocrRegion(imageData);
 
     if (typeof text === "string" && text.trim()) {
+      // Use Gemini to label the region text
       let tags: string[] = [];
       try {
-        const nerResult = await classifyTextWithNER(text.trim());
-        tags = nerResult.entities
-          .map((ent: any) => entityToTag(ent.entity_group || ent.entity))
-          .filter((tag: string | null) => tag !== null) as string[];
-        console.log(tags)
+        const geminiResult = await classifyTextWithAI(text.trim());
+        if (geminiResult && geminiResult.tags) {
+          tags = (geminiResult.entities || []);
+        } else if (Array.isArray(geminiResult)) {
+          tags = geminiResult.map((item: any) => item.tag || item.key || "").filter(Boolean);
+        } else if (typeof geminiResult === "object") {
+          tags = Object.entries(geminiResult)
+            .filter(([_, value]) => typeof value === "string" && value.trim() !== "")
+            .map(([key]) => key);
+        }
       } catch {
         tags = [];
       }

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import type { ExtractedText } from './DocumentScanner';
 import { toast } from 'sonner';
-
+import { Download } from 'lucide-react';
 interface OCRPanelProps {
   extractedData: ExtractedText[];
   availableTags: string[];
@@ -34,6 +34,31 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
   const [visibleExtractions, setVisibleExtractions] = useState<Set<string>>(
     new Set(extractedData.map(item => item.id))
   );
+
+  // Helper to download metadata
+  const handleDownloadMetadata = (format: "json" | "txt" = "json") => {
+    if (extractedData.length === 0) {
+      toast.error("No metadata to export");
+      return;
+    }
+    // You can customize this to include more metadata if needed
+    const metadata = {
+      extractedData,
+      exported_at: new Date().toISOString(),
+    };
+    const filename = `scanned_photo__metadata.${format}`;
+    const blob = new Blob(
+      [format === "json" ? JSON.stringify(metadata, null, 2) : extractedData.map(e => e.text).join("\n")],
+      { type: format === "json" ? "application/json" : "text/plain" }
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Metadata downloaded");
+  };
 
   const handleStartEdit = (item: ExtractedText) => {
     setEditingId(item.id);
@@ -98,6 +123,23 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
         <Badge variant="secondary" className="bg-primary-soft text-primary">
           {extractedData.length} items
         </Badge>
+        <Button
+          size="sm"
+          className="ml-2"
+          onClick={() => handleDownloadMetadata("json")}
+        >
+          <Download className="w-4 h-4 mr-1" />
+          Download Metadata
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-2"
+          onClick={() => handleDownloadMetadata("txt")}
+        >
+          <Download className="w-4 h-4 mr-1" />
+          Download TXT
+        </Button>
       </div>
 
       <div className="space-y-3">

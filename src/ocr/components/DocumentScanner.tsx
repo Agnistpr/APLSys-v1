@@ -45,7 +45,39 @@ export interface DocumentData {
   timestamp: string;
 }
 
-const DEFAULT_TAGS = ['name', 'phone','location', 'skills', 'email','experience', 'education', 'organization', 'misc'];
+const DEFAULT_TAGS = [
+  // Personal / Identity
+  'name', 'full_name', 'first_name', 'last_name', 'middle_name',
+  'date_of_birth', 'gender', 'age', 'nationality',
+  'address', 'location', 'city', 'country', 'postal_code',
+  'phone', 'mobile_number', 'email',
+  'id_number', 'passport_number', 'license_number',
+
+  // Professional / Resume
+  'skills', 'experience', 'years_of_experience',
+  'education', 'degree', 'field_of_study',
+  'certifications', 'organization', 'position', 'job_title',
+  'achievements', 'projects', 'languages', 'references',
+
+  // Business / Invoice / Receipt
+  'invoice_number', 'receipt_number', 'transaction_id',
+  'purchase_order', 'vendor_name', 'customer_name',
+  'company_name', 'business_name', 'tax_id',
+  'subtotal', 'total_amount', 'amount_due', 'amount_paid',
+  'discount', 'tax', 'vat_number', 'currency', 'payment_method',
+  'issue_date', 'due_date',
+
+  // Financial / Legal
+  'account_number', 'bank_name', 'branch_code', 'iban', 'swift_code',
+  'balance', 'statement_period', 'policy_number', 'contract_number',
+  'signature', 'authorization', 'terms_and_conditions',
+
+  // Misc / Metadata
+  'date', 'time', 'document_type', 'reference_number',
+  'barcode', 'qrcode', 'website', 'url',
+  'notes', 'remarks', 'misc'
+];
+
 
 export const DocumentScanner: React.FC = () => {
   const [currentFile, setCurrentFile] = useState<File | null>(null);
@@ -55,7 +87,7 @@ export const DocumentScanner: React.FC = () => {
   const [extractedData, setExtractedData] = useState<ExtractedText[]>([]);
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activePanel, setActivePanel] = useState<'viewer' | 'ocr' | 'tags' | 'batch' | 'docupload' | 'metadata'>('ocr'); //to add, export
+  const [activePanel, setActivePanel] = useState<'viewer' | 'ocr' | 'tags' | 'docupload' >('ocr'); //to add, export
   const [inputText, setInputText] = useState("");
   const [entities, setEntities] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -109,38 +141,40 @@ export const DocumentScanner: React.FC = () => {
 
   const handleTextExtracted = useCallback(async (newExtraction: ExtractedText | ExtractedText[]) => {
     const blocks = Array.isArray(newExtraction) ? newExtraction : [newExtraction];
+    setExtractedData((prev) => [...prev, ...blocks]);
+    setActivePanel("ocr");
+    toast.success("Text extracted and tagged successfully");
+    // try {
+    //   const results: ExtractedText[] = [];
 
-    try {
-      const results: ExtractedText[] = [];
+    //   for (const block of blocks) {
+    //     const response = await fetch("http://127.0.0.1:8000/ai/gemini-label-extracted-text", {
+    //       method: "POST",
+    //       headers: { "Content-Type": "application/json" },
+    //       body: JSON.stringify({ text: block.text }), // match backend schema
+    //     });
 
-      for (const block of blocks) {
-        const response = await fetch("http://127.0.0.1:8000/parser/parse-document", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: block.text }), // match backend schema
-        });
+    //     const data = await response.json();
 
-        const data = await response.json();
+    //     // Backend returns: { entities: [...] }
+    //     const tags = data.entities
+    //       .map((ent: any) => entityToTag(ent.entity))
+    //       .filter((tag: string | null) => tag);
 
-        // Backend returns: { entities: [...] }
-        const tags = data.entities
-          .map((ent: any) => typeof entityToTag(ent.entity_group) === "string" ? ent.entity.toLowerCase() : "")
-          .filter((tag: string) => tag);
+    //     results.push({
+    //       ...block,
+    //       tags,
+    //     });
+    //   }
 
-        results.push({
-          ...block,
-          tags,
-        });
-      }
-
-      setExtractedData((prev) => [...prev, ...results]);
-      setActivePanel("ocr");
-      toast.success("Text extracted and tagged successfully");
-    } catch (err) {
-      console.error(err);
-      setExtractedData((prev) => [...prev, ...blocks]);
-      toast.error("Text extracted, but tagging failed");
-    }
+    //   setExtractedData((prev) => [...prev, ...results]);
+    //   setActivePanel("ocr");
+    //   toast.success("Text extracted and tagged successfully");
+    // } catch (err) {
+    //   console.error(err);
+    //   setExtractedData((prev) => [...prev, ...blocks]);
+    //   toast.error("Text extracted, but tagging failed");
+    // }
   }, []);
 
   const handleUpdateExtraction = useCallback((id: string, updates: Partial<ExtractedText>) => {
@@ -263,7 +297,7 @@ export const DocumentScanner: React.FC = () => {
                     {id: 'docupload', icon: Upload, label: 'Doc Parse'},
                     { id: 'batch', icon: Upload, label: 'Batch OCR' },
                     //{id: 'parse', icon: Upload, label: 'Parse'}
-                    { id: 'metadata', icon: FileText, label: 'Metadata'},
+                    //{ id: 'metadata', icon: FileText, label: 'Metadata'},
                   ].map(({ id, icon: Icon, label }) => (
                     <Button
                       key={id}
@@ -317,15 +351,15 @@ export const DocumentScanner: React.FC = () => {
                     hasData={extractedData.length > 0}
                   />
                 )} */}
-                {activePanel === 'batch' && (
+                {/* {activePanel === 'batch' && (
                   <BatchOCRPanel />
-                )}
+                )} */}
                 {activePanel === 'docupload' && (
                   <DocumentUploadOCRPanel />
                 )}
-                {activePanel === 'metadata' && (
+                {/* {activePanel === 'metadata' && (
                   <MetadataExtractorPanel file={currentFile} fileUrl={currentFileUrl} />
-                )}
+                )} */}
                 {/* {activePanel === 'parse' && (
                   <GeneralDocumentParser />
                 )} */}

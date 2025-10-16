@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 //import { readPdf } from "../lib/parse-resume-from-pdf/read-pdf";
 import type { TextItems } from "../lib/parse-resume-from-pdf/types";
 // import { groupTextItemsIntoLines } from "../lib/parse-resume-from-pdf/group-text-items-into-lines";
@@ -111,7 +112,7 @@ const RESUME_EXAMPLES = [
 
 const defaultFileUrl = RESUME_EXAMPLES[1]["fileUrl"];
 
-export default function ResumeParser({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage, selectedResumeFile }) {
+export default function ResumeParser({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage, selectedResumeFile, setSelectedResumeFile }) {
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [textItems, setTextItems] = useState<TextItems>([]);
   const [editableResume, setEditableResume] = useState<any>(null);
@@ -147,30 +148,31 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
   const jobDescription = selectedCategory && selectedJobRole ? JOB_ROLES[selectedCategory][selectedJobRole]?.description : "";
   const requiredSkills = selectedCategory && selectedJobRole ? JOB_ROLES[selectedCategory][selectedJobRole]?.required_skills : [];
 
-  useEffect(() => {
-  if (!fileUrl || typeof fileUrl !== "string" || !fileUrl.startsWith("blob:")) {
-    console.log("No file was uploaded, or an error has occured.");
-    return;
-  }
-  console.log("fileUrl changed:", fileUrl);
+//   useEffect(() => {
+//   if (!fileUrl || typeof fileUrl !== "string" || !fileUrl.startsWith("blob:")) {
+//     console.log("No file was uploaded, or an error has occured.");
+//     return;
+//   }
+//   console.log("fileUrl changed:", fileUrl);
+//   const name = fileUrl.split(/[\\/]/).pop() || "";
+//   setResumeName(name)
+//   async function loadResume() {
+//     try {
+//       // Fetch the blob from the fileUrl and convert to File
+//       const response = await fetch(fileUrl);
+//       const blob = await response.blob();
+//       const fileName = resumeName || "uploaded_resume.pdf";
+//       const file = new File([blob], fileName, { type: blob.type });
 
-  async function loadResume() {
-    try {
-      // Fetch the blob from the fileUrl and convert to File
-      const response = await fetch(fileUrl);
-      const blob = await response.blob();
-      const fileName = resumeName || "uploaded_resume.pdf";
-      const file = new File([blob], fileName, { type: blob.type });
-
-      // Use your backend parsing pipeline
-      await handleFileGeminiPipeline(file);
-    } catch (err) {
-      console.error("Failed to parse PDF with backend:", err);
-      setEditableResume(null);
-    }
-  }
-  loadResume();
-}, [fileUrl]);
+//       // Use your backend parsing pipeline
+//       await handleFileGeminiPipeline(file);
+//     } catch (err) {
+//       console.error("Failed to parse PDF with backend:", err);
+//       setEditableResume(null);
+//     }
+//   }
+//   loadResume();
+// }, [fileUrl]);
 
   useEffect(() => {
     if (fileUrl) {
@@ -219,8 +221,10 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
   async function handleFileGeminiPipeline(file: File) {
     try {
+      toast.loading("Resume uploaded, waiting for extraction...", { id: "ai-process"});
       const extractedText = await extractResumeText(file); 
       const resumeJson = await geminiExtractResumeProfile(extractedText);
+      toast.success("Extraction successful", {id: "ai-process"});
       setEditableResume(resumeJson); // Directly set the Gemini result
     } catch (err) {
       console.error("Gemini pipeline failed:", err);
@@ -268,13 +272,19 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
   useEffect(() => {
     if (selectedResumeFile && selectedResumeFile.data && selectedResumeFile.type) {
-      // Convert base64 to File
+      // Convert base64 to File and then to blob URL
       const byteString = atob(selectedResumeFile.data);
       const ab = new ArrayBuffer(byteString.length);
       const ia = new Uint8Array(ab);
       for (let i = 0; i < byteString.length; i++) {
         ia[i] = byteString.charCodeAt(i);
       }
+      const blob = new Blob([ab], { type: selectedResumeFile.type });
+      const url = URL.createObjectURL(blob);
+      setFileUrl(url);
+      setResumeName(selectedResumeFile.name || "uploaded_resume.pdf");
+
+      //trigger parsing pipeline
       const file = new File([ab], selectedResumeFile.name || "uploaded_resume.pdf", { type: selectedResumeFile.type });
       handleFileGeminiPipeline(file);
     }
@@ -469,9 +479,23 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             initialFileUrl={fileUrl || undefined}
             initialFileName={resumeName}
             fallbackFileUrl={defaultFileUrl}
-            onFileUrlChange={(fileUrl, fileName) => {
+            onFileUrlChange={async (fileUrl, fileName) => {
               setFileUrl(fileUrl);
               setResumeName(fileName);
+              // Fetch the file as blob and convert to base64
+              const response = await fetch(fileUrl);
+              const blob = await response.blob();
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64data = (reader.result as string).split(",")[1];
+                setSelectedResumeFile({
+                  name: fileName,
+                  data: base64data,
+                  type: blob.type,
+                });
+              };
+              reader.readAsDataURL(blob);
+              
             }}
           />
           <button
