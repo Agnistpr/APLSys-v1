@@ -8,10 +8,10 @@ from utils.img_to_b64 import image_to_base64
 from typing import List, Optional
 from PyPDF2 import PdfReader
 import io
-from model.request_schema import ResumeTextRequest
+from model.request_schema import ResumeTextRequest, TextRequest
 from services.ai_service import (
     gemini_extract_resume_profile,
-    gemini_extract_metadata_from_image
+    gemini_extract_metadata_from_text
 )
 router = APIRouter()
 load_dotenv()
@@ -230,24 +230,32 @@ def detect_table_layout(image_path):
     response.raise_for_status()
     return response.json()
 
-@router.post("/gemini-extract-metadata")
-async def gemini_extract_metadata_endpoint(file: UploadFile = File(...)):
+# @router.post("/gemini-extract-metadata")
+# async def gemini_extract_metadata_endpoint(file: UploadFile = File(...)):
+#     """
+#     Extract and label structured metadata from any document image using Gemini.
+#     Returns a JSON object with all detected fields, key-value pairs, and inferred structure.
+#     """
+#     # Save uploaded file to a temporary location
+#     contents = await file.read()
+#     temp_path = f"temp_{file.filename}"
+#     with open(temp_path, "wb") as f:
+#         f.write(contents)
+#     try:
+#         result = gemini_extract_metadata_from_image(temp_path)
+#     finally:
+#         import os
+#         if os.path.exists(temp_path):
+#             os.remove(temp_path)
+#     return result
+
+@router.post("/gemini-label-extracted-text")
+async def gemini_label_extracted_text(req: TextRequest):
     """
-    Extract and label structured metadata from any document image using Gemini.
-    Returns a JSON object with all detected fields, key-value pairs, and inferred structure.
+    Use Gemini to label already extracted text (from ocr.space) with DEFAULT_TAGS.
     """
-    # Save uploaded file to a temporary location
-    contents = await file.read()
-    temp_path = f"temp_{file.filename}"
-    with open(temp_path, "wb") as f:
-        f.write(contents)
-    try:
-        result = gemini_extract_metadata_from_image(temp_path)
-    finally:
-        import os
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-    return result
+    labeled = gemini_extract_metadata_from_text(req.text)
+    return labeled
 
 # Example usage:
 if __name__ == "__main__":
