@@ -271,13 +271,19 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
   useEffect(() => {
     if (selectedResumeFile && selectedResumeFile.data && selectedResumeFile.type) {
-      // Convert base64 to File
+      // Convert base64 to File and then to blob URL
       const byteString = atob(selectedResumeFile.data);
       const ab = new ArrayBuffer(byteString.length);
       const ia = new Uint8Array(ab);
       for (let i = 0; i < byteString.length; i++) {
         ia[i] = byteString.charCodeAt(i);
       }
+      const blob = new Blob([ab], { type: selectedResumeFile.type });
+      const url = URL.createObjectURL(blob);
+      setFileUrl(url);
+      setResumeName(selectedResumeFile.name || "uploaded_resume.pdf");
+
+      //trigger parsing pipeline
       const file = new File([ab], selectedResumeFile.name || "uploaded_resume.pdf", { type: selectedResumeFile.type });
       handleFileGeminiPipeline(file);
     }
