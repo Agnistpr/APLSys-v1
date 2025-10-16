@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 //import { readPdf } from "../lib/parse-resume-from-pdf/read-pdf";
 import type { TextItems } from "../lib/parse-resume-from-pdf/types";
 // import { groupTextItemsIntoLines } from "../lib/parse-resume-from-pdf/group-text-items-into-lines";
@@ -219,8 +220,10 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
   async function handleFileGeminiPipeline(file: File) {
     try {
+      toast.loading("Resume uploaded, waiting for extraction...", { id: "ai-process"});
       const extractedText = await extractResumeText(file); 
       const resumeJson = await geminiExtractResumeProfile(extractedText);
+      toast.success("Extraction successful", {id: "ai-process"});
       setEditableResume(resumeJson); // Directly set the Gemini result
     } catch (err) {
       console.error("Gemini pipeline failed:", err);
