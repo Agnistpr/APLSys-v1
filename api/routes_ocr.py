@@ -4,7 +4,9 @@ from services.ocr_service import (
     run_ocr,
     extract_on_document,
     search_word,
-    collect_all_pages
+    collect_all_pages,
+    google_vision_ocr,
+    ocr_space_ocr
 )
 from typing import List
 from doctr.io import DocumentFile
@@ -62,8 +64,9 @@ async def extract_text_full(file: UploadFile, ocrreq: Request):
     """
     Run OCR on an uploaded file and return structured JSON.
     """
-    model = ocrreq.app.state.ocr_model
-    result = await run_ocr(model, file)
+    #model = ocrreq.app.state.ocr_model
+    content = await file.read()
+    result = ocr_space_ocr(content)
     return {"result": result}
 
 @router.post("/extract-region")
@@ -71,8 +74,9 @@ async def extract_text_region( ocrreq: Request, file: UploadFile = File(...)):
     """
     Run OCR on an uploaded file and return extracted text and average confidence.
     """
-    model = ocrreq.app.state.ocr_model
-    result = await run_ocr(model, file)
+    #model = ocrreq.app.state.ocr_model
+    content = await file.read()
+    result = ocr_space_ocr(content)
     text = []
     confidences = []
     for page in result["pages"]:
@@ -81,7 +85,7 @@ async def extract_text_region( ocrreq: Request, file: UploadFile = File(...)):
                 line_text = " ".join([word["value"] for word in line["words"]])
                 text.append(line_text)
                 for word in line["words"]:
-                    if "confidence" in word:
+                    if "confidence" in word and word["confidence"] is not None:
                         confidences.append(word["confidence"])
     avg_conf = float(sum(confidences) / len(confidences)) if confidences else 0.0
     return {"text": "\n".join(text), "confidence": avg_conf}
@@ -95,10 +99,10 @@ async def extract_metadata_from_image(ocrreq: Request, file: UploadFile = File(.
     # Read image bytes
     content = await file.read()
     # Use the loaded OCR model from app state
-    doc = DocumentFile.from_images([content])
-    ocr_model = ocrreq.app.state.ocr_model
-    result = ocr_model(doc)
-    exported = result.export()
+    # doc = DocumentFile.from_images([content])
+    # ocr_model = ocrreq.app.state.ocr_model
+    # result = ocr_model(doc)
+    exported = ocr_space_ocr(content)
 
     # Aggregate all text lines for convenience
     full_text = []
