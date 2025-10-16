@@ -367,14 +367,14 @@ const Screening = ({ setActivePage, setSelectedApplicantId,  setPreviousPage, ac
           <div className="resumeSection">
             <h2 className="sectionTitle">Resume Upload</h2>
             <p className="sectionDescription">
-              Upload Resume images or PDFs to extract applicant information and add them to the screening list.
+              Upload Resumes (PDFs) to extract applicant information and add them to the screening list.
             </p>
 
             <div className="uploadBox" onClick={filePicker}>
               <div className="uploadIcon">📄</div>
               <p className="uploadText">Upload Resume</p>
               <p className="uploadHint">Click to select a file from your system</p>
-              <p className="uploadTypes">Supports: PNG, JPG, JPEG, PDF</p>
+              <p className="uploadTypes">Supports only PDF Files</p>
             </div>
 
             <button
