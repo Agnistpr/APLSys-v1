@@ -128,7 +128,8 @@
   },
   "build": {
     "files": [
-      "**/*"
+      "**/*",
+      ".env"
     ],
     "extraResources": [
       {

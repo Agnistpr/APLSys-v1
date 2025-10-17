@@ -131,7 +131,7 @@ async function seedDatabase() {
       `INSERT INTO employee (firstname, middlename, lastname, departmentid, positionid, contact, address, email, shiftid, hiredate, sss_number, pagibig_number, philhealth_number, bir_number, leavecredit, type, employeeimage)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING employeeid`,
       [
-        "Strator", "Admin", "I",
+        "Admin", "I", "Strator",
         deptRes.rows[1].departmentid, 
         posRes.rows[0].positionid, 
         "09170000000",
