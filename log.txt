@@ -1728,3 +1728,179 @@ ERROR: The process "16680" not found.
     from fastapi import FastAPI
 [2025-10-16T17:13:05.036Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
 [2025-10-16T17:13:05.110Z] [NER_API] exited with code 1
+[2025-10-16T19:28:47.355Z] App started
+[2025-10-16T19:28:48.241Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T19:28:48.246Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-16T19:28:48.248Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T19:28:48.280Z] [NER_API] exited with code 1
+[2025-10-16T19:39:27.416Z] Stopping backend...
+[2025-10-16T19:39:27.780Z] taskkill error: Error: Command failed: taskkill /PID 14660 /T /F
+ERROR: The process "14660" not found.
+
+[2025-10-16T20:20:28.179Z] App started
+[2025-10-16T20:20:29.623Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T20:20:29.633Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T20:20:29.701Z] [NER_API] exited with code 1
+[2025-10-16T21:21:40.672Z] App started
+[2025-10-16T21:21:42.197Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T21:21:42.209Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-16T21:21:42.210Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T21:21:42.267Z] [NER_API] exited with code 1
+[2025-10-16T21:25:09.338Z] Stopping backend...
+[2025-10-16T21:25:09.823Z] taskkill error: Error: Command failed: taskkill /PID 8920 /T /F
+ERROR: The process "8920" not found.
+
+[2025-10-16T21:40:12.272Z] App started
+[2025-10-16T21:40:13.690Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T21:40:13.698Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-16T21:40:13.700Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T21:40:13.766Z] [NER_API] exited with code 1
+[2025-10-16T21:42:10.827Z] Stopping backend...
+[2025-10-16T21:42:11.467Z] taskkill error: Error: Command failed: taskkill /PID 20052 /T /F
+ERROR: The process "20052" not found.
+
+[2025-10-16T21:51:28.250Z] App started
+[2025-10-16T21:51:29.696Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T21:51:29.704Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T21:51:29.838Z] [NER_API] exited with code 1
+[2025-10-16T21:52:07.344Z] Stopping backend...
+[2025-10-16T21:52:07.903Z] taskkill error: Error: Command failed: taskkill /PID 1564 /T /F
+ERROR: The process "1564" not found.
+
+[2025-10-16T22:14:39.340Z] App started
+[2025-10-16T22:14:40.754Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T22:14:40.763Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-16T22:14:40.767Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T22:14:40.861Z] [NER_API] exited with code 1
+[2025-10-16T22:17:19.569Z] Stopping backend...
+[2025-10-16T22:17:20.218Z] taskkill error: Error: Command failed: taskkill /PID 11652 /T /F
+ERROR: The process "11652" not found.
+
+[2025-10-16T22:22:10.883Z] App started
+[2025-10-16T22:22:12.063Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T22:22:12.078Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-16T22:22:12.080Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T22:22:12.150Z] [NER_API] exited with code 1
+[2025-10-16T22:25:34.839Z] Stopping backend...
+[2025-10-16T22:25:35.449Z] taskkill error: Error: Command failed: taskkill /PID 10024 /T /F
+ERROR: The process "10024" not found.
+
+[2025-10-16T23:02:18.432Z] App started
+[2025-10-16T23:02:20.113Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T23:02:20.124Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-16T23:02:20.126Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T23:02:20.238Z] [NER_API] exited with code 1
+[2025-10-16T23:06:05.768Z] Stopping backend...
+[2025-10-16T23:06:06.367Z] taskkill error: Error: Command failed: taskkill /PID 11156 /T /F
+ERROR: The process "11156" not found.
+
+[2025-10-16T23:08:39.241Z] App started
+[2025-10-16T23:08:40.464Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T23:08:40.476Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-16T23:08:40.478Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T23:08:40.554Z] [NER_API] exited with code 1
+[2025-10-16T23:09:09.846Z] Stopping backend...
+[2025-10-16T23:09:10.304Z] taskkill error: Error: Command failed: taskkill /PID 21872 /T /F
+ERROR: The process "21872" not found.
+
+[2025-10-16T23:46:23.726Z] App started
+[2025-10-16T23:46:27.719Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-16T23:46:27.772Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-16T23:46:27.773Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-16T23:46:27.814Z] [NER_API] exited with code 1
+[2025-10-16T23:49:29.937Z] Stopping backend...
+[2025-10-16T23:49:30.338Z] taskkill error: Error: Command failed: taskkill /PID 13160 /T /F
+ERROR: The process "13160" not found.
+
+[2025-10-17T00:12:16.066Z] App started
+[2025-10-17T00:12:18.736Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-17T00:12:18.782Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-17T00:12:18.783Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-17T00:12:18.823Z] [NER_API] exited with code 1
+[2025-10-17T00:24:13.236Z] Stopping backend...
+[2025-10-17T00:24:13.824Z] taskkill error: Error: Command failed: taskkill /PID 10388 /T /F
+ERROR: The process "10388" not found.
+
+[2025-10-17T00:30:41.405Z] App started
+[2025-10-17T00:30:42.817Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-17T00:30:42.824Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+ModuleNotFoundError: No module named 'fastapi'
+[2025-10-17T00:30:42.876Z] [NER_API] exited with code 1
+[2025-10-17T00:31:45.823Z] Stopping backend...
+[2025-10-17T00:31:46.281Z] taskkill error: Error: Command failed: taskkill /PID 9552 /T /F
+ERROR: The process "9552" not found.
+
+[2025-10-17T00:41:26.580Z] App started
+[2025-10-17T00:41:28.200Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-17T00:41:28.210Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+ModuleNotFoundError: No module named 'fastapi'
+[2025-10-17T00:41:28.313Z] [NER_API] exited with code 1
+[2025-10-17T00:42:19.566Z] Stopping backend...
+[2025-10-17T00:42:20.317Z] taskkill error: Error: Command failed: taskkill /PID 2600 /T /F
+ERROR: The process "2600" not found.
+
+[2025-10-17T00:53:10.341Z] App started
+[2025-10-17T00:53:11.810Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-17T00:53:11.818Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-17T00:53:11.821Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-17T00:53:11.902Z] [NER_API] exited with code 1
+[2025-10-17T00:53:53.758Z] Stopping backend...
+[2025-10-17T00:53:54.475Z] taskkill error: Error: Command failed: taskkill /PID 20748 /T /F
+ERROR: The process "20748" not found.
+
+[2025-10-17T00:56:51.433Z] App started
+[2025-10-17T00:56:52.845Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-17T00:56:52.852Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-17T00:56:52.854Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-17T00:56:52.930Z] [NER_API] exited with code 1
+[2025-10-17T00:59:12.950Z] Stopping backend...
+[2025-10-17T00:59:13.809Z] taskkill error: Error: Command failed: taskkill /PID 21820 /T /F
+ERROR: The process "21820" not found.
+
+[2025-10-17T01:05:08.307Z] App started
+[2025-10-17T01:05:09.388Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-17T01:05:09.410Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+[2025-10-17T01:05:09.410Z] [NER_API ERROR] ModuleNotFoundError: No module named 'fastapi'
+[2025-10-17T01:05:09.455Z] [NER_API] exited with code 1
+[2025-10-17T01:06:06.596Z] Stopping backend...
+[2025-10-17T01:06:07.259Z] taskkill error: Error: Command failed: taskkill /PID 2160 /T /F
+ERROR: The process "2160" not found.
+
+[2025-10-17T01:41:46.905Z] App started
+[2025-10-17T01:41:47.761Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-17T01:41:47.769Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+ModuleNotFoundError: No module named 'fastapi'
+[2025-10-17T01:41:47.812Z] [NER_API] exited with code 1
+[2025-10-17T01:43:34.355Z] Stopping backend...
+[2025-10-17T01:43:34.673Z] taskkill error: Error: Command failed: taskkill /PID 16540 /T /F
+ERROR: The process "16540" not found.
+
+[2025-10-17T01:46:49.928Z] App started
+[2025-10-17T01:46:50.601Z] [NER_API ERROR] Traceback (most recent call last):
+[2025-10-17T01:46:50.609Z] [NER_API ERROR] File "C:\Users\haier\Downloads\My_Stuff\Python Workspace\APLSys-v1\parser\ner_api.py", line 11, in <module>
+    from fastapi import FastAPI
+ModuleNotFoundError: No module named 'fastapi'
+[2025-10-17T01:46:50.642Z] [NER_API] exited with code 1
+[2025-10-17T01:47:14.933Z] Stopping backend...
+[2025-10-17T01:47:15.296Z] taskkill error: Error: Command failed: taskkill /PID 3512 /T /F
+ERROR: The process "3512" not found.
+

@@ -23,7 +23,7 @@ export function entityToTag(entity: string): string | null {
   if (e === 'LOC' || e === 'LOCATION' || e === 'ADDRESS') return 'location';
   if (e === 'MISC') return 'misc';
   if (e === 'EMAIL') return 'email';
-  if (e === 'PHONE') return 'phone';
+  if (e === 'PHONE' ) return 'phone';
   if (e === 'EDUCATION') return 'education';
   if (e === 'SKILL' || e === 'SKILLS') return 'skills';
   if (e === 'EXPERIENCE') return 'experience';
@@ -76,7 +76,7 @@ export async function classifyTextWithNER(text: string) {
 }
 
 export async function classifyTextWithAI(text: string) {
-  const res = await axios.post("http://localhost:8000/ai/gemini-label-extracted-text", { text });
+  const res = await axios.post("http://localhost:8000/ai/deepseek-label-extracted-text", { text });
   return res.data;
 }
 
@@ -86,6 +86,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   onTextExtracted,
   extractedData
 }) => {
+  const [isRegionMode, setIsRegionMode] = useState<boolean>(false);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -100,6 +101,20 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+
+  // store selection start in displayed (client) pixels relative to image top-left
+  const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const [selectionDisplay, setSelectionDisplay] = useState<SelectionBox | null>(null);
+
+  // compute display -> natural scale when needed
+  const displayToNatural = useCallback(() => {
+    if (!imageRef.current) return { sx: 1, sy: 1, imgRect: null as DOMRect | null };
+    const img = imageRef.current;
+    const imgRect = img.getBoundingClientRect();
+    const scaleX = img.naturalWidth / imgRect.width;
+    const scaleY = img.naturalHeight / imgRect.height;
+    return { sx: scaleX, sy: scaleY, imgRect };
+  }, []);
 
   const getPreTransformMetrics = () => {
     if (!containerRef.current || !imageRef.current) {
@@ -116,6 +131,75 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
     return { gapX, gapY, dispWpre, dispHpre };
   };
+
+  const performOCR = useCallback(async (selection: SelectionBox) => {
+    if (!imageRef.current) return;
+
+    setIsProcessingOCR(true);
+    toast.loading("Processing OCR...", { id: "ocr-process" });
+
+    try {
+      const img = imageRef.current;
+      // Get displayed image rect and compute scale to natural pixels
+      const imgRect = img.getBoundingClientRect();
+      const scaleX = img.naturalWidth / imgRect.width;
+      const scaleY = img.naturalHeight / imgRect.height;
+
+      // selection is in displayed-image pixels relative to image top-left (x,y,width,height)
+      const sx = Math.max(0, Math.round(selection.x * scaleX));
+      const sy = Math.max(0, Math.round(selection.y * scaleY));
+      const sw = Math.max(1, Math.round(selection.width * scaleX));
+      const sh = Math.max(1, Math.round(selection.height * scaleY));
+
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas context not available");
+
+      canvas.width = sw;
+      canvas.height = sh;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+      const imageData = canvas.toDataURL("image/png");
+      const { text, confidence } = await ocrRegion(imageData);
+
+      if (typeof text === "string" && text.trim()) {
+        // Use Gemini to label the region text
+        let tags: string[] = [];
+        try {
+          const geminiResult = await classifyTextWithAI(text.trim());
+          if (geminiResult && geminiResult.tags) {
+            tags = (geminiResult.entities || []);
+          } else if (Array.isArray(geminiResult)) {
+            tags = geminiResult.map((item: any) => item.tag || item.key || "").filter(Boolean);
+          } else if (typeof geminiResult === "object") {
+            tags = Object.entries(geminiResult)
+              .filter(([_, value]) => typeof value === "string" && value.trim() !== "")
+              .map(([key]) => key);
+          }
+        } catch {
+          tags = [];
+        }
+
+        onTextExtracted({
+          id: Date.now().toString(),
+          text: text.trim(),
+          // store bbox in natural image pixels so downstream can persist or re-render correctly
+          bbox: { x: sx, y: sy, width: sw, height: sh },
+          tags,
+          confidence: Math.round(confidence),
+        });
+        toast.success("Text extracted successfully", { id: "ocr-process" });
+      } else {
+        toast.error("No text found in selected area", { id: "ocr-process" });
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to process OCR", { id: "ocr-process" });
+    } finally {
+      setIsProcessingOCR(false);
+      setCurrentSelection(null);
+    }
+  }, [onTextExtracted]);
 
   //Mouse mapping helper
   const getImageCoords = useCallback((e: React.MouseEvent) => {
@@ -160,53 +244,49 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!imageRef.current) return;
+    if (!imageRef.current || !containerRef.current) return;
+    const { left, top, width, height } = imageRef.current.getBoundingClientRect();
+    // Only start selection when in select mode
+    if (mode !== 'select') return;
 
-    const { x, y } = getImageCoords(e);
+    const startX = e.clientX - left;
+    const startY = e.clientY - top;
+    // clamp
+    const sx = Math.max(0, Math.min(startX, width));
+    const sy = Math.max(0, Math.min(startY, height));
 
-    if (mode === 'select') {
-      setIsSelecting(true);
-      setSelectionStart({ x, y });
-      setCurrentSelection({ x, y, width: 0, height: 0 });
-    } else {
-      setIsDragging(false);
-      //setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-    }
-  }, [mode, getImageCoords]);// pan,
+    selectionStartRef.current = { x: sx, y: sy };
+    setSelectionDisplay({ x: sx, y: sy, width: 0, height: 0 });
+    setIsSelecting(true);
+  }, [mode]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!imageRef.current) return;
+    if (!isSelecting || !imageRef.current || !selectionStartRef.current) return;
+    const imgRect = imageRef.current.getBoundingClientRect();
+    const curX = Math.max(0, Math.min(e.clientX - imgRect.left, imgRect.width));
+    const curY = Math.max(0, Math.min(e.clientY - imgRect.top, imgRect.height));
+    const s = selectionStartRef.current;
+    const x = Math.min(s.x, curX);
+    const y = Math.min(s.y, curY);
+    const w = Math.abs(curX - s.x);
+    const h = Math.abs(curY - s.y);
+    setSelectionDisplay({ x, y, width: w, height: h });
+  }, [isSelecting]);
 
-    const { x: currentX, y: currentY } = getImageCoords(e);
-
-    if (isSelecting && mode === 'select') {
-      const width = currentX - selectionStart.x;
-      const height = currentY - selectionStart.y;
-
-      setCurrentSelection({
-        x: width >= 0 ? selectionStart.x : currentX,
-        y: height >= 0 ? selectionStart.y : currentY,
-        width: Math.abs(width),
-        height: Math.abs(height),
-      });
-    } 
-    // else if (isDragging) { // && mode === 'pan'
-    //   setPan({
-    //     x: e.clientX - dragStart.x,
-    //     y: e.clientY - dragStart.y,
-    //   });
-    // }
-  }, [isSelecting, isDragging, mode, selectionStart, dragStart, getImageCoords]);
-
-  const handleMouseUp = useCallback(async () => {
-    if (isSelecting && currentSelection && currentSelection.width > 10 && currentSelection.height > 10) {
-      // Perform OCR on selected area
-      await performOCR(currentSelection);
-    }
-    
+  const handleMouseUp = useCallback(async (e: React.MouseEvent) => {
+    if (!isSelecting) return;
     setIsSelecting(false);
-    setIsDragging(false);
-  }, [isSelecting, currentSelection]);
+
+    // IMPORTANT: selectionDisplay is in displayed-image pixels relative to image top-left.
+    // Pass that directly to performOCR which will convert it to natural pixels exactly once.
+    if (selectionDisplay && selectionDisplay.width > 5 && selectionDisplay.height > 5 && imageRef.current) {
+      await performOCR(selectionDisplay);
+    }
+
+    // clear
+    selectionStartRef.current = null;
+    setSelectionDisplay(null);
+  }, [isSelecting, selectionDisplay, performOCR]);
 
   const handleFullScanOCR = useCallback(async () => {
   if (!imageRef.current) return;
@@ -298,76 +378,6 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   }
 }, [onTextExtracted]);
 
-  const performOCR = useCallback(async (selection: SelectionBox) => {
-  if (!imageRef.current) return;
-
-  setIsProcessingOCR(true);
-  toast.loading("Processing OCR...", { id: "ocr-process" });
-
-  try {
-    const img = imageRef.current;
-    const { gapX, gapY, dispWpre, dispHpre } = getPreTransformMetrics();
-
-    const selXpre = selection.x - gapX;
-    const selYpre = selection.y - gapY;
-
-    const scaleX = img.naturalWidth / dispWpre;
-    const scaleY = img.naturalHeight / dispHpre;
-
-    const sx = selXpre * scaleX;
-    const sy = selYpre * scaleY;
-    const sw = selection.width * scaleX;
-    const sh = selection.height * scaleY;
-
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas context not available");
-
-    canvas.width = Math.max(1, Math.round(sw));
-    canvas.height = Math.max(1, Math.round(sh));
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-
-    const imageData = canvas.toDataURL("image/png");
-    const { text, confidence } = await ocrRegion(imageData);
-
-    if (typeof text === "string" && text.trim()) {
-      // Use Gemini to label the region text
-      let tags: string[] = [];
-      try {
-        const geminiResult = await classifyTextWithAI(text.trim());
-        if (geminiResult && geminiResult.tags) {
-          tags = (geminiResult.entities || []);
-        } else if (Array.isArray(geminiResult)) {
-          tags = geminiResult.map((item: any) => item.tag || item.key || "").filter(Boolean);
-        } else if (typeof geminiResult === "object") {
-          tags = Object.entries(geminiResult)
-            .filter(([_, value]) => typeof value === "string" && value.trim() !== "")
-            .map(([key]) => key);
-        }
-      } catch {
-        tags = [];
-      }
-
-      onTextExtracted({
-        id: Date.now().toString(),
-        text: text.trim(),
-        bbox: selection,
-        tags,
-        confidence: Math.round(confidence),
-      });
-      toast.success("Text extracted successfully", { id: "ocr-process" });
-    } else {
-      toast.error("No text found in selected area", { id: "ocr-process" });
-    }
-  } catch (err) {
-    console.error(err);
-    toast.error("Failed to process OCR", { id: "ocr-process" });
-  } finally {
-    setIsProcessingOCR(false);
-    setCurrentSelection(null);
-  }
-}, [onTextExtracted, zoom]);
-
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       setIsDragging(false);
@@ -443,7 +453,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   };
 
-  // Render logic
+  // Render logic (image area) — ensure only ONE <img ref={imageRef} ... /> is present
+  // Remove the duplicated image and keep a single image element that the handlers reference
   if (fileType.startsWith("image/")) {
     // Image OCR UI
     return (
@@ -455,48 +466,74 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         onMouseUp={handleMouseUp}
         style={{ cursor: mode === 'select' ? "crosshair" : "default"}}
       >
-        <img
-          ref={imageRef}
-          src={fileUrl}
-          alt="Document"
-          style={{
-            transform: `scale(${zoom}) rotate(${rotation}deg) translate(${pan.x}px, ${pan.y}px)`,
-            transition: "transform 0.2s",
-            maxWidth: "100%",
-            maxHeight: "100%",
-            userSelect: "none",
-            pointerEvents: "auto",
-          }}
-          draggable={false}
-        />
-        {/* Selection overlay */}
-        {currentSelection && mode === 'select' && (
-          <div
-            className="absolute border-2 border-primary bg-primary/10 pointer-events-none"
+        {/* single image element used for all coordinate math */}
+        {fileUrl ? (
+          <img
+            ref={imageRef}
+            src={fileUrl}
+            alt="Document"
             style={{
-              left: currentSelection.x,
-              top: currentSelection.y,
-              width: currentSelection.width,
-              height: currentSelection.height,
+              transform: `scale(${zoom}) rotate(${rotation}deg) translate(${pan.x}px, ${pan.y}px)`,
+              transition: "transform 0.2s",
+              maxWidth: "100%",
+              maxHeight: "100%",
+              userSelect: "none",
+              pointerEvents: "auto",
+              display: 'block'
             }}
+            draggable={false}
           />
+        ) : (
+          <div className="text-muted-foreground">No document loaded</div>
         )}
-        {/* ...OCR image controls... */}
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-10">
+
+        {/* Selection overlay: position relative to container using image rect offsets */}
+        {selectionDisplay && imageRef.current && containerRef.current && (
+          (() => {
+            const imgRect = imageRef.current.getBoundingClientRect();
+            const containerRect = containerRef.current.getBoundingClientRect();
+            const left = imgRect.left - containerRect.left + selectionDisplay.x;
+            const top = imgRect.top - containerRect.top + selectionDisplay.y;
+            return (
+              <div
+                className="absolute border-2 border-primary bg-primary/10 pointer-events-none"
+                style={{
+                  left,
+                  top,
+                  width: selectionDisplay.width,
+                  height: selectionDisplay.height,
+                }}
+              />
+            );
+          })()
+        )}
+
+        {/* toolbar (absolute) */}
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-10 pointer-events-auto">
           <Button size="sm" onClick={handleZoomIn} title="Zoom In"><ZoomIn /></Button>
           <Button size="sm" onClick={handleZoomOut} title="Zoom Out"><ZoomOut /></Button>
           <Button size="sm" onClick={handleRotate} title="Rotate Clockwise"><RotateCw /></Button>
           <Button size="sm" onClick={handleRotateCounterclockwise} title="Rotate Counterclockwise"><RotateCcw /></Button>
           <Button size="sm" onClick={handleReset} title="Reset View"><Maximize /></Button>
-          <Button size="sm" onClick={handleFullScanOCR} disabled={isProcessingOCR} title="Full Scan OCR">Full Scan OCR</Button>
+          <Button 
+            size="sm" 
+            variant={!isRegionMode ? 'default' : 'outline'}
+            onClick={handleFullScanOCR} 
+            disabled={isProcessingOCR} 
+            title="Full Scan OCR"
+          >
+            Full Scan OCR
+          </Button>
           <Button
-            variant={mode === 'select' ? 'default' : 'outline'}
+            variant={isRegionMode ? 'default' : 'outline'}
             size="sm"
-            onClick={() => setMode(mode === 'select' ? '' : 'select')}
-            className={mode === 'select' ? 'bg-primary text-primary-foreground' : ''}
+            onClick={() => {
+              setIsRegionMode(!isRegionMode);
+              setMode(isRegionMode ? '' : 'select');
+            }}
           >
             <Square className="w-4 h-4 mr-1" />
-            Select
+            Region Scan
           </Button>
         </div>
       </div>

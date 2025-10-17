@@ -721,7 +721,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
               title="PDF Preview"
             />
           ) : (
-            <div className="text-gray-400 text-center py-8">No PDF loaded</div>
+            <div className="text-gray-400 text-center py-8">No Resume loaded. Please upload one in .pdf format</div>
           )}
         </div>
       </div>
@@ -962,10 +962,10 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                 <div className="analysis-card mt-4">No analysis yet.</div>
               )}
 
-              <BatchResumeAnalyzer 
+              {/* <BatchResumeAnalyzer 
               jobRole={selectedJobRole}
               jobDescription={customJobDescription}
-              jobCategory={selectedCategory}  />
+              jobCategory={selectedCategory}  /> */}
             </div>
           )}
         </div>

@@ -8,6 +8,7 @@ import { type ShowForm, initialSettings } from "../lib/redux/settingsSlice";
 import { cx } from "../lib/cx";
 import { deepClone } from "../lib/deep-clone";
 import { useNavigate } from "react-router-dom";
+import {toast} from "sonner";
 
 const defaultFileState = {
   name: "",
@@ -23,7 +24,8 @@ export const ResumeDropzone = ({
   initialFileName = "",
   fallbackFileUrl,
 }: {
-  onFileUrlChange: (fileUrl: string, fileName: string) => void;
+  // allow optional File param so the parent can read the DOCX without fetching the blob URL
+  onFileUrlChange: (fileUrl: string, fileName: string, file?: File) => void;
   className?: string;
   playgroundView?: boolean;
   initialFileUrl?: string;
@@ -37,6 +39,8 @@ export const ResumeDropzone = ({
   const navigate = useNavigate();
   const hasFile = Boolean(file.name);
 
+  
+
   useEffect(() => {
     if (initialFileUrl) {
       setFile({
@@ -47,7 +51,7 @@ export const ResumeDropzone = ({
       onFileUrlChange(initialFileUrl, initialFileName || "resume.pdf");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, []);
 
   const setNewFile = (newFile: File) => {
     if (file.fileUrl) {
@@ -56,31 +60,84 @@ export const ResumeDropzone = ({
     const { name, size } = newFile;
     const fileUrl = URL.createObjectURL(newFile);
     setFile({ name, size, fileUrl });
-    onFileUrlChange(fileUrl, name);
+    // pass the File object to the parent so it can safely read it (no fetch / no navigation)
+    onFileUrlChange(fileUrl, name, newFile);
   };
 
   const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const newFile = event.dataTransfer.files[0];
-    if (newFile.name.endsWith(".pdf")) {
-      setHasNonPdfFile(false);
-      setNewFile(newFile);
-    } else {
-      setHasNonPdfFile(true);
-    }
-    setIsHoveredOnDropzone(false);
-  };
+  event.preventDefault();
+  const newFile = event.dataTransfer.files[0];
+  const validTypes = ['.pdf', '.docx'];
+  const fileExtension = newFile.name.substring(newFile.name.lastIndexOf('.')).toLowerCase();
+
+  if (!validTypes.includes(fileExtension)) {
+    setHasNonPdfFile(true);
+    toast.error("Invalid file type", {
+      description: "Please upload only PDF or DOCX files.",
+      action: {
+        label: "Dismiss",
+        onClick: () => {}
+      },
+      duration: 3000
+    });
+    return;
+  }
+
+  setHasNonPdfFile(false);
+  setNewFile(newFile);
+  setIsHoveredOnDropzone(false);
+};
 
   const onInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-    const newFile = files[0];
-    setNewFile(newFile);
-  };
+  const newFile = event.target.files?.[0];
+  if (!newFile) return;
+
+  // Enhanced file type validation
+  const validTypes = ['.pdf'];
+  const fileExtension = newFile.name.substring(newFile.name.lastIndexOf('.')).toLowerCase();
+  
+  if (!validTypes.includes(fileExtension)) {
+    setHasNonPdfFile(true);
+    // Show error toast
+    toast.error("Invalid file type", {
+      description: "Please upload only PDF files.",
+      action: {
+        label: "Dismiss",
+        onClick: () => {}
+      },
+      duration: 3000
+    });
+    
+    // Reset input
+    event.target.value = '';
+    return;
+  }
+
+  setHasNonPdfFile(false);
+
+  // Clean up previous URL if it exists
+  if (file.fileUrl) {
+    URL.revokeObjectURL(file.fileUrl);
+  }
+
+  // Create new URL and update state
+  const fileUrl = URL.createObjectURL(newFile);
+  setFile({
+    name: newFile.name,
+    size: newFile.size,
+    fileUrl: fileUrl,
+  });
+
+  // Call parent callback with new file URL, name and File object
+  onFileUrlChange(fileUrl, newFile.name, newFile);
+};
 
   const onRemove = () => {
     setFile(defaultFileState);
-    onFileUrlChange(fallbackFileUrl, fallbackFileUrl.split(/[\\/]/).pop() || "template.pdf");
+    onFileUrlChange(
+      fallbackFileUrl,
+      fallbackFileUrl.split(/[\\/]/).pop() || "template.pdf"
+    );
   };
 
   const onImportClick = async () => {
@@ -139,7 +196,7 @@ export const ResumeDropzone = ({
               />
             </label>
             {hasNonPdfFile && (
-              <p className="mt-6 text-red-400">Only pdf file is supported</p>
+              <p className="mt-6 text-red-400">Only PDF files are supported</p>
             )}
           </>
         ) : (

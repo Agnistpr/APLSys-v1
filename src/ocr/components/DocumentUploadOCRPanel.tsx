@@ -86,6 +86,9 @@ export const DocumentUploadOCRPanel = () => {
   return (
     <div>
       <h2 className="font-bold text-lg mb-2">Document OCR & Table Extraction</h2>
+      <p className="text-gray-600 text-sm mb-4">
+          Supported formats: PDF, DOCX
+        </p>
       <input type="file" accept=".pdf,.docx" multiple onChange={handleFileChange} />
       <button
         className="mt-2 px-4 py-2 bg-blue-600 text-white rounded"

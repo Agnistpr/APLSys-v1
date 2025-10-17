@@ -215,7 +215,7 @@ export const DocumentScanner: React.FC = () => {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b bg-surface shadow-soft">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-primary rounded-lg flex items-center justify-center">
@@ -245,49 +245,29 @@ export const DocumentScanner: React.FC = () => {
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-6">
-        <div className="grid grid-cols-12 gap-6 h-[calc(100vh-140px)]">
-          {/* Main Content */}
-          <div className="col-span-8">
-            <Card className="h-full bg-surface border-border shadow-medium">
-              {currentFileUrl ? (
+        {/* Use explicit grid and fixed viewport height so inner flex/min-h-0 works correctly */}
+        <div className="grid grid-cols-12 gap-6" style={{ height: 'calc(100vh - 140px)' }}>
+          {/* Left: Image viewer (8 cols) */}
+          <div className="col-span-8 flex flex-col min-h-0">
+            <div className="bg-surface rounded-lg border border-border shadow-medium flex-1 min-h-0 overflow-hidden">
+              {/* Ensure the viewer container fills available space */}
+              <div className="image-viewer-container h-full min-h-0 flex items-center justify-center">
                 <ImageViewer
                   fileUrl={currentFileUrl}
                   fileType={currentFileType || ""}
                   onTextExtracted={handleTextExtracted}
                   extractedData={extractedData}
                 />
-              ) : (
-                <div
-                  className="h-full flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border rounded-lg bg-viewer-bg"
-                  onDrop={handleDrop}
-                  onDragOver={handleDragOver}
-                >
-                  <div className="w-16 h-16 bg-primary-soft rounded-full flex items-center justify-center mb-4">
-                    <Upload className="w-8 h-8 text-primary" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-foreground mb-2">
-                    Upload Document to Start
-                  </h3>
-                  <p className="text-muted-foreground mb-4 max-w-md">
-                    Drag and drop your document here or click the upload button to begin OCR processing
-                  </p>
-                  <Button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="bg-primary hover:bg-primary-hover"
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    Choose Document
-                  </Button>
-                </div>
-              )}
-            </Card>
+              </div>
+            </div>
           </div>
 
-          {/* Side Panel */}
-          <div className="col-span-4">
-            <Card className="h-full bg-surface border-border shadow-medium">
-              {/* Panel Navigation */}
-              <div className="border-b border-border p-4">
+          {/* Right: OCR / metadata panel (4 cols) */}
+          <div className="col-span-4 flex flex-col min-h-0">
+            <div className="bg-surface rounded-lg border border-border shadow-medium flex flex-col h-full min-h-0">
+              {/* Panel header (fixed) */}
+              <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
+                {/* keep navigation / tabs here */}
                 <div className="grid grid-cols-4 gap-1 bg-muted rounded-lg p-1">
                   {[
                     { id: 'viewer', icon: Eye, label: 'View' },
@@ -295,7 +275,7 @@ export const DocumentScanner: React.FC = () => {
                     { id: 'tags', icon: Settings, label: 'Tags' },
                     //{ id: 'export', icon: Download, label: 'Export' },
                     {id: 'docupload', icon: Upload, label: 'Doc Parse'},
-                    { id: 'batch', icon: Upload, label: 'Batch OCR' },
+                    //{ id: 'batch', icon: Upload, label: 'Batch OCR' },
                     //{id: 'parse', icon: Upload, label: 'Parse'}
                     //{ id: 'metadata', icon: FileText, label: 'Metadata'},
                   ].map(({ id, icon: Icon, label }) => (
@@ -318,53 +298,57 @@ export const DocumentScanner: React.FC = () => {
               </div>
 
               {/* Panel Content */}
-              <div className="p-4 h-[calc(100%-80px)] overflow-auto custom-scrollbar">
-                {activePanel === 'viewer' && (
-                  <div className="text-center text-muted-foreground">
-                    <Eye className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p className="text-sm">
-                      Upload a document to start viewing and extracting text with OCR
-                    </p>
-                  </div>
-                )}
-                
-                {activePanel === 'ocr' && (
-                  <OCRPanel
-                    extractedData={extractedData}
-                    availableTags={allTags}
-                    onUpdateExtraction={handleUpdateExtraction}
-                    onDeleteExtraction={handleDeleteExtraction}
-                  />
-                )}
-                
-                {activePanel === 'tags' && (
-                  <TagsPanel
-                    customTags={customTags}
-                    defaultTags={DEFAULT_TAGS}
-                    onUpdateTags={setCustomTags}
-                  />
-                )}
-                
-                {/* {activePanel === 'export' && (
-                  <ExportPanel
-                    documentData={documentData}
-                    hasData={extractedData.length > 0}
-                  />
-                )} */}
-                {/* {activePanel === 'batch' && (
-                  <BatchOCRPanel />
-                )} */}
-                {activePanel === 'docupload' && (
-                  <DocumentUploadOCRPanel />
-                )}
-                {/* {activePanel === 'metadata' && (
-                  <MetadataExtractorPanel file={currentFile} fileUrl={currentFileUrl} />
-                )} */}
-                {/* {activePanel === 'parse' && (
-                  <GeneralDocumentParser />
-                )} */}
+              <div className="flex-1 min-h-0">
+                <div className="h-full overflow-auto custom-scrollbar p-4">
+                  {activePanel === 'viewer' && (
+                    <div className="text-center text-muted-foreground">
+                      <Eye className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p className="text-sm">
+                        Upload a document to start viewing and extracting text with OCR
+                      </p>
+                    </div>
+                  )}
+                  
+                  {activePanel === 'ocr' && (
+                    <div className="space-y-4 h-full">
+                      <OCRPanel
+                        extractedData={extractedData}
+                        availableTags={allTags}
+                        onUpdateExtraction={handleUpdateExtraction}
+                        onDeleteExtraction={handleDeleteExtraction}
+                      />
+                    </div>
+                  )}
+                  
+                  {activePanel === 'tags' && (
+                    <TagsPanel
+                      customTags={customTags}
+                      defaultTags={DEFAULT_TAGS}
+                      onUpdateTags={setCustomTags}
+                    />
+                  )}
+                  
+                  {/* {activePanel === 'export' && (
+                    <ExportPanel
+                      documentData={documentData}
+                      hasData={extractedData.length > 0}
+                    />
+                  )} */}
+                  {/* {activePanel === 'batch' && (
+                    <BatchOCRPanel />
+                  )} */}
+                  {activePanel === 'docupload' && (
+                    <DocumentUploadOCRPanel />
+                  )}
+                  {/* {activePanel === 'metadata' && (
+                    <MetadataExtractorPanel file={currentFile} fileUrl={currentFileUrl} />
+                  )} */}
+                  {/* {activePanel === 'parse' && (
+                    <GeneralDocumentParser />
+                  )} */}
+                </div>
               </div>
-            </Card>
+            
           </div>
         </div>
       </div>
@@ -378,5 +362,6 @@ export const DocumentScanner: React.FC = () => {
         className="hidden"
       />
     </div>
+  </div>
   );
 };
