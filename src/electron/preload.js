@@ -12,8 +12,8 @@ contextBridge.exposeInMainWorld('fileAPI', {
 
 contextBridge.exposeInMainWorld('userAPI', {
   getUser: (username, password) => ipcRenderer.invoke("getUser", { username, password }),
-  logAction: (userid, useraction, description) =>
-    ipcRenderer.invoke('logAction', { userid, useraction, description }),
+  logAction: (uid, useraction, description) =>
+    ipcRenderer.invoke('logAction', { uid, useraction, description }),
 });
 
 contextBridge.exposeInMainWorld('exportAPI', {

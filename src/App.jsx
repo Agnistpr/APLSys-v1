@@ -100,8 +100,9 @@ useEffect(() => {
     setActivePage("Auth");
   };
 
+  console.log("Current user:", user?.id);
   const sharedProps = {
-    userId: user?.id,
+    uid: user?.id,
     activePage,
     setActivePage,
     setSelectedEmployeeId,
@@ -172,7 +173,14 @@ useEffect(() => {
     }
   };
 
-  if (loading) return <div className="loading-screen">Checking session...</div>;
+  if (loading) {
+    return (
+      <div className="loadingContainer">
+        <div className="spinner"></div>
+        <p className="loadingText">Checking session...</p>
+      </div>
+    );
+  }
 
   return (
     <div>

@@ -53,7 +53,7 @@ function CardValue({ value, max = 28, min = 12 }) {
 }
 
 const Dashboard = ({ 
-  userId, 
+  uid, 
   setActivePage, 
   setSelectedEmployeeId, 
   setPreviousPage, 
@@ -102,7 +102,7 @@ const Dashboard = ({
   const tabComponents = {
     Attendance: (
       <AttendanceTab
-        userId={userId}
+        uid={uid}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
           setPreviousTab(selectedTab);
@@ -114,7 +114,7 @@ const Dashboard = ({
     ),
     Absent: (
       <AbsenceTab
-        userId={userId}
+        uid={uid}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
           setPreviousTab(selectedTab);
@@ -127,7 +127,7 @@ const Dashboard = ({
     "Approved Leaves": (
       <LeaveTab
         type="Approved"
-        userId={userId}
+        uid={uid}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
           setPreviousTab(selectedTab);
@@ -140,7 +140,7 @@ const Dashboard = ({
     "Leave Requests": (
       <LeaveTab
         type="Request"
-        userId={userId}
+        uid={uid}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
           setPreviousTab(selectedTab);
@@ -152,7 +152,7 @@ const Dashboard = ({
     ),
     "PPE Inventory": (
       <InventoryTab
-        userId={userId}
+        uid={uid}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
           setPreviousTab(selectedTab);

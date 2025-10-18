@@ -245,15 +245,30 @@ ipcMain.handle("getUser", async (event, { username, password }) => {
   }
 });
 
-ipcMain.handle("logAction", async (event, { userid, useraction, description }) => {
+ipcMain.handle("logAction", async (event, { uid, useraction, description }) => {
   try {
+    console.log("logAction called with:", { uid, useraction, description });
+    const { data: userRecord, error: lookupError } = await supabase
+      .from("users")
+      .select("userid")
+      .eq("uid", uid)
+      .single();
+
+    if (lookupError) throw lookupError;
+    if (!userRecord) throw new Error("No matching internal user found.");
+
     const { error } = await supabase.from("userlogs").insert([
-      { useraction, description, userid },
+      {
+        userid: userRecord.userid,
+        useraction,
+        description,
+      },
     ]);
+
     if (error) throw error;
     return { success: true };
   } catch (err) {
-    logMessage(`Error: ${err.stack || err}`);
+    console.error("Error in logAction:", err);
     return { success: false, error: err.message };
   }
 });
@@ -651,7 +666,7 @@ ipcMain.handle("exportInventoryLogs", async (event, date) => {
   try {
     const targetDate = date ? formatDateToISO(date) : null;
 
-    const q = supabase.from("inventorylogs").select("inventorylogid, employeeid, itemid, quantity, date").order("date", { ascending: false });
+    const q = supabase.from("inventorylogs").select("logid, employeeid, itemid, quantity, date").order("date", { ascending: false });
     let result;
     if (targetDate) result = await q.eq("date", targetDate);
     else result = await q;
@@ -1368,19 +1383,19 @@ ipcMain.handle('getAttendanceByDate', async (event, date) => {
     const { data: positions } = await supabase
       .from('position')
       .select('positionid, positionname')
-      .in('positionid', positionIds);
+      .in('positionid', positionIds.length ? positionIds : [-1]); // guard for empty
     const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
 
     const { data: shifts } = await supabase
       .from('shift')
       .select('shiftid, timestart, timeend')
-      .in('shiftid', shiftIds);
+      .in('shiftid', shiftIds.length ? shiftIds : [-1]);
     const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
 
     const { data: departments } = await supabase
       .from('department')
       .select('departmentid, departmentname')
-      .in('departmentid', departmentIds);
+      .in('departmentid', departmentIds.length ? departmentIds : [-1]);
     const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
 
     const parseTimeToMinutes = (t) => {
@@ -1447,7 +1462,7 @@ ipcMain.handle('getAttendanceByDate', async (event, date) => {
         hoursWorked = actualDur - shiftDur;
 
         if (Math.abs(hoursWorked) <= WORK_TOLERANCE) {
-          workDiff = 0;
+          hoursWorked = 0;               // <-- fixed: set hoursWorked to 0 (was workDiff)
           workStatus = "On Time";
         } else {
           workStatus = hoursWorked > 0 ? "Overtime" : "Undertime";
@@ -1702,7 +1717,7 @@ ipcMain.handle('updateLeaveStatus', async (event, { ids, status }) => {
 
 ipcMain.handle('getInventoryLogs', async (event, date) => {
   try {
-    let q = supabase.from('inventorylogs').select('inventorylogid, employeeid, itemid, quantity, date').order('date', { ascending: false });
+    let q = supabase.from('inventorylogs').select('logid, employeeid, itemid, quantity, date').order('date', { ascending: false });
     if (date) q = q.eq('date', formatDateToISO(date));
     const { data, error } = await q;
     if (error) throw error;

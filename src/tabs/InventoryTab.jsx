@@ -3,7 +3,7 @@ import { FiSearch, FiEdit } from 'react-icons/fi';
 import { MdClear } from 'react-icons/md';
 import { FaSortAmountDownAlt, FaSortAmountUp, FaFilter } from 'react-icons/fa';
 
-const InventoryComponent = ({ userId, setActivePage, setSelectedEmployeeId }) => {
+const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
   //db
   const [logs, setLogs] = useState([]);
   const [cardData, setCardData] = useState([]);
@@ -510,9 +510,9 @@ const InventoryComponent = ({ userId, setActivePage, setSelectedEmployeeId }) =>
                         console.log(oldName);
 
                         const description = diffs.map(d => `- ${d}`).join("\n");
-                        console.log("Logging with userId:", userId);
+                        console.log("Logging with userId:", uid);
                         await window.userAPI.logAction(
-                          userId,
+                          uid,
                           `edited item "${oldName}"`,
                           description
                         );
