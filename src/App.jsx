@@ -1,8 +1,6 @@
-import React, { useState, useEffect } from 'react';
-
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import Toasts from "./components/Toast.jsx";
 import Sidebar from './components/Sidebar.jsx';
-
 import Auth from './page/Auth.jsx';
 import Dashboard from './page/Dashboard.jsx';
 import EmployeeInformation from './page/EmployeeInformation.jsx';
@@ -10,20 +8,18 @@ import Employee from './page/Employees.jsx';
 import Attendance from './page/Attendance.jsx';
 import Shifting from './page/Shifting.jsx';
 import Training from './page/Training.jsx';
-import Screening from './page/Screening.jsx';
 import Management from './page/Management.jsx';
 import Logs from './page/Logs.jsx';
-
-import '../styles.css';
-
 import { Toaster } from "./ocr/components/ui/toaster.js";
 import { Toaster as Sonner } from "./ocr/components/ui/sonner.js";
 import { TooltipProvider } from "./ocr/components/ui/tooltip.js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocumentScanner } from "./ocr/components/DocumentScanner.tsx";
-
-import Analyzer from './app/resume-parser/page.tsx';
+import AnalyzerImport from './app/resume-parser/page.tsx';
 import ocrCssPath from './ocr/ocrstyles.css?url';
+
+const Analyzer = lazy(() => import('./app/resume-parser/page.tsx'));
+const Screening = lazy(() => import('./page/Screening.jsx'));
 
 const queryClient = new QueryClient();
 
@@ -32,30 +28,51 @@ const App = () => {
   const [loading, setLoading] = useState(true);
   const [activePage, setActivePage] = useState('Dashboard');
   const [previousPage, setPreviousPage] = useState(null);
-
   const [selectedTab, setSelectedTab] = useState("Attendance");
   const [previousTab, setPreviousTab] = useState(null);
-
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
   const [selectedApplicantId, setSelectedApplicantId] = useState(null);
   const [selectedResumeFile, setSelectedResumeFile] = useState(null);
 
-  useEffect(() => {
-    const getSession = async () => {
-      try {
-        const session = await window.authAPI.getSession();
-        if (session) setUser(session.user);
-      } catch (err) {
-        console.error("Error fetching session:", err);
-      } finally {
-        setLoading(false);
+useEffect(() => {
+  const restoreSession = async () => {
+    setLoading(true);
+    try {
+      const savedSession = await window.authAPI.getSession();
+      if (savedSession?.access_token && savedSession?.refresh_token) {
+        await window.authAPI.restoreSession(savedSession);
       }
-    };
-    getSession();
+      const sessionUser = await window.authAPI.getCurrentUser();
+      if (sessionUser) {
+        setUser(sessionUser);
+      } else {
+        setUser(null);
+        setActivePage("Auth");
+      }
+    } catch {
+      setUser(null);
+      setActivePage("Auth");
+    } finally {
+      setLoading(false);
+    }
+  };
+  restoreSession();
+}, []);
+
+  useEffect(() => {
+    const unsubscribe = window.authAPI.onAuthStateChange((session) => {
+      if (session) {
+        setUser(session.user);
+        setActivePage("Dashboard");
+      } else {
+        setUser(null);
+        setActivePage("Auth");
+      }
+    });
+    return unsubscribe;
   }, []);
 
-  // ✅ Dynamic OCR CSS loader
   useEffect(() => {
     let link;
     if (activePage === "Scanner") {
@@ -78,6 +95,7 @@ const App = () => {
 
   const handleLogout = async () => {
     await window.authAPI.logout();
+    await window.authAPI.clearSession();
     setUser(null);
     setActivePage("Auth");
   };
@@ -94,7 +112,6 @@ const App = () => {
 
   const renderPage = () => {
     if (!user) return <Auth onLogin={handleLogin} />;
-
     if (activePage === "Scanner") {
       return (
         <div id="ocr-root">
@@ -108,17 +125,9 @@ const App = () => {
         </div>
       );
     }
-
     switch (activePage) {
       case "Dashboard":
-        return (
-          <Dashboard
-            {...sharedProps}
-            selectedTab={selectedTab}
-            setSelectedTab={setSelectedTab}
-            setPreviousTab={setPreviousTab}
-          />
-        );
+        return <Dashboard {...sharedProps} selectedTab={selectedTab} setSelectedTab={setSelectedTab} setPreviousTab={setPreviousTab} />;
       case "Employee":
         return <Employee {...sharedProps} />;
       case "Attendance":
@@ -129,19 +138,15 @@ const App = () => {
         return <Training {...sharedProps} />;
       case "Screening":
         return (
-          <Screening
-            {...sharedProps}
-            selectedResumeFile={selectedResumeFile}
-            setSelectedResumeFile={setSelectedResumeFile}
-          />
+          <Suspense fallback={<div>Loading Screening...</div>}>
+            <Screening {...sharedProps} selectedResumeFile={selectedResumeFile} setSelectedResumeFile={setSelectedResumeFile} />
+          </Suspense>
         );
       case "Analyzer":
         return (
-          <Analyzer
-            {...sharedProps}
-            selectedResumeFile={selectedResumeFile}
-            setSelectedResumeFile={setSelectedResumeFile}
-          />
+          <Suspense fallback={<div>Loading Analyzer...</div>}>
+            <Analyzer {...sharedProps} selectedResumeFile={selectedResumeFile} setSelectedResumeFile={setSelectedResumeFile} />
+          </Suspense>
         );
       case "Management":
         return <Management {...sharedProps} />;
@@ -167,29 +172,13 @@ const App = () => {
     }
   };
 
-  if (loading) {
-    return <div className="loading-screen">Checking session...</div>;
-  }
+  if (loading) return <div className="loading-screen">Checking session...</div>;
 
   return (
     <div>
-      {user && (
-        <Sidebar
-          activePage={activePage}
-          setActivePage={setActivePage}
-          onLogout={handleLogout}
-          isCollapsed={isSidebarCollapsed}
-          setIsCollapsed={setIsSidebarCollapsed}
-          selectedEmployeeId={selectedEmployeeId}
-          setSelectedEmployeeId={setSelectedEmployeeId}
-          selectedApplicantId={selectedApplicantId}
-          setSelectedApplicantId={setSelectedApplicantId}
-        />
-      )}
+      {user && <Sidebar activePage={activePage} setActivePage={setActivePage} onLogout={handleLogout} isCollapsed={isSidebarCollapsed} setIsCollapsed={setIsSidebarCollapsed} selectedEmployeeId={selectedEmployeeId} setSelectedEmployeeId={setSelectedEmployeeId} selectedApplicantId={selectedApplicantId} setSelectedApplicantId={setSelectedApplicantId} />}
       <Toasts />
-      <div className={`content ${isSidebarCollapsed ? 'collapsed' : 'expanded'}`}>
-        {renderPage()}
-      </div>
+      <div className={`content ${isSidebarCollapsed ? 'collapsed' : 'expanded'}`}>{renderPage()}</div>
     </div>
   );
 };

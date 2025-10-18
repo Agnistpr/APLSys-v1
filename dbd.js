@@ -13,37 +13,50 @@ const client = new Client({
   ssl: { rejectUnauthorized: false },
 });
 
+const rand = {
+  choice: (arr) => arr[Math.floor(Math.random() * arr.length)],
+  int: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
+  phone: () => `09${rand.int(10, 99)}${rand.int(10000000, 99999999)}`,
+  date: (start, end) =>
+    new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime())),
+  dateStr: (d) => d.toISOString().split("T")[0],
+  time: (baseHour, variance, minuteVariance = 20) => {
+    const h = baseHour + rand.int(0, variance);
+    const m = rand.int(0, minuteVariance);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  },
+};
+
 const firstNames = ["John", "Jane", "Mike", "Anna", "Paul", "Mary", "Chris", "Laura", "David", "Emma"];
 const lastNames = ["Doe", "Smith", "Johnson", "Brown", "Williams", "Jones", "Taylor", "Davis", "Miller", "Wilson"];
 const genders = ["Male", "Female"];
 const empTypes = ["Regular", "Contractual", "Resigned"];
 const leaveStatuses = ["Approved", "Request"];
-const leaveReasons = ["Vacation leave", "Sick leave", "Family emergency", "Personal matters", "Medical appointment", "Travel"];
-const items = ["Hard Hat", "Safety Gloves", "Boots", "Earplugs", "Safety Goggles", "Reflective Vest", "First Aid Kit", "Tool Belt", "Face Mask", "Harness"];
+const leaveReasons = [
+  "Vacation leave",
+  "Sick leave",
+  "Family emergency",
+  "Personal matters",
+  "Medical appointment",
+  "Travel",
+];
+const items = [
+  "Hard Hat",
+  "Safety Gloves",
+  "Boots",
+  "Earplugs",
+  "Safety Goggles",
+  "Reflective Vest",
+  "First Aid Kit",
+  "Tool Belt",
+  "Face Mask",
+  "Harness",
+];
 
 function getNameByIndex(i) {
-  const firstIndex = i % firstNames.length;
-  const lastIndex = Math.floor(i / firstNames.length) % lastNames.length;
-  return { first: firstNames[firstIndex], last: lastNames[lastIndex] };
-}
-function randomChoice(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-function randomDate(start, end) {
-  return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
-}
-function formatDate(date) {
-  return date.toISOString().split("T")[0];
-}
-function smartTimeIn() {
-  const hour = 8 + Math.floor(Math.random() * 2);
-  const minute = Math.floor(Math.random() * 20);
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
-function smartTimeOut() {
-  const hour = 16 + Math.floor(Math.random() * 2);
-  const minute = Math.floor(Math.random() * 20);
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const first = firstNames[i % firstNames.length];
+  const last = lastNames[Math.floor(i / firstNames.length) % lastNames.length];
+  return { first, last };
 }
 
 async function seedDatabase() {
@@ -56,53 +69,95 @@ async function seedDatabase() {
         userlogs, users, attendance, leave, inventorylogs, document,
         employee, applicant, shift, position,
         department, inventory
-      RESTART IDENTITY CASCADE
+      RESTART IDENTITY CASCADE;
     `);
 
     const deptRes = await client.query(`
-      INSERT INTO department (departmentname) VALUES ('Office'), ('Production') RETURNING *;
+      INSERT INTO department (departmentname)
+      VALUES ('Office'), ('Production')
+      RETURNING *;
     `);
+
+    const officeDept = deptRes.rows.find((d) => d.departmentname === "Office");
+    const productionDept = deptRes.rows.find((d) => d.departmentname === "Production");
 
     const posRes = await client.query(`
       INSERT INTO position (positionname, departmentid) VALUES
-        ('HR', ${deptRes.rows[0].departmentid}),
-        ('Cutting', ${deptRes.rows[1].departmentid}),
-        ('Delivery', ${deptRes.rows[1].departmentid}),
-        ('Extrusion', ${deptRes.rows[1].departmentid}),
-        ('Maintenance', ${deptRes.rows[1].departmentid}),
-        ('Manual', ${deptRes.rows[1].departmentid}),
-        ('Office', ${deptRes.rows[0].departmentid}),
-        ('Printing', ${deptRes.rows[1].departmentid}),
-        ('Quality Assurance', ${deptRes.rows[1].departmentid}),
-        ('Slitting', ${deptRes.rows[1].departmentid}),
-        ('Supervisor', ${deptRes.rows[1].departmentid}),
-        ('Utility', ${deptRes.rows[1].departmentid}),
-        ('Warehouse', ${deptRes.rows[1].departmentid})
+        ('HR', ${officeDept.departmentid}),
+        ('Admin Assistant', ${officeDept.departmentid}),
+        ('Accounting', ${officeDept.departmentid}),
+        ('Receptionist', ${officeDept.departmentid}),
+        ('Office Clerk', ${officeDept.departmentid}),
+        ('Cutting', ${productionDept.departmentid}),
+        ('Delivery', ${productionDept.departmentid}),
+        ('Extrusion', ${productionDept.departmentid}),
+        ('Maintenance', ${productionDept.departmentid}),
+        ('Manual', ${productionDept.departmentid}),
+        ('Printing', ${productionDept.departmentid}),
+        ('Quality Assurance', ${productionDept.departmentid}),
+        ('Slitting', ${productionDept.departmentid}),
+        ('Supervisor', ${productionDept.departmentid}),
+        ('Utility', ${productionDept.departmentid}),
+        ('Warehouse', ${productionDept.departmentid})
       RETURNING *;
     `);
 
-    const shiftInserts = [];
-    let cur = 0;
-    while (shiftInserts.length < 20) {
-      const startHour = 7 + Math.floor(cur / 2);
-      const startMinute = cur % 2 === 0 ? "00" : "30";
-      const durationHours = 6 + Math.floor(Math.random() * 4);
-      let endHour = startHour + durationHours;
-      if (endHour > 19) endHour = 19;
-      const endMinute = startMinute;
-      shiftInserts.push(`('${String(startHour).padStart(2, "0")}:${startMinute}', '${String(endHour).padStart(2, "0")}:${endMinute}', ${Math.random() < 0.3 ? "NULL" : Math.floor(Math.random() * 5) + 1})`);
-      cur++;
-    }
+    const shiftRows = Array.from({ length: 12 }, () => {
+      const startHour = rand.int(7, 9);
+      const startMin = rand.choice(["00", "30"]);
+      const endHour = Math.min(startHour + rand.int(7, 9), 19);
+      const endMin = startMin;
+      const machine = Math.random() < 0.4 ? "NULL" : rand.int(1, 5);
+      return `('${String(startHour).padStart(2, "0")}:${startMin}', '${String(endHour).padStart(
+        2,
+        "0"
+      )}:${endMin}', ${machine})`;
+    });
+
     const shiftRes = await client.query(`
       INSERT INTO shift (timestart, timeend, machineno)
-      VALUES ${shiftInserts.join(",")}
+      VALUES ${shiftRows.join(",")}
       RETURNING *;
     `);
 
+    // Hardcoded Admin I. Strator
+    const adminEmp = await client.query(
+      `INSERT INTO employee (
+        firstname, middlename, lastname, departmentid, positionid, contact, address, email,
+        shiftid, hiredate, sss_number, pagibig_number, philhealth_number, bir_number,
+        leavecredit, type, employeeimage
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      RETURNING employeeid;`,
+      [
+        "Admin",
+        "I",
+        "Strator",
+        officeDept.departmentid,
+        1, // HR position
+        rand.phone(),
+        `${rand.int(1, 999)} Admin Street, Cityville`,
+        "admin1@gmail.com",
+        rand.choice(shiftRes.rows).shiftid,
+        "2022-01-01",
+        "SSS999",
+        "PAG999",
+        "PH999",
+        "BIR999",
+        20,
+        "Regular",
+        null,
+      ]
+    );
+
+    const empRes = [adminEmp.rows[0].employeeid];
+
+    // Applicants
     for (let i = 0; i < NUM_APPLICANTS; i++) {
       const { first, last } = getNameByIndex(i);
-      const birthdate = randomDate(new Date(1985, 0, 1), new Date(2005, 0, 1));
+      const birthdate = rand.date(new Date(1985, 0, 1), new Date(2005, 0, 1));
       const age = new Date().getFullYear() - birthdate.getFullYear();
+
       await client.query(
         `INSERT INTO applicant (
           firstname, middlename, lastname, departmentid, positionid,
@@ -111,125 +166,124 @@ async function seedDatabase() {
           applicationdate, gender, age, birthdate
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Pending',$13,$14,$15,$16,$17)`,
         [
-          first, "M", last,
-          randomChoice(deptRes.rows).departmentid,
-          randomChoice(posRes.rows).positionid,
-          `0917${Math.floor(1000000 + Math.random() * 8999999)}`,
+          first,
+          "M",
+          last,
+          rand.choice(deptRes.rows).departmentid,
+          rand.choice(posRes.rows).positionid,
+          rand.phone(),
           `${i + 1} Applicant St`,
           `applicant${i + 1}@example.com`,
-          `SSS${100 + i}`, `PAG${100 + i}`, `PH${100 + i}`, `BIR${100 + i}`,
+          `SSS${100 + i}`,
+          `PAG${100 + i}`,
+          `PH${100 + i}`,
+          `BIR${100 + i}`,
           Buffer.from(`ImageData${i + 1}`),
-          formatDate(randomDate(new Date(2024, 0, 1), new Date())),
-          randomChoice(genders), age, formatDate(birthdate)
+          rand.dateStr(rand.date(new Date(2024, 0, 1), new Date())),
+          rand.choice(genders),
+          age,
+          rand.dateStr(birthdate),
         ]
       );
     }
 
-    const empRes = [];
-
-    const specialEmp = await client.query(
-      `INSERT INTO employee (firstname, middlename, lastname, departmentid, positionid, contact, address, email, shiftid, hiredate, sss_number, pagibig_number, philhealth_number, bir_number, leavecredit, type, employeeimage)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING employeeid`,
-      [
-        "Admin", "I", "Strator",
-        deptRes.rows[1].departmentid, 
-        posRes.rows[0].positionid, 
-        "09170000000",
-        "1 Admin St",
-        "admin1@gmail.com",
-        randomChoice(shiftRes.rows).shiftid,
-        "2022-01-01",
-        "SSS999", "PAG999", "PH999", "BIR999",
-        20,
-        "Regular",
-        null
-      ]
-    );
-    empRes.push(specialEmp.rows[0].employeeid);
-
+    // Employees
     for (let i = 1; i < NUM_EMPLOYEES; i++) {
       const { first, last } = getNameByIndex(i);
-      const res = await client.query(
-        `INSERT INTO employee (firstname, middlename, lastname, departmentid, positionid, contact, address, email, shiftid, hiredate, sss_number, pagibig_number, philhealth_number, bir_number, leavecredit, type, employeeimage)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING employeeid`,
+      const emp = await client.query(
+        `INSERT INTO employee (
+          firstname, middlename, lastname, departmentid, positionid, contact, address, email,
+          shiftid, hiredate, sss_number, pagibig_number, philhealth_number, bir_number,
+          leavecredit, type, employeeimage
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        RETURNING employeeid`,
         [
-          first, "M", last,
-          randomChoice(deptRes.rows).departmentid,
-          randomChoice(posRes.rows).positionid,
-          `0917${Math.floor(1000000 + Math.random() * 8999999)}`,
+          first,
+          "M",
+          last,
+          rand.choice(deptRes.rows).departmentid,
+          rand.choice(posRes.rows).positionid,
+          rand.phone(),
           `${i + 1} Employee St`,
           `employee${i + 1}@example.com`,
-          randomChoice(shiftRes.rows).shiftid,
-          `2022-01-${String((i % 28) + 1).padStart(2, "0")}`,
-          `SSS${300 + i}`, `PAG${300 + i}`, `PH${300 + i}`, `BIR${300 + i}`,
-          Math.floor(Math.random() * 20),
-          randomChoice(empTypes),
-          null
+          rand.choice(shiftRes.rows).shiftid,
+          rand.dateStr(rand.date(new Date(2020, 0, 1), new Date(2024, 11, 31))),
+          `SSS${300 + i}`,
+          `PAG${300 + i}`,
+          `PH${300 + i}`,
+          `BIR${300 + i}`,
+          rand.int(5, 20),
+          rand.choice(empTypes),
+          null,
         ]
       );
-      empRes.push(res.rows[0].employeeid);
+      empRes.push(emp.rows[0].employeeid);
     }
 
+    // Attendance
     const today = new Date();
     const startDate = new Date(today);
     startDate.setDate(today.getDate() - ATTENDANCE_DAYS);
 
     for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
-      for (let emp of empRes) {
+      for (const emp of empRes) {
         if (Math.random() < 0.7 || d.toDateString() === today.toDateString()) {
-          const timeIn = smartTimeIn();
-          const timeOut = smartTimeOut();
           await client.query(
-            `INSERT INTO attendance (date, employeeid, timein, timeout) VALUES ($1,$2,$3,$4)`,
-            [formatDate(d), emp, timeIn, timeOut]
+            `INSERT INTO attendance (date, employeeid, timein, timeout)
+             VALUES ($1,$2,$3,$4)`,
+            [rand.dateStr(d), emp, rand.time(8, 1), rand.time(16, 2)]
           );
         }
       }
     }
 
+    // Inventory
     const itemRes = [];
-    for (let i = 0; i < items.length; i++) {
+    for (const item of items) {
       const res = await client.query(
         `INSERT INTO inventory (itemname, quantity, lastmodified)
          VALUES ($1, $2, NOW()) RETURNING itemid`,
-        [items[i], Math.floor(Math.random() * 100) + 1]
+        [item, rand.int(10, 100)]
       );
       itemRes.push(res.rows[0].itemid);
     }
 
+    // Inventory logs
     for (let i = 0; i < NUM_INVENTORY_LOGS; i++) {
       await client.query(
-        `INSERT INTO inventorylogs (itemid, employeeid, quantity, date) VALUES ($1,$2,$3,$4)`,
+        `INSERT INTO inventorylogs (itemid, employeeid, quantity, date)
+         VALUES ($1,$2,$3,$4)`,
         [
-          randomChoice(itemRes),
-          randomChoice(empRes),
-          Math.floor(Math.random() * 5) + 1,
-          formatDate(randomDate(new Date(2025, 6, 1), today)),
+          rand.choice(itemRes),
+          rand.choice(empRes),
+          rand.int(1, 5),
+          rand.dateStr(rand.date(new Date(2025, 6, 1), today)),
         ]
       );
     }
 
+    // Leaves
     for (let i = 0; i < NUM_LEAVES; i++) {
-      const start = randomDate(new Date(2025, 6, 1), today);
-      const duration = Math.floor(Math.random() * 3) + 1;
+      const start = rand.date(new Date(2025, 6, 1), today);
       const end = new Date(start);
-      end.setDate(start.getDate() + duration);
+      end.setDate(start.getDate() + rand.int(1, 3));
       await client.query(
         `INSERT INTO leave (employeeid, reason, start_date, end_date, status)
          VALUES ($1, $2, $3, $4, $5)`,
         [
-          randomChoice(empRes),
-          randomChoice(leaveReasons),
-          formatDate(start),
-          formatDate(end),
-          randomChoice(leaveStatuses)
+          rand.choice(empRes),
+          rand.choice(leaveReasons),
+          rand.dateStr(start),
+          rand.dateStr(end),
+          rand.choice(leaveStatuses),
         ]
       );
     }
 
-    console.log("Success");
+    console.log("✅ Database successfully seeded.");
   } catch (err) {
-    console.error("Error:", err.stack);
+    console.error("❌ Error:", err.stack);
   } finally {
     await client.end();
   }

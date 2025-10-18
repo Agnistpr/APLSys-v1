@@ -2035,7 +2035,7 @@ ipcMain.handle('logIn', async (event, { email, password }) => {
   try {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
-    return { user: data.user };
+    return { user: data.user, session: data.session }; 
   } catch (err) {
     return { error: err.message };
   }
@@ -2048,9 +2048,4 @@ ipcMain.handle('logOut', async () => {
   } catch (err) {
     return { error: err.message };
   }
-});
-
-ipcMain.handle('getSession', async () => {
-  const { data } = await supabase.auth.getSession();
-  return data.session || null;
 });

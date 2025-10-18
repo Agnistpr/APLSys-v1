@@ -8,54 +8,66 @@ const Auth = ({ onLogin }) => {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
+  const [keepLoggedIn, setKeepLoggedIn] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     document.body.classList.add("login");
-
-    const rememberedEmail = localStorage.getItem("rememberedEmail");
-    const rememberedPassword = localStorage.getItem("rememberedPassword");
-    if (rememberedEmail) {
-      setEmail(rememberedEmail);
+    const savedEmail = localStorage.getItem("rememberedEmail");
+    if (savedEmail) {
+      setEmail(savedEmail);
       setRememberMe(true);
     }
-    if (rememberedPassword) {
-      setPassword(rememberedPassword);
+    const savedKeepLoggedIn = localStorage.getItem("keepLoggedIn");
+    if (savedKeepLoggedIn === "true") {
+      setKeepLoggedIn(true);
     }
-
     return () => document.body.classList.remove("login");
   }, []);
 
   const handleAuth = async () => {
+    if (!email || !password) {
+      window.toast?.("Please enter your email and password.", "error");
+      return;
+    }
+
     setLoading(true);
     try {
       if (mode === "login") {
         const res = await window.authAPI.login(email, password);
         if (res.error) throw new Error(res.error);
 
-        if (rememberMe) {
-          localStorage.setItem("rememberedEmail", email);
-          localStorage.setItem("rememberedPassword", password);
+        // ✅ Store session only if "Keep me logged in" is checked
+        if (keepLoggedIn && res.user?.id && res.session) {
+          await window.authAPI.setSession(res.session);
         } else {
-          localStorage.removeItem("rememberedEmail");
-          localStorage.removeItem("rememberedPassword");
+          await window.authAPI.clearSession();
         }
 
+        // ✅ Store or clear remembered email
+        if (rememberMe) {
+          localStorage.setItem("rememberedEmail", email);
+        } else {
+          localStorage.removeItem("rememberedEmail");
+        }
+
+        // ✅ Store user preference for “Keep me logged in”
+        localStorage.setItem("keepLoggedIn", keepLoggedIn ? "true" : "false");
+
         if (res.user) onLogin(res.user);
+
       } else {
-        if (password !== confirmPassword)
-          throw new Error("Passwords do not match");
+        if (password !== confirmPassword) throw new Error("Passwords do not match");
+
         const res = await window.authAPI.signup(email, password);
         if (res.error) throw new Error(res.error);
-        alert("Signup successful! Please log in.");
+
+        window.toast?.("Signup successful! Please log in.", "success");
         setMode("login");
       }
     } catch (err) {
-      const message =
-        err?.message ||
-        String(err) ||
-        `${mode === "login" ? "Login" : "Signup"} failed`;
-      window.toast(message, "error");
+      const message = err?.message || String(err) || `${mode === "login" ? "Login" : "Signup"} failed`;
+      window.toast?.(message, "error");
       console.error(`${mode} error:`, err);
     } finally {
       setLoading(false);
@@ -63,73 +75,53 @@ const Auth = ({ onLogin }) => {
   };
 
   return (
-    <div
-      className="authContainer"
-      style={{
-        backgroundImage: `url(${Background})`,
-      }}
-    >
+    <div className="authContainer" style={{ backgroundImage: `url(${Background})` }}>
       <div className="loginContainer">
         <div className="loginLogo">
           <img src={logoIcon} className="logoIcon" alt="logoIcon" />
         </div>
-
         <h2>{mode === "login" ? "Log In" : "Create Account"}</h2>
 
-        <label htmlFor="email">
-          EMAIL <span className="required">*</span>
-        </label>
-        <input
-          type="email"
-          id="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+        <label htmlFor="email">EMAIL <span className="required">*</span></label>
+        <input type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
 
-        <label htmlFor="password">
-          PASSWORD <span className="required">*</span>
-        </label>
-        <input
-          type="password"
-          id="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+        <label htmlFor="password">PASSWORD <span className="required">*</span></label>
+        <input type="password" id="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
 
         {mode === "signup" && (
           <>
-            <label htmlFor="confirmPassword">
-              CONFIRM PASSWORD <span className="required">*</span>
-            </label>
-            <input
-              type="password"
-              id="confirmPassword"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
+            <label htmlFor="confirmPassword">CONFIRM PASSWORD <span className="required">*</span></label>
+            <input type="password" id="confirmPassword" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
           </>
         )}
 
-        <div
-          className="rememberMe"
-          style={{ visibility: mode === "login" ? "visible" : "hidden" }}
-        >
-          <input
-            type="checkbox"
-            id="rememberMe"
-            checked={rememberMe}
-            onChange={(e) => setRememberMe(e.target.checked)}
-          />
-          <label htmlFor="rememberMe">Remember me</label>
-        </div>
-
         {mode === "login" && (
-          <div className="forgot">
-            <a href="#">Forgot your password?</a>
-          </div>
+          <>
+            <div className="loginOptions">
+              <div className="rememberMe">
+                <input
+                  type="checkbox"
+                  id="rememberMe"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <label htmlFor="rememberMe">Remember my email</label>
+              </div>
+              <div className="keepMeLoggedIn">
+                <input
+                  type="checkbox"
+                  id="keepLoggedIn"
+                  checked={keepLoggedIn}
+                  onChange={(e) => setKeepLoggedIn(e.target.checked)}
+                />
+                <label htmlFor="keepLoggedIn">Keep me logged in</label>
+              </div>
+            </div>
+
+            <div className="forgot">
+              <a href="#">Forgot your password?</a>
+            </div>
+          </>
         )}
 
         <button className="loginButton" onClick={handleAuth} disabled={loading}>
@@ -138,30 +130,22 @@ const Auth = ({ onLogin }) => {
               ? "Logging in..."
               : "Signing up..."
             : mode === "login"
-            ? "Log In"
-            : "Sign Up"}
+              ? "Log In"
+              : "Sign Up"}
         </button>
 
         <div className="register">
           {mode === "login" ? (
             <>
               Need an account?{" "}
-              <a
-                className="registerLink"
-                href="#"
-                onClick={() => setMode("signup")}
-              >
+              <a className="registerLink" href="#" onClick={() => setMode("signup")}>
                 Register
               </a>
             </>
           ) : (
             <>
               Already have an account?{" "}
-              <a
-                className="registerLink"
-                href="#"
-                onClick={() => setMode("login")}
-              >
+              <a className="registerLink" href="#" onClick={() => setMode("login")}>
                 Log In
               </a>
             </>

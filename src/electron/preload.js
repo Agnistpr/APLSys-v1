@@ -85,10 +85,21 @@ contextBridge.exposeInMainWorld('importAPI', {
 });
 
 contextBridge.exposeInMainWorld('authAPI', {
-  signup: (email, password) => ipcRenderer.invoke('signUp', { email, password }), // 🆕
-  login: (email, password) => ipcRenderer.invoke('logIn', { email, password }),
-  logout: () => ipcRenderer.invoke('logOut'),
-  getSession: () => ipcRenderer.invoke('getSession'),
+  signup: (email, password) => ipcRenderer.invoke("signUp", { email, password }),
+  login: (email, password) => ipcRenderer.invoke("logIn", { email, password }),
+  logout: () => ipcRenderer.invoke("logOut"),
+
+  getSession: () => ipcRenderer.invoke("getSession"),
+  setSession: (session) => ipcRenderer.invoke("setSession", session),
+  clearSession: () => ipcRenderer.invoke("clearSession"),
+  restoreSession: (session) => ipcRenderer.invoke("restoreSession", session),
+
+  onAuthStateChange: (callback) => {
+    const listener = (_event, session) => callback(session);
+    ipcRenderer.on("auth-state-changed", listener);
+    return () => ipcRenderer.removeListener("auth-state-changed", listener);
+  },
+  getCurrentUser: () => ipcRenderer.invoke("getCurrentUser"),
 });
 
 // console.log("Test load", Object.keys(window));

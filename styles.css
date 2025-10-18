@@ -1,8 +1,4 @@
 /* #region [Main] */
-/* html {
-  overflow-x: auto
-} */
-
 .scrollContainer {
   overflow-x: auto;
   margin: 0 -1rem;
@@ -816,19 +812,30 @@ body.login .content {
   /* margin-top: 10px; */
 }
 
-.rememberMe {
+.loginOptions {
   margin-top: 10px;
-  display: flex;
-  align-items: center;
   margin-bottom: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
 }
 
-.rememberMe input[type="checkbox"] {
-  margin-right: 8px;
-  accent-color: #007bff;
+.rememberMe,
+.keepMeLoggedIn {
+  display: flex;
+  align-items: center;
+  /* gap: 6px; */
   font-size: 14px;
 }
 
+.keepMeLoggedIn input[type="checkbox"],
+.rememberMe input[type="checkbox"] {
+  margin-right: 8px;
+  accent-color: #a12323;
+}
+
+.keepMeLoggedIn label,
 .rememberMe label {
   font-size: 13px;
   color: #333;
