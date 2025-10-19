@@ -55,18 +55,41 @@ ipcMain.handle("file:saveToFolder", async (event, { sourcePath, customDir }) => 
 
 ipcMain.handle("file:listDocuments", async () => {
   const baseDir = getDocumentsFolder();
+  const ocrDir = path.join(baseDir, "ocr_results"); // Directory for OCR results
+  
+  
   fs.mkdirSync(baseDir, { recursive: true }); // ensure folder exists
+  fs.mkdirSync(ocrDir, { recursive: true }); // ensure OCR results folder exists
 
-  const files = fs.readdirSync(baseDir);
+  // Get list of processed files (files that have OCR results)
+  const processedFiles = new Set(
+    fs.readdirSync(ocrDir)
+      .filter(f => f.endsWith('.json'))
+      .map(f => f.replace('.json', ''))
+  );
 
+  // Only include regular files (skip directories like 'ocr_results')
+  const entries = fs.readdirSync(baseDir);
+  const files = entries.filter((name) => {
+    try {
+      const full = path.join(baseDir, name);
+      return fs.statSync(full).isFile();
+    } catch (e) {
+      return false;
+    }
+  });
+
+  //const files = fs.readdirSync(baseDir);
   return files.map((file) => {
-    const stat = fs.statSync(path.join(baseDir, file));
+    const filePath = path.join(baseDir, file);
+    const stat = fs.statSync(filePath);
     return {
       name: file,
       type: path.extname(file).substring(1),
       size: `${(stat.size / 1024).toFixed(1)} KB`,
       date: stat.mtime,
-      path: path.join(baseDir, file),
+      path: filePath,
+      isProcessed: processedFiles.has(file)
     };
   });
 });
@@ -111,5 +134,81 @@ ipcMain.handle("open-folder", async (event, filePath) => {
   } catch (err) {
     console.error("Error opening folder:", err);
     return { success: false, error: err.message };
+  }
+});
+
+
+ipcMain.handle('file:createDirectory', async (event, dirPath) => {
+  try {
+    const baseDir = getDocumentsFolder();
+    const fullPath = path.join(baseDir, dirPath);
+    fs.mkdirSync(fullPath, { recursive: true });
+    return { success: true };
+  } catch (err) {
+    console.error("Failed to create directory:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('file:writeFile', async (event, filePath, content) => {
+  try {
+    if (content === undefined || content === null) {
+      console.error(`Failed to write file: content is ${String(content)} for path ${filePath}`);
+      throw new Error('Invalid file content: undefined or null');
+    }
+
+    const baseDir = getDocumentsFolder();
+    const fullPath = path.join(baseDir, filePath);
+    const dir = path.dirname(fullPath);
+    fs.mkdirSync(dir, { recursive: true });
+
+    // Accept string or Buffer-like input
+    let dataToWrite;
+    if (typeof content === 'string') {
+      dataToWrite = content;
+    } else if (Buffer.isBuffer(content)) {
+      dataToWrite = content;
+    } else {
+      // attempt conversion for TypedArray / ArrayBuffer etc.
+      try {
+        dataToWrite = Buffer.from(content);
+      } catch (e) {
+        console.error('Failed to convert content to Buffer:', e);
+        throw new Error('Invalid content type for writeFile');
+      }
+    }
+
+    fs.writeFileSync(fullPath, dataToWrite);
+    return { success: true };
+  } catch (err) {
+    console.error("Failed to write file:", err);
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('file:readDirectory', async (event, dirPath) => {
+  try {
+    const baseDir = getDocumentsFolder();
+    const fullPath = path.join(baseDir, dirPath);
+    if (!fs.existsSync(fullPath)) {
+      fs.mkdirSync(fullPath, { recursive: true });
+    }
+    const files = fs.readdirSync(fullPath);
+    return files;
+  } catch (err) {
+    console.error("Failed to read directory:", err);
+    return [];
+  }
+});
+
+ipcMain.handle('file:readFile', async (event, filePath) => {
+  try {
+    const baseDir = getDocumentsFolder();
+    const fullPath = path.join(baseDir, filePath);
+    const content = fs.readFileSync(fullPath, 'utf8');
+    return content;
+  } catch (err) {
+    console.error("Failed to read file:", err);
+    throw err;
   }
 });

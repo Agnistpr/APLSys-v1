@@ -8,6 +8,16 @@ contextBridge.exposeInMainWorld('fileAPI', {
   deleteFile: (filePath) => ipcRenderer.invoke("file:delete", filePath),
   openDocument: (filePath) => ipcRenderer.invoke("file:openDocument", filePath),
   openFolder: (filePath) => ipcRenderer.invoke("open-folder", filePath),
+   createDirectory: (path) => ipcRenderer.invoke('file:createDirectory', path),
+  readDirectory: (path) => ipcRenderer.invoke('file:readDirectory', path),
+  readFile: (path) => ipcRenderer.invoke('file:readFile', path),
+  writeFile: (path, content) => ipcRenderer.invoke('file:writeFile', path, content),
+  startBatchOcr: (opts) => ipcRenderer.invoke('ocr:startBatch', opts),// start batch OCR in main and stream progress events
+  onOcrProgress: (cb) => {
+    const listener = (_event, data) => cb(data);
+    ipcRenderer.on('ocr-progress', listener);
+    return () => ipcRenderer.removeListener('ocr-progress', listener);
+  },
 });
 
 contextBridge.exposeInMainWorld('userAPI', {
