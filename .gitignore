@@ -11,6 +11,7 @@ log.txt
 db-data/
 logfile
 log.txt
+backups/
 
 *.map
 __tests__/
