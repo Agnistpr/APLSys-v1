@@ -1,4 +1,7 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
+import { toast } from "sonner";
+import { Toaster } from "sonner";
+import { Toaster as SonnerToaster } from "./ocr/components/ui/sonner.tsx";
 import Toasts from "./components/Toast.jsx";
 import Sidebar from './components/Sidebar.jsx';
 import Auth from './page/Auth.jsx';
@@ -10,8 +13,6 @@ import Shifting from './page/Shifting.jsx';
 import Training from './page/Training.jsx';
 import Management from './page/Management.jsx';
 import Logs from './page/Logs.jsx';
-import { Toaster } from "./ocr/components/ui/toaster.js";
-import { Toaster as Sonner } from "./ocr/components/ui/sonner.js";
 import { TooltipProvider } from "./ocr/components/ui/tooltip.js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocumentScanner } from "./ocr/components/DocumentScanner.tsx";
@@ -22,6 +23,10 @@ const Analyzer = lazy(() => import('./app/resume-parser/page.tsx'));
 const Screening = lazy(() => import('./page/Screening.jsx'));
 
 const queryClient = new QueryClient();
+
+const TASK_POLL_INTERVAL = 2000; // 2 seconds
+const PENDING_KEY = "batchOcr:pending";
+const INFLIGHT_KEY = "batchOcr:inflight";
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -34,6 +39,7 @@ const App = () => {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
   const [selectedApplicantId, setSelectedApplicantId] = useState(null);
   const [selectedResumeFile, setSelectedResumeFile] = useState(null);
+  const [activeTasks, setActiveTasks] = useState(new Map()); // taskId -> task metadata
 
 useEffect(() => {
   const restoreSession = async () => {
@@ -101,15 +107,6 @@ useEffect(() => {
   };
 
   console.log("Current user:", user?.id);
-  const sharedProps = {
-    uid: user?.id,
-    activePage,
-    setActivePage,
-    setSelectedEmployeeId,
-    setPreviousPage,
-    setSelectedApplicantId,
-    selectedApplicantId,
-  };
 
   const renderPage = () => {
     if (!user) return <Auth onLogin={handleLogin} />;
@@ -119,7 +116,7 @@ useEffect(() => {
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
               <Toaster />
-              <Sonner />
+              <SonnerToaster />
               <DocumentScanner />
             </TooltipProvider>
           </QueryClientProvider>
@@ -173,6 +170,127 @@ useEffect(() => {
     }
   };
 
+  // Add OCR progress listener at app level
+  useEffect(() => {
+    if (!window.fileAPI?.onOcrProgress) return;
+
+    const unsubscribe = window.fileAPI.onOcrProgress((evt) => {
+      const { filename, status, progress, error } = evt || {};
+      const toastId = filename ? `ocr-${filename}` : "ocr-batch";
+
+      // Dispatch event for management page
+      window.dispatchEvent(new CustomEvent("app:ocr-progress", { detail: evt }));
+
+      // Show toast notifications
+      if (status === "started") {
+        toast.loading(`${filename || 'OCR'}: Started`, { id: toastId });
+      } else if (status === "progress") {
+        const pct = progress ? Math.round(progress * 100) : null;
+        toast.loading(`${filename}: ${pct}%`, { id: toastId });
+      } else if (status === "done") {
+        toast.success(`${filename}: Completed`, { id: toastId });
+      } else if (status === "error") {
+        toast.error(`${filename}: ${error || 'Failed'}`, { id: toastId });
+      } else if (status === "all_done") {
+        toast.success("All files processed", { id: "ocr-batch" });
+      }
+    });
+
+    return () => unsubscribe?.();
+  }, []);
+
+  // Poll active tasks
+  useEffect(() => {
+    if (activeTasks.size === 0) return;
+
+    const pollTasks = async () => {
+      try {
+        // Get list of non-completed tasks
+        const taskIds = Array.from(activeTasks.keys());
+        const responses = await Promise.all(
+          taskIds.map(id => 
+            fetch(`http://localhost:8000/ocr/tasks/${id}`)
+              .then(r => r.json())
+              .catch(err => ({ error: err.message }))
+          )
+        );
+
+        // Process responses and update UI
+        responses.forEach((res, idx) => {
+          const taskId = taskIds[idx];
+          const task = res.task;
+          
+          if (!task || res.error) {
+            console.warn(`Failed to fetch task ${taskId}:`, res.error);
+            return;
+          }
+
+          // Update task in state
+          setActiveTasks(prev => {
+            const next = new Map(prev);
+            if (task.status === "completed" || task.status === "failed") {
+              next.delete(taskId);
+            } else {
+              next.set(taskId, task);
+            }
+            return next;
+          });
+
+          // Show toast based on status
+          const toastId = `task-${taskId}`;
+          if (task.status === "in_progress") {
+            toast.loading(
+              `${task.filename}: ${Math.round(task.progress * 100)}%`, 
+              { id: toastId }
+            );
+          } else if (task.status === "completed") {
+            toast.success(`${task.filename}: Completed`, { id: toastId });
+          } else if (task.status === "failed") {
+            toast.error(
+              `${task.filename}: Failed - ${task.details.error || "Unknown error"}`, 
+              { id: toastId }
+            );
+          }
+        });
+      } catch (err) {
+        console.error("Task polling failed:", err);
+      }
+    };
+
+    const interval = setInterval(pollTasks, TASK_POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [activeTasks]);
+
+  // Add task tracking functions
+  const trackTask = (taskId, metadata = {}) => {
+    setActiveTasks(prev => {
+      const next = new Map(prev);
+      next.set(taskId, { ...metadata, status: "pending" });
+      return next;
+    });
+  };
+
+  const untrackTask = (taskId) => {
+    setActiveTasks(prev => {
+      const next = new Map(prev);
+      next.delete(taskId);
+      return next;
+    });
+  };
+
+  // Pass task tracking to children via props
+  const sharedProps = {
+  uid: user?.id,
+  activePage,
+  setActivePage,
+  setSelectedEmployeeId,
+  setPreviousPage,
+  setSelectedApplicantId,
+  selectedApplicantId,
+  onTaskStart: trackTask,
+  onTaskEnd: untrackTask
+};
+
   if (loading) {
     return (
       <div className="loadingContainer">
@@ -187,6 +305,7 @@ useEffect(() => {
       {user && <Sidebar activePage={activePage} setActivePage={setActivePage} onLogout={handleLogout} isCollapsed={isSidebarCollapsed} setIsCollapsed={setIsSidebarCollapsed} selectedEmployeeId={selectedEmployeeId} setSelectedEmployeeId={setSelectedEmployeeId} selectedApplicantId={selectedApplicantId} setSelectedApplicantId={setSelectedApplicantId} />}
       <Toasts />
       <div className={`content ${isSidebarCollapsed ? 'collapsed' : 'expanded'}`}>{renderPage()}</div>
+      <Toaster richColors position="top-right" />
     </div>
   );
 };
