@@ -70,9 +70,36 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     },
   };
 
+  const departments = useMemo(() => {
+    const unique = [];
+    const seen = new Set();
+    deptPosList.forEach((d) => {
+      if (!seen.has(d.departmentid)) {
+        seen.add(d.departmentid);
+        unique.push({
+          id: d.departmentid,
+          name: d.departmentname,
+        });
+      }
+    });
+    return unique;
+  }, [deptPosList]);
+
+  const positionsByDept = useMemo(() => {
+    const map = {};
+    deptPosList.forEach((d) => {
+      if (!map[d.departmentid]) map[d.departmentid] = [];
+      map[d.departmentid].push({
+        id: d.positionid,
+        name: d.positionname,
+      });
+    });
+    return map;
+  }, [deptPosList]);
+
   useEffect(() => {
     const fetchDeptPos = async () => {
-      const result = await window.api.invoke('getDeptPos');
+      const result = await window.utilityAPI.getDeptPos();
       setDeptPosList(result);
     };
     fetchDeptPos();
@@ -125,6 +152,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
 
   const handleKeyDown = async (e, field, isDate = false) => {
     if (e.key === "Enter") {
+      setEditingField(null);
       let safeValue = isDate
         ? new Date(fieldValue).toISOString().split("T")[0]
         : fieldValue.trim();
@@ -137,9 +165,9 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
         }
       }
 
-      if (field === "department" || field === "position") {
-        const dept = field === "department" ? safeValue : employee.department;
-        const pos = field === "position" ? safeValue : employee.position;
+      if (field === "position") {
+        const dept = employee.department;
+        const pos = safeValue;
         const validCombo = deptPosList.some(
           (d) =>
             d.departmentname.toLowerCase() === dept.toLowerCase() &&
@@ -161,39 +189,121 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     if (!pendingChange) return;
     const { field, value } = pendingChange;
 
-    const updated = { ...employee, [field]: value };
-    setEmployee(updated);
-    setEditingField(null);
-    setConfirmChanges(false);
-    setPendingChange(null);
+    let dbField = field;
+    let dbValue = value;
 
-    await window.employeeAPI.updateEmployee(employeeId, field, value);
-    window.toast("Change saved successfully", "success");
+    // map name fields to id columns
+    if (field === "department") dbField = "departmentid";
+    if (field === "position") dbField = "positionid";
+
+    try {
+      await window.employeeAPI.updateEmployee(employeeId, dbField, dbValue);
+
+      // if department changed, reset position
+      if (field === "department") {
+        await window.employeeAPI.updateEmployee(employeeId, "positionid", null);
+        setEmployee((prev) => ({ ...prev, positionid: null, position: "---" }));
+      }
+
+      window.toast("Change saved successfully", "success");
+    } catch (err) {
+      console.error("Update failed:", err);
+      window.toast("Database update failed.", "error");
+    } finally {
+      setEditingField(null);
+      setConfirmChanges(false);
+      setPendingChange(null);
+    }
   };
 
-  const renderEditableField = (label, field, isDate = false) => (
-    <p key={field} className="editableField" style={{ position: "relative", marginBottom: "8px" }}>
-      <strong>{label}:</strong>{" "}
-      {editingField === field ? (
-        <input
-          type={isDate ? "date" : "text"}
-          value={isDate ? new Date(fieldValue).toISOString().split("T")[0] : fieldValue}
-          autoFocus
-          onChange={(e) => setFieldValue(e.target.value)}
-          onKeyDown={(e) => handleKeyDown(e, field, isDate)}
-          onBlur={() => setEditingField(null)}
-          style={{ padding: "2px 4px" }}
-        />
-      ) : (
-        <>
-          {isDate
-            ? new Date(employee[field]).toISOString().split("T")[0]
-            : employee[field]}
-          <MdEdit className="editIcon" onClick={() => handleEditClick(field, employee[field])} />
-        </>
-      )}
-    </p>
-  );
+  const renderEditableField = (label, field, isDate = false) => {
+    const isDepartment = field === "department";
+    const isPosition = field === "position";
+
+    return (
+      <p key={field} className="editableField">
+        <strong>{label}:</strong>{" "}
+        {editingField === field ? (
+          isDepartment ? (
+            <select
+              value={employee.departmentid || ""}
+              onChange={(e) => {
+                const newDeptId = e.target.value;
+                const newDept = departments.find((d) => d.id == newDeptId);
+                setEmployee((prev) => ({
+                  ...prev,
+                  departmentid: newDeptId,
+                  department: newDept?.name,
+                  positionid: null,
+                  position: "---",
+                }));
+                setFieldValue(newDeptId);
+              }}
+              onBlur={() => setEditingField(null)}
+              autoFocus
+              onKeyDown={(e) => handleKeyDown(e, "department")}
+            >
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+          ) : isPosition ? (
+            <select
+              value={employee.positionid || ""}
+              onChange={(e) => {
+                const newPosId = e.target.value;
+                const newPos =
+                  positionsByDept[employee.departmentid]?.find(
+                    (p) => p.id == newPosId
+                  );
+                setEmployee((prev) => ({
+                  ...prev,
+                  positionid: newPosId,
+                  position: newPos?.name,
+                }));
+                setFieldValue(newPosId);
+              }}
+              onBlur={() => setEditingField(null)}
+              disabled={!employee.departmentid}
+              autoFocus
+              onKeyDown={(e) => handleKeyDown(e, "position")}
+            >
+              {(positionsByDept[employee.departmentid] || []).map((pos) => (
+                <option key={pos.id} value={pos.id}>
+                  {pos.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type={isDate ? "date" : "text"}
+              value={
+                isDate
+                  ? new Date(fieldValue).toISOString().split("T")[0]
+                  : fieldValue
+              }
+              autoFocus
+              onChange={(e) => setFieldValue(e.target.value)}
+              onKeyDown={(e) => handleKeyDown(e, field, isDate)}
+              onBlur={() => setEditingField(null)}
+            />
+          )
+        ) : (
+          <>
+            {isDate
+              ? new Date(employee[field]).toISOString().split("T")[0]
+              : employee[field] || "—"}
+            <MdEdit
+              className="editIcon"
+              onClick={() => handleEditClick(field, employee[field])}
+            />
+          </>
+        )}
+      </p>
+    );
+  };
 
   const handleFile = async (filePath) => {
     try {

@@ -6,7 +6,7 @@ import { ResumeDropzone } from "../components/ResumeDropzone";
 import { ResumeTable } from "./ResumeTable";
 import { analyzeResumeWithGemini } from "../../../conn/genAnalysis";
 import { JOB_ROLES } from "../data/jobRoles";
-import { BatchResumeAnalyzer } from "./BatchResumeAnalyzer";
+// import { BatchResumeAnalyzer } from "./BatchResumeAnalyzer";
 import axios from "axios";
 
 function exportJSON(data: any, filename: string) {

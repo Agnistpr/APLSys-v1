@@ -106,16 +106,6 @@ useEffect(() => {
     setActivePage("Auth");
   };
 
-  const sharedProps = {
-    uid: user?.id,
-    activePage,
-    setActivePage,
-    setSelectedEmployeeId,
-    setPreviousPage,
-    setSelectedApplicantId,
-    selectedApplicantId,
-  };
-
   const renderPage = () => {
     if (!user) return <Auth onLogin={handleLogin} />;
     if (activePage === "Scanner") {
@@ -288,16 +278,16 @@ useEffect(() => {
 
   // Pass task tracking to children via props
   const sharedProps = {
-  uid: user?.id,
-  activePage,
-  setActivePage,
-  setSelectedEmployeeId,
-  setPreviousPage,
-  setSelectedApplicantId,
-  selectedApplicantId,
-  onTaskStart: trackTask,
-  onTaskEnd: untrackTask
-};
+    uid: user?.id,
+    activePage,
+    setActivePage,
+    setSelectedEmployeeId,
+    setPreviousPage,
+    setSelectedApplicantId,
+    selectedApplicantId,
+    onTaskStart: trackTask,
+    onTaskEnd: untrackTask
+  };
 
   if (loading) {
     return (

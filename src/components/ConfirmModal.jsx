@@ -16,18 +16,18 @@ const ConfirmModal = ({
       <div className="confirmModalContent">
         <div className="confirmModalHeader">
           <h3>{title}</h3>
-          <div className="confirmModalActions">
-            <button className="confirmBtn" onClick={onConfirm}>
-              ✓ {confirmLabel}
-            </button>
-            <button className="cancelBtn" onClick={onCancel}>
-              ✕ {cancelLabel}
-            </button>
-          </div>
         </div>
 
         <div className="confirmModalBody">
           <p>{message}</p>
+        </div>
+        <div className="confirmModalActions">
+          <button className="confirmBtn" onClick={onConfirm}>
+            ✓ <span>{confirmLabel}</span>
+          </button>
+          <button className="cancelBtn" onClick={onCancel}>
+            ✕ <span>{cancelLabel}</span>
+          </button>
         </div>
       </div>
     </div>
