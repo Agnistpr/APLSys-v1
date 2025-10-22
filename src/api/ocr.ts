@@ -114,7 +114,7 @@ export async function batchProcessFolder(files: File[]) {
             viewport: viewport
           }).promise;
           
-          const imageBlob = await new Promise(resolve => {
+          const imageBlob = await new Promise<Blob>(resolve => {
             canvas.toBlob(resolve, 'image/png', 1.0);
           });
           
