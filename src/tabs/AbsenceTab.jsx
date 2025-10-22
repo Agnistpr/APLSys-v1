@@ -5,6 +5,12 @@ import FilterPanel from "../components/FilterPanel.jsx";
 import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
 
+const getYesterday = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split("T")[0];
+};
+
 const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
   const [absence, setAbsence] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -15,12 +21,15 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
   const [selectedFilters, setSelectedFilters] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedDate, setSelectedDate] = useState(() => {
-    return localStorage.getItem("absenceDate") || new Date().toISOString().split("T")[0];
+    const saved = localStorage.getItem("absenceDate");
+    return saved === null ? getYesterday() : saved;
   });
   const [itemsPerPage, setItemsPerPage] = useState(5);
+  const [loading, setLoading] = useState(true);
 
-  const columns = ["fullName", "department", "position", "shift"];
+  const columns = ["date", "fullName", "department", "position", "shift"];
   const columnLabelMap = {
+    date: "Date",
     fullName: "Name",
     department: "Department",
     position: "Position",
@@ -29,29 +38,25 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
 
   useEffect(() => {
     const fetchAbsences = async () => {
-      const data = await window.attendanceAPI.getAbsent(selectedDate);
-      setAbsence(data);
+      setLoading(true);
+      let data = [];
+      if (selectedDate) {
+        data = await window.attendanceAPI.getAbsent(selectedDate);
+      } else {
+        data = await window.attendanceAPI.getAbsent();
+      }
+      setAbsence(data || []);
+      setLoading(false);
     };
     fetchAbsences();
   }, [selectedDate]);
 
-  const formatTime = (time) => {
-    if (!time) return "";
-    const [hour, minute] = time.split(":");
-    const h = parseInt(hour, 10);
-    const ampm = h >= 12 ? "PM" : "AM";
-    const formattedHour = h % 12 || 12;
-    return `${formattedHour}:${minute} ${ampm}`;
-  };
-
   const uniqueValues = useMemo(() => {
     const values = { department: new Set(), position: new Set(), shift: new Set() };
     absence.forEach((row) => {
-      const [start, end] = row.shift?.split(" - ") || [];
-      const shiftDisplay = start && end ? `${formatTime(start)} - ${formatTime(end)}` : "";
-      values.department.add(row.department || "");
-      values.position.add(row.position || "");
-      values.shift.add(shiftDisplay);
+      values.department.add(row.department);
+      values.position.add(row.position);
+      values.shift.add(row.shift);
     });
     return {
       department: Array.from(values.department),
@@ -64,7 +69,7 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
     return absence.filter((row) => {
       const matchesSearch = row.fullName?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesFilters = Object.entries(selectedFilters).every(([col, vals]) => {
-        return col === "__activeColumn" || !vals.length || vals.includes(row[col] || "");
+        return col === "__activeColumn" || !vals.length || vals.includes(row[col]);
       });
       return matchesSearch && matchesFilters;
     });
@@ -89,9 +94,8 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
 
   return (
     <div className="tabSection">
-      {/* --- Header Section --- */}
       <div className="tabHeaderRow">
-        <h2 className="tabTitle">Absent</h2>
+        <h2 className="tabTitle">Absence</h2>
 
         <div className="tabControls">
           <SortDropdown
@@ -127,36 +131,52 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
       </div>
 
       <div className="tableContainer">
-        <table className="tabTable">
+        <table className={`tabTable ${loading ? "skeleton" : ""}`}>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Department</th>
-              <th>Position</th>
-              <th>Shift</th>
+              {columns.map((col) => (
+                <th key={col}>{columnLabelMap[col]}</th>
+              ))}
             </tr>
           </thead>
+
           <tbody>
-            {paginated.length === 0 ? (
+            {loading ? (
+              Array.from({ length: itemsPerPage }).map((_, idx) => (
+                <tr key={idx} className="skeletonRow">
+                  {columns.map((_, i) => (
+                    <td key={i}>
+                      <div className="shimmerCell" />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : paginated.length === 0 ? (
               <tr>
-                <td colSpan={4}>No records found.</td>
+                <td colSpan={columns.length}>No records found.</td>
               </tr>
             ) : (
               paginated.map((row, idx) => (
                 <tr
                   key={idx}
-                  onClick={() => {
+                  onDoubleClick={() => {
                     setSelectedEmployeeId(row.employeeid);
                     setActivePage("EmployeeInformation");
                   }}
                 >
+                  <td>
+                    {row.date
+                      ? new Date(row.date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "-"}
+                  </td>                  
                   <td>{row.fullName}</td>
                   <td>{row.department}</td>
                   <td>{row.position}</td>
-                  <td>
-                    {formatTime(row.shift?.split(" - ")[0])} -{" "}
-                    {formatTime(row.shift?.split(" - ")[1])}
-                  </td>
+                  <td>{row.shift || "-"}</td>
                 </tr>
               ))
             )}
@@ -164,7 +184,6 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
         </table>
       </div>
 
-      {/* --- Footer / Pagination --- */}
       <div className="tableFooter">
         <Pagination
           currentPage={currentPage}

@@ -27,6 +27,7 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
   });
   const [showImportModal, setShowImportModal] = useState(false);
   const [itemsPerPage, setItemsPerPage] = useState(5);
+  const [loading, setLoading] = useState(true);
 
   const columns = [
     "date",
@@ -58,26 +59,32 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
 
   useEffect(() => {
     const fetchAttendance = async () => {
+      setLoading(true);
       let data = [];
       if (selectedDate) {
-        data = await window.attendanceAPI.getAttendanceByDate(selectedDate);
+        data = await window.attendanceAPI.getAttendance(selectedDate);
       } else {
         data = await window.attendanceAPI.getAttendance();
       }
       setAttendance(data || []);
+      setLoading(false);
     };
     fetchAttendance();
   }, [selectedDate]);
 
   const uniqueValues = useMemo(() => {
-    const values = { position: new Set(), arrivalStatus: new Set(), workStatus: new Set() };
+    const values = { department: new Set(), position: new Set(), shift: new Set(), arrivalStatus: new Set(), workStatus: new Set() };
     attendance.forEach((row) => {
+      values.department.add(row.department);
       values.position.add(row.position);
+      values.shift.add(row.shift);
       values.arrivalStatus.add(row.arrivalStatus);
       values.workStatus.add(row.workStatus);
     });
     return {
+      department: Array.from(values.department),
       position: Array.from(values.position),
+      shift: Array.from(values.shift),
       arrivalStatus: Array.from(values.arrivalStatus),
       workStatus: Array.from(values.workStatus),
     };
@@ -113,9 +120,17 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
 
-  const colorForArrival = (val) => (val > 0 ? "red" : val < 0 ? "green" : "black");
-  const colorForWork = (val) => (val < 0 ? "red" : val > 0 ? "green" : "black");
-
+  const colorForArrival = (status) => {
+    if (status === "Late") return "red";
+    if (status === "Early") return "green";
+    return "black";
+  };
+  const colorForWork = (status) => {
+    if (status === "Overtime") return "green";
+    if (status === "Undertime") return "red";
+    return "black";
+  };
+  
   return (
     <div className="tabSection">
       <div className="tabHeaderRow">
@@ -155,7 +170,7 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
       </div>
 
       <div className="tableContainer">
-        <table className="tabTable">
+        <table className={`tabTable ${loading ? "skeleton" : ""}`}>
           <thead>
             <tr>
               {columns.map((col) => (
@@ -163,8 +178,19 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
               ))}
             </tr>
           </thead>
+
           <tbody>
-            {paginated.length === 0 ? (
+            {loading ? (
+              Array.from({ length: itemsPerPage }).map((_, idx) => (
+                <tr key={idx} className="skeletonRow">
+                  {columns.map((_, i) => (
+                    <td key={i}>
+                      <div className="shimmerCell" />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : paginated.length === 0 ? (
               <tr>
                 <td colSpan={columns.length}>No records found.</td>
               </tr>
@@ -172,24 +198,32 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
               paginated.map((row, idx) => (
                 <tr
                   key={idx}
-                  onClick={() => {
+                  onDoubleClick={() => {
                     setSelectedEmployeeId(row.employeeid);
                     setActivePage("EmployeeInformation");
                   }}
                 >
-                  <td>{row.date}</td>
+                  <td>
+                    {row.date
+                      ? new Date(row.date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "-"}
+                  </td>
                   <td>{row.fullName}</td>
                   <td>{row.department}</td>
                   <td>{row.position}</td>
                   <td>{row.shift}</td>
                   <td>{row.timeIn || "-"}</td>
-                  <td style={{ color: colorForArrival(row.arrivalDiff) }}>
-                    {row.arrivalDiff === 0 ? "-" : `${row.arrivalDiff > 0 ? "+" : ""}${row.arrivalDiff} mins`}
+                  <td style={{ color: colorForArrival(row.arrivalStatus) }}>
+                    {row.arrivalDiff === 0 ? "-" : `${row.arrivalDiff > 0 ? "+" : ""}${row.arrivalDiff}`}
                   </td>
                   <td>{row.arrivalStatus}</td>
                   <td>{row.timeOut || "-"}</td>
-                  <td style={{ color: colorForWork(row.hoursWorked) }}>
-                    {row.workDiff === 0 ? "-" : `${row.hoursWorked > 0 ? "+" : ""}${row.hoursWorked} mins`}
+                  <td style={{ color: colorForWork(row.workStatus) }}>
+                    {row.hoursWorked || "-"}
                   </td>
                   <td>{row.workStatus}</td>
                 </tr>

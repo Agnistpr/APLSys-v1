@@ -26,7 +26,7 @@
     "strict": false,
     "resolveJsonModule": true
   },
-  "include": ["src", "conn"],
+  "include": ["src", "conn", "backups/preload copy.js"],
   "exclude": [
     "conn/*.js",
     "src/electron/*.js"

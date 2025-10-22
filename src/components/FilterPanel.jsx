@@ -45,7 +45,6 @@ const FilterPanel = ({
   };
 
   const handleColumnLeave = () => {
-    // Delay clearing to allow panel hover
     hoverTimeout.current = setTimeout(() => {
       if (!hoveringPanel && !pinnedColumn) setHoveredColumn(null);
     }, 100);
@@ -62,6 +61,32 @@ const FilterPanel = ({
   };
 
   const activeColumn = pinnedColumn || hoveredColumn;
+
+  const sortedValues = (values) => {
+    return [...values].sort((a, b) => {
+      const aNum = Number(a);
+      const bNum = Number(b);
+      if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+
+      const timePattern = /^(\d{1,2}):(\d{2})\s?(AM|PM)/i;
+      const getStartMinutes = (timeStr) => {
+        const match = timeStr?.match(timePattern);
+        if (!match) return Infinity;
+        let [_, h, m, period] = match;
+        h = parseInt(h, 10);
+        m = parseInt(m, 10);
+        if (period.toUpperCase() === "PM" && h !== 12) h += 12;
+        if (period.toUpperCase() === "AM" && h === 12) h = 0;
+        return h * 60 + m;
+      };
+
+      const aStart = getStartMinutes(a);
+      const bStart = getStartMinutes(b);
+      if (aStart !== Infinity && bStart !== Infinity) return aStart - bStart;
+
+      return String(a).localeCompare(String(b));
+    });
+  };
 
   return (
     <div className="filterContainer" ref={filterRef}>
@@ -118,7 +143,7 @@ const FilterPanel = ({
             >
               <div className="filterValuesHeader">{columnLabelMap[activeColumn]}</div>
               <div className="filterValuesList">
-                {uniqueValues[activeColumn]?.map((val) => (
+                {sortedValues(uniqueValues[activeColumn] || []).map((val) => (
                   <label key={val} className="filterValueItem">
                     <input
                       type="checkbox"

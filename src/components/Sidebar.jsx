@@ -27,17 +27,16 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
   const [showApplicants, setShowApplicants] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
 
-  const [userName, setUserName] = useState('...');
-  const [userRole, setUserRole] = useState('...');
+  const [userName, setUserName] = useState(null);
+  const [userRole, setUserRole] = useState(null);
 
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const session = await window.authAPI.getSession();
-        if (session?.user) {
-          const metadata = session.user.user_metadata || {};
-          setUserName(metadata.full_name || 'Unknown User');
-          setUserRole(metadata.userRole || 'Employee');
+        const user = await window.authAPI.getCurrentUser();
+        if (user) {
+          setUserName(user.username || 'Unknown User');
+          setUserRole(user.userrole || 'Unknown Role');
         } else {
           setUserName('Guest');
           setUserRole('N/A');

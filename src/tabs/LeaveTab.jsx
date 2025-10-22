@@ -6,7 +6,7 @@ import Pagination from "../components/Pagination.jsx";
 import Toast from "../components/Toast.jsx";
 import DatePicker from "../components/DatePicker.jsx";
 
-const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard, type }) => {
+const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard, status }) => {
   const [onLeave, setOnLeave] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState("fullName");
@@ -15,84 +15,142 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(5);
   const [selectedDate, setSelectedDate] = useState(() => localStorage.getItem("leaveDate") || "");
+  const [itemsPerPage, setItemsPerPage] = useState(5);
+  const [loading, setLoading] = useState(true);
+
+  const [addSearchTerm, setAddSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
   const [addLeaveDate, setAddLeaveDate] = useState(new Date().toISOString().split("T")[0]);
   const [leaveReason, setLeaveReason] = useState("");
   const [addLeaveDuration, setAddLeaveDuration] = useState(1);
+  const [isPaidLeave, setIsPaidLeave] = useState(true);
+  const [addLeaveEndDate, setAddLeaveEndDate] = useState(() => {
+    const today = new Date();
+    today.setDate(today.getDate());
+    return today.toISOString().split("T")[0];
+  });
   const [showCheckboxes, setShowCheckboxes] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [toasts, setToasts] = useState([]);
   const suggestionRef = useRef(null);
+  const [leaveType, setLeaveType] = useState("");
 
-  const columns = ["fullName", "department", "position", "shift", "reason", "duration", "date"];
+  const columns = [
+    "fullName",
+    "department",
+    "position",
+    "shift",
+    "reason",
+    "type",
+    "isPaid",
+    "duration",
+    "date",
+    "status"
+  ];
+
   const columnLabelMap = {
     fullName: "Name",
     department: "Department",
     position: "Position",
     shift: "Shift",
     reason: "Reason",
+    type: "Type",
+    isPaid: "Paid Leave",
     duration: "Duration",
     date: "Date",
+    status: "Status"
   };
 
   const addToast = (message, type) => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, type }]);
   };
-  const removeToast = (id) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
+  const removeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
   const fetchOnLeave = async () => {
+    setLoading(true);
     const data = await window.attendanceAPI.getLeave(selectedDate);
     const filtered =
-      type === "Approved"
+      status === "Approved"
         ? data.filter((l) => l.status === "Approved")
         : data.filter((l) => ["Request", "Revoked", "Rejected"].includes(l.status));
     setOnLeave(filtered);
+    setLoading(false);
   };
 
   useEffect(() => {
     fetchOnLeave();
-  }, [selectedDate, type]);
+  }, [selectedDate, status]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (suggestionRef.current && !suggestionRef.current.contains(event.target)) {
+        setAddSearchTerm("");
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!addLeaveDate || !addLeaveDuration) return;
+    const start = new Date(addLeaveDate);
+    const end = new Date(start);
+    end.setDate(start.getDate() + Number(addLeaveDuration) - 1);
+    setAddLeaveEndDate(end.toISOString().split("T")[0]);
+  }, [addLeaveDate, addLeaveDuration]);
+
+  useEffect(() => {
+    if (!addLeaveDate || !addLeaveEndDate) return;
+    const start = new Date(addLeaveDate);
+    const end = new Date(addLeaveEndDate);
+    const diffDays = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1);
+    if (diffDays !== Number(addLeaveDuration)) {
+      setAddLeaveDuration(diffDays);
+    }
+  }, [addLeaveEndDate]);
 
   const uniqueValues = useMemo(() => {
     const values = {
       department: new Set(),
       position: new Set(),
       shift: new Set(),
-      // reason: new Set(),
+      isPaid: new Set(),
+      type: new Set(),
       duration: new Set(),
+      status: new Set(),
     };
 
     onLeave.forEach((row) => {
       if (row.department) values.department.add(row.department);
       if (row.position) values.position.add(row.position);
       if (row.shift) values.shift.add(row.shift);
-      // if (row.reason) values.reason.add(row.reason);
+      if (row.isPaid) values.isPaid.add(row.isPaid);
+      if (row.type) values.type.add(row.type);
       if (row.Duration) values.duration.add(row.Duration);
+      if (row.status) values.status.add(row.status);
     });
 
     return {
       department: Array.from(values.department),
       position: Array.from(values.position),
       shift: Array.from(values.shift),
-      // reason: Array.from(values.reason),
+      isPaid: Array.from(values.isPaid),
+      type: Array.from(values.type),
       duration: Array.from(values.duration),
+      status: Array.from(values.status),
     };
   }, [onLeave]);
 
-  // Filter, sort, paginate
   const filtered = useMemo(() => {
     return onLeave.filter((row) => {
       const matchesSearch = row.fullName?.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesFilters = Object.entries(selectedFilters).every(([column, values]) => {
-        if (column === "__activeColumn") return true;
-        return values.length === 0 || values.includes(row[column] || "");
+      const matchesFilters = Object.entries(selectedFilters).every(([col, vals]) => {
+        return col === "__activeColumn" || !vals.length || vals.includes(row[col]);
       });
       return matchesSearch && matchesFilters;
     });
@@ -115,15 +173,6 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
 
-  const formatTime = (time) => {
-    if (!time) return "";
-    const [hour, minute] = time.split(":");
-    const h = parseInt(hour);
-    const ampm = h >= 12 ? "PM" : "AM";
-    const formattedHour = h % 12 || 12;
-    return `${formattedHour}:${minute} ${ampm}`;
-  };
-
   const openAddModal = async () => {
     const data = await window.employeeAPI.getEmployees();
     setEmployees(data);
@@ -133,39 +182,32 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
 
   const handleConfirmAddLeave = async () => {
     if (!addLeaveDate || selectedEmployeeIds.length === 0) return;
-
-    const formatLocalDate = (d) => {
-      const date = d instanceof Date ? d : new Date(d);
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-        date.getDate()
-      ).padStart(2, "0")}`;
-    };
-
     const existing = onLeave.filter(
-      (l) => selectedEmployeeIds.includes(l.employeeid) && formatLocalDate(l.date) === addLeaveDate
+      (l) => selectedEmployeeIds.includes(l.employeeid) && l.date === addLeaveDate
     );
-
     const toAdd = selectedEmployeeIds.filter(
       (id) => !existing.some((l) => l.employeeid === id)
     );
-
-    if (existing.length > 0) {
-      addToast(
-        `Leave already exists for:\n${existing.map((e) => e.fullName).join("\n")}`,
-        "error"
-      );
-    }
-
+    if (existing.length > 0)
+      addToast(`Leave already exists for:\n${existing.map((e) => e.fullName).join("\n")}`, "error");
     if (toAdd.length > 0) {
       try {
-        const result = await window.attendanceAPI.addLeave(toAdd, addLeaveDate, leaveReason, addLeaveDuration,);
+        const result = await window.attendanceAPI.addLeave(
+          toAdd,
+          addLeaveDate,
+          leaveReason,
+          addLeaveDuration,
+          leaveType,
+          isPaidLeave ? true : false,
+          status
+        );
         if (!result.success) {
-          addToast(`Error adding leave: ${result.error}`, "error");
+          window.toast(`${result.message}`, `error`);
           return;
         }
         await fetchOnLeave();
         refreshDashboard();
-        addToast("Leave successfully added!", "success");
+        window.toast(`${result.message}`, "success");
         setLeaveReason("");
         setShowAddModal(false);
       } catch (err) {
@@ -180,7 +222,6 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
       return;
     }
     if (selectedIds.length === 0) return;
-
     try {
       await window.attendanceAPI.updateLeaveStatus(selectedIds, status);
       setSelectedIds([]);
@@ -193,26 +234,11 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
     }
   };
 
-  useEffect(() => {
-    if (!showAddModal) return;
-
-    const handleClickOutside = (event) => {
-      if (suggestionRef.current && !suggestionRef.current.contains(event.target)) {
-        setSearchTerm("");
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [showAddModal]);
-
   return (
     <div className="tabSection">
       <div className="tabHeaderRow">
         <h2 className="tabTitle">
-          {type === "Approved" ? "Approved Leaves" : "Leave Requests"}
+          {status === "Approved" ? "Approved Leaves" : "Leave Requests"}
         </h2>
 
         <div className="tabControls">
@@ -228,7 +254,6 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
             dropdownOpen={dropdownOpen}
             setDropdownOpen={setDropdownOpen}
           />
-
           <FilterPanel
             filterOpen={filterOpen}
             setFilterOpen={setFilterOpen}
@@ -237,7 +262,6 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
             uniqueValues={uniqueValues}
             columnLabelMap={columnLabelMap}
           />
-
           <DatePicker
             value={selectedDate}
             onChange={(val) => {
@@ -246,77 +270,112 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
             }}
             storageKey="leaveDate"
           />
-
           <SearchBar value={searchTerm} onChange={setSearchTerm} />
         </div>
       </div>
 
-      <table className="tabTable">
-        <thead>
-          <tr>
-            {showCheckboxes && <th></th>}
-            <th>Name</th>
-            <th>Department</th>
-            <th>Position</th>
-            <th>Shift</th>
-            <th>Reason</th>
-            <th>Duration</th>
-            <th>Date</th>
-            {type === "Request" && <th>Status</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {paginated.length === 0 ? (
+      <div className="tableContainer">
+        <table className={`tabTable ${loading ? "skeleton" : ""}`}>
+          <thead>
             <tr>
-              <td colSpan={8}>No records found.</td>
+              {showCheckboxes && <th></th>}
+              <th>Date</th>
+              <th>Name</th>
+              <th>Department</th>
+              <th>Position</th>
+              <th>Shift</th>
+              <th>Paid Leave</th>
+              <th>Type</th>
+              <th>Reason</th>
+              <th>Duration</th>
+              {status === "Request" && <th>Status</th>}
             </tr>
-          ) : (
-            paginated.map((row) => (
-              <tr
-                key={row.leaveid}
-                onClick={() => {
-                  if (!showCheckboxes) {
-                    setSelectedEmployeeId(row.employeeid);
-                    setActivePage("EmployeeInformation");
-                  }
-                }}
-              >
-                {showCheckboxes && (
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(row.leaveid)}
-                      onChange={() =>
-                        setSelectedIds((prev) =>
-                          prev.includes(row.leaveid)
-                            ? prev.filter((x) => x !== row.leaveid)
-                            : [...prev, row.leaveid]
-                        )
-                      }
-                    />
-                  </td>
-                )}
-                <td>{row.fullName}</td>
-                <td>{row.department}</td>
-                <td>{row.position}</td>
-                <td>
-                  {formatTime(row.shift?.split(" - ")[0])} - {formatTime(row.shift?.split(" - ")[1])}
-                </td>
-                <td title={row.reason}>
-                  {row.reason?.length > 20 ? row.reason.slice(0, 20) + "..." : row.reason}
-                </td>
-                <td>{row.Duration ? `${row.Duration} ${row.Duration > 1 ? "s" : ""}` : "-"}</td>
-                <td>
-                  {row.start_date && row.end_date
-                    ? `${new Date(row.start_date).toISOString().split("T")[0]} - ${new Date(row.end_date).toISOString().split("T")[0]}`
-                    : "-"}
-                </td>
-                {type === "Request" && <td>{row.status}</td>}
+          </thead>
+          <tbody>
+            {loading ? (
+              Array.from({ length: itemsPerPage }).map((_, idx) => (
+                <tr key={idx} className="skeletonRow">
+                  {columns.map((_, i) => (
+                    <td key={i}>
+                      <div className="shimmerCell" />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : paginated.length === 0 ? (
+              <tr>
+                <td colSpan={10}>No records found.</td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              paginated.map((row) => (
+                <tr
+                  key={row.leaveid}
+                  onDoubleClick={() => {
+                    if (!showCheckboxes) {
+                      setSelectedEmployeeId(row.employeeid);
+                      setActivePage("EmployeeInformation");
+                    }
+                  }}
+                >
+                  {showCheckboxes && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(row.leaveid)}
+                        onChange={() =>
+                          setSelectedIds((prev) =>
+                            prev.includes(row.leaveid)
+                              ? prev.filter((x) => x !== row.leaveid)
+                              : [...prev, row.leaveid]
+                          )
+                        }
+                      />
+                    </td>
+                  )}
+                  <td>
+                    {row.start_date && row.end_date
+                      ? `${new Date(row.start_date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })} - ${new Date(row.end_date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}`
+                      : "-"}
+                  </td>                  
+                  <td>{row.fullName}</td>
+                  <td>{row.department}</td>
+                  <td>{row.position}</td>
+                  <td>{row.shift}</td>
+                  <td>
+                    <span
+                      className={`statusBadge ${
+                        row.isPaid ? "paid" : "unpaid"
+                      }`}
+                    >
+                      {row.isPaid ? "Paid" : "Unpaid"}
+                    </span>
+                  </td>
+                  <td>{row.type || "-"}</td>
+                  <td title={row.reason}>
+                    {row.reason?.length > 20 ? row.reason.slice(0, 20) + "..." : row.reason}
+                  </td>
+                  <td>
+                    {row.Duration === "Expired"
+                      ? "Expired"
+                      : row.Duration
+                      ? `${row.Duration} day${row.Duration > 1 ? "s" : ""}`
+                      : "-"}
+                  </td>
+                  {status === "Request" && <td>{row.status}</td>}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       <div className="tableFooter">
         <Pagination
@@ -327,17 +386,14 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
           onPageChange={setCurrentPage}
           onItemsPerPageChange={setItemsPerPage}
         />
-
         <div className="actions">
           <button className="actionBtn" onClick={openAddModal}>Add</button>
-
-          {type === "Approved" && (
+          {status === "Approved" && (
             <button className="actionBtn" onClick={() => updateLeaveStatus("Revoked")}>
               Revoke
             </button>
           )}
-
-          {type === "Request" && (
+          {status === "Request" && (
             <>
               <button className="actionBtn" onClick={() => updateLeaveStatus("Approved")}>
                 Approve
@@ -350,13 +406,14 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
         </div>
       </div>
 
-      <Toast toasts={toasts} removeToast={removeToast} />
-
+      <Toast toasts={toasts} remockveToast={removeToast} />
       {showAddModal && (
         <div
           className="modalOverlay"
           onClick={(e) => {
-            if (e.target.classList.contains("modalOverlay")) setShowAddModal(false);
+            if (e.target.classList.contains("modalOverlay")) {
+              setShowAddModal(false);
+            }
           }}
         >
           <div className="modalContent">
@@ -367,17 +424,18 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
             <div className="employeeSearchBox" ref={suggestionRef}>
               <input
                 type="text"
-                placeholder="Search employees by name..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={addSearchTerm}
+                onChange={(e) => {
+                  setAddSearchTerm(e.target.value);
+                }}
                 className="searchInput"
               />
 
-              {searchTerm && (
+              {addSearchTerm && (
                 <ul className="suggestionList">
                   {employees
                     .filter((emp) =>
-                      emp.name.toLowerCase().includes(searchTerm.toLowerCase())
+                      emp.name.toLowerCase().includes(addSearchTerm.toLowerCase())
                     )
                     .slice(0, 8)
                     .map((emp) => (
@@ -388,13 +446,14 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
                             ? "selected"
                             : ""
                         }`}
-                        onClick={() =>
-                          setSelectedEmployeeIds((prev) =>
-                            prev.includes(emp.employeeid)
+                        onClick={() => {
+                          setSelectedEmployeeIds((prev) => {
+                            const updated = prev.includes(emp.employeeid)
                               ? prev.filter((id) => id !== emp.employeeid)
-                              : [...prev, emp.employeeid]
-                          )
-                        }
+                              : [...prev, emp.employeeid];
+                            return updated;
+                          });
+                        }}
                       >
                         <strong>{emp.name}</strong>
                         <span>{emp.department} • {emp.position}</span>
@@ -412,11 +471,11 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
                     <span key={e.employeeid} className="employeeTag">
                       {e.name}
                       <button
-                        onClick={() =>
+                        onClick={() => {
                           setSelectedEmployeeIds((prev) =>
                             prev.filter((id) => id !== e.employeeid)
-                          )
-                        }
+                          );
+                        }}
                       >
                         ✕
                       </button>
@@ -427,37 +486,96 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
 
             <div className="leaveModalDateRow">
               <div>
-                <label>Date:</label>
+                <label>Start Date:</label>
                 <input
                   type="date"
                   value={addLeaveDate}
-                  onChange={(e) => setAddLeaveDate(e.target.value)}
+                  onChange={(e) => {
+                    setAddLeaveDate(e.target.value);
+                  }}
                 />
               </div>
+
+              <div>
+                <label>End Date:</label>
+                <input
+                  type="date"
+                  value={addLeaveEndDate}
+                  onChange={(e) => {
+                    setAddLeaveEndDate(e.target.value);
+                  }}
+                  min={addLeaveDate}
+                />
+              </div>
+
               <div>
                 <label>Duration (days):</label>
                 <input
                   type="number"
                   min="1"
                   value={addLeaveDuration}
-                  onChange={(e) => setAddLeaveDuration(e.target.value)}
+                  onChange={(e) => {
+                    setAddLeaveDuration(e.target.value);
+                  }}
                 />
               </div>
+            </div>
+
+            <div className="leaveModalPaidRow">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={isPaidLeave}
+                  onChange={(e) => {
+                    setIsPaidLeave(e.target.checked);
+                  }}
+                />
+                Paid Leave
+              </label>
+            </div>
+
+            <div className="leaveModalTypeRow">
+              <label>Leave Type:</label>
+              <select
+                value={leaveType}
+                onChange={(e) => setLeaveType(e.target.value)}
+                className="leaveTypeSelect"
+              >
+                <option value="">Select Type</option>
+                <option value="Sick">Sick</option>
+                <option value="Vacation">Vacation</option>
+                <option value="Emergency">Emergency</option>
+                <option value="Personal">Personal</option>
+                <option value="Maternity">Maternity</option>
+                <option value="Paternity">Paternity</option>
+                <option value="Bereavement">Bereavement</option>
+                <option value="Others">Others</option>
+              </select>
             </div>
 
             <div className="leaveModalReasonRow">
               <label>Reason:</label>
               <textarea
                 value={leaveReason}
-                onChange={(e) => setLeaveReason(e.target.value)}
+                onChange={(e) => {
+                  setLeaveReason(e.target.value);
+                }}
                 placeholder="Enter reason for leave"
               />
             </div>
 
             <div className="modalActions">
-              <button onClick={() => setShowAddModal(false)}>Cancel</button>
               <button
-                onClick={handleConfirmAddLeave}
+                onClick={() => {
+                  setShowAddModal(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  handleConfirmAddLeave();
+                }}
                 disabled={!addLeaveDate || selectedEmployeeIds.length === 0}
               >
                 Confirm

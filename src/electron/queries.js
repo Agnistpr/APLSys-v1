@@ -1168,34 +1168,129 @@ ipcMain.handle('getEmployees', async () => {
   }
 });
 
-ipcMain.handle('getEmployeeAttendance', async (event, employeeId, selectedDate) => {
+ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate = null) => {
   try {
-    let q = supabase
-      .from('attendance')
-      .select('date, timein, timeout, employee:employeeid ( employeeid, shiftid )')
-      .eq('employeeid', employeeId);
+    if (!employeeId) throw new Error("Missing employeeId");
 
-    if (selectedDate) q = q.eq('date', formatDateToISO(selectedDate));
+    let query = supabase
+      .from("attendance")
+      .select(
+        `attendanceid, date, timein, timeout, employee:employeeid (
+          employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid
+        )`
+      )
+      .eq("employeeid", employeeId);
 
-    const { data, error } = await q;
+    if (selectedDate) {
+      query.eq("date", formatDateToISO(selectedDate));
+    }
+
+    const { data: attendance, error } = await query;
     if (error) throw error;
 
-    const { data: shifts } = await supabase.from('shift').select('shiftid, timestart, timeend');
-    const shiftMap = new Map((shifts || []).map((s) => [s.shiftid, s]));
+    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
+    const positionIds = [...new Set((attendance || []).map(a => a.employee?.positionid).filter(Boolean))];
+    const departmentIds = [...new Set((attendance || []).map(a => a.employee?.departmentid).filter(Boolean))];
 
-    return (data || []).map((a) => {
-      const emp = a.employee ?? (Array.isArray(a.employee) ? a.employee[0] : {});
-      const sh = shiftMap.get(emp?.shiftid) || {};
+    // Fetch related tables only if needed
+    const { data: shifts } = await supabase
+      .from("shift")
+      .select("shiftid, timestart, timeend")
+      .in("shiftid", shiftIds.length ? shiftIds : [-1]);
+    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
+
+    const { data: positions } = await supabase
+      .from("position")
+      .select("positionid, positionname")
+      .in("positionid", positionIds.length ? positionIds : [-1]);
+    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+
+    const { data: departments } = await supabase
+      .from("department")
+      .select("departmentid, departmentname")
+      .in("departmentid", departmentIds.length ? departmentIds : [-1]);
+    const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
+
+    // Helpers
+    const parseDurationLabel = (mins) => {
+      if (mins == null || isNaN(mins)) return "";
+      const abs = Math.abs(mins);
+      const hh = Math.floor(abs / 60);
+      const mm = abs % 60;
+      return `${hh}h ${mm}m`;
+    };
+
+    const ARRIVAL_TOLERANCE = 15;
+    const WORK_TOLERANCE = 15;
+
+    const rows = (attendance || []).map((a) => {
+      const emp = a.employee ?? {};
+      const pos = posMap.get(emp.positionid) || "";
+      const sh = shiftMap.get(emp.shiftid) || {};
+      const dept = deptMap.get(emp.departmentid) || "";
+
+      const timeInMin = timeToMinutes(a.timein);
+      const timeOutMin = timeToMinutes(a.timeout);
+      const shiftStartMin = timeToMinutes(sh.timestart);
+      const shiftEndMin = timeToMinutes(sh.timeend);
+
+      let arrivalDiff = 0;
+      let arrivalStatus = "On Time";
+      let workStatus = "Exact Time";
+      let hoursWorked = "0h 0m";
+      let workDiff = 0;
+
+      if (
+        timeInMin != null &&
+        timeOutMin != null &&
+        shiftStartMin != null &&
+        shiftEndMin != null
+      ) {
+        arrivalDiff = timeInMin - shiftStartMin;
+        if (Math.abs(arrivalDiff) <= ARRIVAL_TOLERANCE) {
+          arrivalDiff = 0;
+          arrivalStatus = "On Time";
+        } else {
+          arrivalStatus = arrivalDiff > 0 ? "Late" : "Early";
+        }
+
+        const actualDur = timeOutMin - timeInMin;
+        const shiftDur = shiftEndMin - shiftStartMin;
+        workDiff = actualDur - shiftDur;
+        hoursWorked = parseDurationLabel(actualDur);
+
+        if (Math.abs(workDiff) <= WORK_TOLERANCE) {
+          workStatus = "Exact Time";
+        } else {
+          workStatus = workDiff > 0 ? "Overtime" : "Undertime";
+        }
+      }
+
       return {
+        attendanceid: a.attendanceid,
         date: formatDateToISO(a.date),
-        timein: a.timein,
-        timeout: a.timeout,
-        shiftstart: sh?.timestart ?? null,
-        shiftend: sh?.timeend ?? null,
+        timeIn: formatTime12(a.timein),
+        timeOut: formatTime12(a.timeout),
+        shift: `${formatTime12(sh.timestart)} - ${formatTime12(sh.timeend)}`,
+        shiftStart: sh.timestart,
+        shiftEnd: sh.timeend,
+        position: pos,
+        department: dept,
+        arrivalDiff: parseDurationLabel(arrivalDiff),
+        arrivalStatus,
+        hoursWorked,
+        workDiff: parseDurationLabel(workDiff),
+        workStatus,
+        utot:
+          workDiff === 0
+            ? "Exact Time"
+            : `${parseDurationLabel(workDiff)} ${workStatus}`,
       };
     });
+
+    return rows;
   } catch (err) {
-    console.error('getEmployeeAttendance failed:', err);
+    console.error("getEmployeeAttendance error:", err);
     return [];
   }
 });
@@ -1222,7 +1317,6 @@ ipcMain.handle('updateEmployee', async (event, { employeeId, field, value }) => 
   }
 });
 
-
 ipcMain.handle('updateEmployeeField', async (event, { employeeId, field, value }) => {
   try {
     const { error } = await supabase.from('employee').update({ [field]: value }).eq('employeeid', employeeId);
@@ -1235,93 +1329,82 @@ ipcMain.handle('updateEmployeeField', async (event, { employeeId, field, value }
   }
 });
 
-ipcMain.handle("getAttendance", async () => {
+ipcMain.handle("getAttendance", async (event, date = null) => {
   try {
-    const { data: attendance, error } = await supabase
+    const targetDate = formatDateToISO(date);
+    const query = supabase
       .from("attendance")
       .select(
         `attendanceid, date, timein, timeout, employee:employeeid (
           employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid
         )`
-      )
-      .order("date", { ascending: false });
+      );
 
+    if (targetDate) {
+      query.eq("date", targetDate).order("timein", { ascending: true });
+    } else {
+      query.order("date", { ascending: false });
+    }
+
+    const { data: attendance, error } = await query;
     if (error) throw error;
 
-    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
     const positionIds = [...new Set((attendance || []).map(a => a.employee?.positionid).filter(Boolean))];
+    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
     const departmentIds = [...new Set((attendance || []).map(a => a.employee?.departmentid).filter(Boolean))];
-
-    const { data: shifts } = await supabase
-      .from("shift")
-      .select("shiftid, timestart, timeend")
-      .in("shiftid", shiftIds);
 
     const { data: positions } = await supabase
       .from("position")
       .select("positionid, positionname")
-      .in("positionid", positionIds);
+      .in("positionid", positionIds.length ? positionIds : [-1]);
+    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+
+    const { data: shifts } = await supabase
+      .from("shift")
+      .select("shiftid, timestart, timeend")
+      .in("shiftid", shiftIds.length ? shiftIds : [-1]);
+    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
 
     const { data: departments } = await supabase
       .from("department")
       .select("departmentid, departmentname")
-      .in("departmentid", departmentIds);
-
-    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
-    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+      .in("departmentid", departmentIds.length ? departmentIds : [-1]);
     const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
 
-    const parseTimeToMinutes = (t) => {
-      if (!t && t !== 0) return null;
-      const s = String(t).trim();
-      const ampmMatch = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)$/i);
-      if (ampmMatch) {
-        let hh = parseInt(ampmMatch[1], 10);
-        const mm = parseInt(ampmMatch[2], 10);
-        const ampm = ampmMatch[3].toUpperCase();
-        if (ampm === "PM" && hh !== 12) hh += 12;
-        if (ampm === "AM" && hh === 12) hh = 0;
-        return hh * 60 + mm;
-      }
-      const hmsMatch = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-      if (hmsMatch) {
-        const hh = parseInt(hmsMatch[1], 10);
-        const mm = parseInt(hmsMatch[2], 10);
-        return hh * 60 + mm;
-      }
-      return null;
-    };
-
-    const format12 = (t) => {
-      const mins = parseTimeToMinutes(t);
-      if (mins == null) return "";
-      const hh = Math.floor(mins / 60);
-      const mm = mins % 60;
-      const ampm = hh >= 12 ? "PM" : "AM";
-      const hr12 = hh % 12 || 12;
-      return `${hr12}:${String(mm).padStart(2, "0")} ${ampm}`;
+    const parseDurationLabel = (mins) => {
+      if (mins == null || isNaN(mins)) return "";
+      const abs = Math.abs(mins);
+      const hh = Math.floor(abs / 60);
+      const mm = abs % 60;
+      return `${hh}h ${mm}m`;
     };
 
     const ARRIVAL_TOLERANCE = 15;
-    const WORK_TOLERANCE = 0;
+    const WORK_TOLERANCE = 15;
 
     const rows = (attendance || []).map((a) => {
       const emp = a.employee ?? {};
-      const shift = shiftMap.get(emp?.shiftid) || {};
-      const position = posMap.get(emp?.positionid) || "";
-      const department = deptMap.get(emp?.departmentid) || "";
+      const pos = posMap.get(emp.positionid) || "";
+      const sh = shiftMap.get(emp.shiftid) || {};
+      const department = deptMap.get(emp.departmentid) || "";
 
-      const timeInMin = parseTimeToMinutes(a.timein);
-      const timeOutMin = parseTimeToMinutes(a.timeout);
-      const shiftStartMin = parseTimeToMinutes(shift?.timestart);
-      const shiftEndMin = parseTimeToMinutes(shift?.timeend);
+      const timeInMin = timeToMinutes(a.timein);
+      const timeOutMin = timeToMinutes(a.timeout);
+      const shiftStartMin = timeToMinutes(sh.timestart);
+      const shiftEndMin = timeToMinutes(sh.timeend);
 
       let arrivalDiff = 0;
       let arrivalStatus = "On Time";
-      let hoursWorked = 0;
-      let workStatus = "On Time";
+      let workStatus = "Exact Time";
+      let hoursWorked = "0h 0m";
+      let workDiff = 0;
 
-      if (timeInMin != null && timeOutMin != null && shiftStartMin != null && shiftEndMin != null) {
+      if (
+        timeInMin != null &&
+        timeOutMin != null &&
+        shiftStartMin != null &&
+        shiftEndMin != null
+      ) {
         arrivalDiff = timeInMin - shiftStartMin;
         if (Math.abs(arrivalDiff) <= ARRIVAL_TOLERANCE) {
           arrivalDiff = 0;
@@ -1332,162 +1415,43 @@ ipcMain.handle("getAttendance", async () => {
 
         const actualDur = timeOutMin - timeInMin;
         const shiftDur = shiftEndMin - shiftStartMin;
-        hoursWorked = actualDur - shiftDur;
+        workDiff = actualDur - shiftDur;
+        hoursWorked = parseDurationLabel(actualDur);
 
-        if (Math.abs(hoursWorked) <= WORK_TOLERANCE) {
-          hoursWorked = 0;
-          workStatus = "On Time";
+        if (Math.abs(workDiff) <= WORK_TOLERANCE) {
+          workStatus = "Exact Time";
         } else {
-          workStatus = hoursWorked > 0 ? "Overtime" : "Undertime";
+          workStatus = workDiff > 0 ? "Overtime" : "Undertime";
         }
       }
 
       return {
         attendanceid: a.attendanceid,
-        date: a.date,
+        date: formatDateToISO(a.date),
         employeeid: emp.employeeid ?? "",
-        fullName: `${emp.lastname ?? ""}, ${emp.firstname ?? ""}${emp.middlename ? " " + emp.middlename.charAt(0) + "." : ""}`,
-        position,
+        fullName: `${emp.lastname ?? ""}, ${emp.firstname ?? ""}${
+          emp.middlename ? " " + emp.middlename.charAt(0) + "." : ""
+        }`,
         department,
-        shift: `${format12(shift?.timestart)} - ${format12(shift?.timeend)}`,
-        timeIn: format12(a.timein),
-        timeOut: format12(a.timeout),
-        arrivalDiff,
-        hoursWorked,
+        position: pos,
+        shift: `${formatTime12(sh.timestart)} - ${formatTime12(sh.timeend)}`,
+        timeIn: formatTime12(a.timein),
+        timeOut: formatTime12(a.timeout),
+        arrivalDiff: parseDurationLabel(arrivalDiff), // ← now human-readable
         arrivalStatus,
+        hoursWorked,
+        workDiff: parseDurationLabel(workDiff), // ← same here
         workStatus,
-        utot: `${Math.abs(hoursWorked)} min ${hoursWorked > 0 ? "Overtime" : hoursWorked < 0 ? "Undertime" : "-"}`,
+        utot:
+          workDiff === 0
+            ? "Exact Time"
+            : `${parseDurationLabel(workDiff)} ${workStatus}`,
       };
     });
 
     return rows;
   } catch (err) {
     console.error("getAttendance error:", err);
-    return [];
-  }
-});
-
-ipcMain.handle('getAttendanceByDate', async (event, date) => {
-  try {
-    const { data: attendance, error } = await supabase
-      .from('attendance')
-      .select('date, employeeid, timein, timeout, employee:employeeid ( lastname, firstname, middlename, positionid, shiftid, departmentid )')
-      .eq('date', formatDateToISO(date))
-      .order('timein', { ascending: true });
-    if (error) throw error;
-
-    const positionIds = [...new Set((attendance || []).map(a => a.employee?.positionid).filter(Boolean))];
-    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
-    const departmentIds = [...new Set((attendance || []).map(a => a.employee?.departmentid).filter(Boolean))];
-
-    const { data: positions } = await supabase
-      .from('position')
-      .select('positionid, positionname')
-      .in('positionid', positionIds.length ? positionIds : [-1]); // guard for empty
-    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
-
-    const { data: shifts } = await supabase
-      .from('shift')
-      .select('shiftid, timestart, timeend')
-      .in('shiftid', shiftIds.length ? shiftIds : [-1]);
-    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
-
-    const { data: departments } = await supabase
-      .from('department')
-      .select('departmentid, departmentname')
-      .in('departmentid', departmentIds.length ? departmentIds : [-1]);
-    const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
-
-    const parseTimeToMinutes = (t) => {
-      if (!t && t !== 0) return null;
-      const s = String(t).trim();
-      const ampmMatch = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)$/i);
-      if (ampmMatch) {
-        let hh = parseInt(ampmMatch[1], 10);
-        const mm = parseInt(ampmMatch[2], 10);
-        const ampm = ampmMatch[3].toUpperCase();
-        if (ampm === "PM" && hh !== 12) hh += 12;
-        if (ampm === "AM" && hh === 12) hh = 0;
-        return hh * 60 + mm;
-      }
-      const hmsMatch = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-      if (hmsMatch) {
-        const hh = parseInt(hmsMatch[1], 10);
-        const mm = parseInt(hmsMatch[2], 10);
-        return hh * 60 + mm;
-      }
-      return null;
-    };
-
-    const format12 = (t) => {
-      const mins = parseTimeToMinutes(t);
-      if (mins == null) return "";
-      const hh = Math.floor(mins / 60);
-      const mm = mins % 60;
-      const ampm = hh >= 12 ? "PM" : "AM";
-      const hr12 = hh % 12 || 12;
-      return `${hr12}:${String(mm).padStart(2, "0")} ${ampm}`;
-    };
-
-    const ARRIVAL_TOLERANCE = 15;
-    const WORK_TOLERANCE = 15;
-
-    return (attendance || []).map((a) => {
-      const emp = a.employee ?? {};
-      const pos = posMap.get(emp.positionid) || '';
-      const sh = shiftMap.get(emp.shiftid) || {};
-      const department = deptMap.get(emp.departmentid) || '';
-
-      const timeInMin = parseTimeToMinutes(a.timein);
-      const timeOutMin = parseTimeToMinutes(a.timeout);
-      const shiftStartMin = parseTimeToMinutes(sh.timestart);
-      const shiftEndMin = parseTimeToMinutes(sh.timeend);
-
-      let arrivalDiff = 0;
-      let arrivalStatus = "On Time";
-      let hoursWorked = 0;
-      let workStatus = "On Time";
-
-      if (timeInMin != null && timeOutMin != null && shiftStartMin != null && shiftEndMin != null) {
-        arrivalDiff = timeInMin - shiftStartMin;
-        if (Math.abs(arrivalDiff) <= ARRIVAL_TOLERANCE) {
-          arrivalDiff = 0;
-          arrivalStatus = "On Time";
-        } else {
-          arrivalStatus = arrivalDiff > 0 ? "Late" : "Early";
-        }
-
-        const actualDur = timeOutMin - timeInMin;
-        const shiftDur = shiftEndMin - shiftStartMin;
-        hoursWorked = actualDur - shiftDur;
-
-        if (Math.abs(hoursWorked) <= WORK_TOLERANCE) {
-          hoursWorked = 0;               // <-- fixed: set hoursWorked to 0 (was workDiff)
-          workStatus = "On Time";
-        } else {
-          workStatus = hoursWorked > 0 ? "Overtime" : "Undertime";
-        }
-      }
-
-      return {
-        date: formatDateToISO(a.date),
-        fullName: `${emp.lastname || ''}, ${emp.firstname || ''}${emp.middlename ? ` ${emp.middlename.charAt(0)}.` : ''}`,
-        employeeid: a.employeeid,
-        department,
-        position: pos,
-        shift: `${format12(sh.timestart)} - ${format12(sh.timeend)}`,
-        timeIn: format12(a.timein),
-        timeOut: format12(a.timeout),
-        arrivalDiff,
-        arrivalStatus,
-        hoursWorked,
-        workStatus,
-        utot: hoursWorked === 0 ? "-" : `${Math.abs(hoursWorked)} min ${workStatus}`,
-      };
-    });
-
-  } catch (err) {
-    console.error('getAttendanceByDate error:', err);
     return [];
   }
 });
@@ -1501,20 +1465,46 @@ ipcMain.handle('getAbsent', async (event, date) => {
     if (empErr) throw empErr;
 
     const targetDate = date ? formatDateToISO(date) : null;
-    const { data: attendance } = targetDate ? await supabase.from('attendance').select('employeeid').eq('date', targetDate) : await supabase.from('attendance').select('employeeid');
-    const { data: leaves } = targetDate ? await supabase.from('leave').select('employeeid').eq('date', targetDate) : await supabase.from('leave').select('employeeid');
+    const { data: attendance } = targetDate
+      ? await supabase.from('attendance').select('employeeid').eq('date', targetDate)
+      : await supabase.from('attendance').select('employeeid');
 
-    const present = new Set((attendance || []).map(r => r.employeeid));
-    const onleave = new Set((leaves || []).map(r => r.employeeid));
+    let leaves = [];
+    if (targetDate) {
+      const { data: allLeaves } = await supabase
+        .from('leave')
+        .select('employeeid, start_date, end_date, is_paid')
+        .eq('is_paid', true)
+        .eq('status', 'Approved');
 
-    const absent = (employees || []).filter(e => !present.has(e.employeeid) && !onleave.has(e.employeeid));
+      const d = new Date(targetDate);
+      leaves = (allLeaves || []).filter((l) => {
+        const s = new Date(l.start_date);
+        const e = new Date(l.end_date);
+        return d >= s && d <= e;
+      });
+    } else {
+      const { data: allLeaves } = await supabase
+        .from('leave')
+        .select('employeeid')
+        .eq('is_paid', true);
+      leaves = allLeaves || [];
+    }
+
+    const present = new Set((attendance || []).map((r) => r.employeeid));
+    const onleave = new Set((leaves || []).map((r) => r.employeeid));
+
+    const absent = (employees || []).filter(
+      (e) => !present.has(e.employeeid) && !onleave.has(e.employeeid)
+    );
 
     return absent.map((r) => ({
       employeeid: r.employeeid,
       fullName: `${r.lastname}, ${r.firstname}${r.middlename ? ` ${r.middlename.charAt(0)}.` : ''}`,
       department: r.department?.departmentname ?? '',
       position: r.position?.positionname ?? '',
-      shift: `${r.shift?.timestart ?? ''} - ${r.shift?.timeend ?? ''}`,
+      shift: `${formatTime12(r.shift?.timestart) ?? ''} - ${formatTime12(r.shift?.timeend) ?? ''}`,
+      date: targetDate,
     }));
   } catch (err) {
     console.error('getAbsent error:', err);
@@ -1528,34 +1518,35 @@ ipcMain.handle('getLeave', async (event, date) => {
     today.setHours(0, 0, 0, 0);
 
     let query = supabase
-      .from('leave')
+      .from("leave")
       .select(`
-        leaveid, 
-        start_date, 
-        end_date, 
-        employeeid, 
-        reason, 
-        status, 
+        leaveid,
+        start_date,
+        end_date,
+        employeeid,
+        reason,
+        status,
+        type,
+        is_paid,
         employee:employeeid (
-          firstname, 
-          middlename, 
-          lastname, 
-          positionid, 
-          departmentid, 
+          firstname,
+          middlename,
+          lastname,
+          positionid,
+          departmentid,
           shiftid
         )
       `)
-      .order('employeeid', { ascending: true });
+      .order("employeeid", { ascending: true });
 
     if (date) {
       const targetDate = date;
-      // targetDate.setHours(0, 0, 0, 0); 
       const nextDate = new Date(targetDate);
       nextDate.setDate(nextDate.getDate() + 1);
 
       query = query
-        .gte('end_date', targetDate)
-        .lt('start_date', nextDate.toISOString());
+        .gte("end_date", targetDate)
+        .lt("start_date", nextDate.toISOString());
     }
 
     const { data, error } = await query;
@@ -1566,46 +1557,54 @@ ipcMain.handle('getLeave', async (event, date) => {
     const shiftIds = [...new Set((data || []).map(l => l.employee?.shiftid).filter(Boolean))];
 
     const [{ data: positions }, { data: departments }, { data: shifts }] = await Promise.all([
-      supabase.from('position').select('positionid, positionname').in('positionid', positionIds),
-      supabase.from('department').select('departmentid, departmentname').in('departmentid', departmentIds),
-      supabase.from('shift').select('shiftid, timestart, timeend').in('shiftid', shiftIds),
+      supabase.from("position").select("positionid, positionname").in("positionid", positionIds),
+      supabase.from("department").select("departmentid, departmentname").in("departmentid", departmentIds),
+      supabase.from("shift").select("shiftid, timestart, timeend").in("shiftid", shiftIds),
     ]);
 
     const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
     const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
     const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
 
-    return (data || []).map((l) => {
+    return (data || []).map(l => {
       const emp = l.employee ?? (Array.isArray(l.employee) ? l.employee[0] : {});
+      const startDate = new Date(l.start_date);
       const endDate = new Date(l.end_date);
+      startDate.setHours(0, 0, 0, 0);
       endDate.setHours(0, 0, 0, 0);
 
-      const rawDuration = Math.max(0, Math.ceil((endDate - today) / (1000 * 60 * 60 * 24)) + 1);
+      let rawDuration;
+      if (date) {
+        rawDuration = Math.max(0, Math.ceil((endDate - today) / (1000 * 60 * 60 * 24)) + 1);
+      } else {
+        rawDuration = Math.max(0, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1);
+      }
+
       const Duration = rawDuration === 0 ? "Expired" : rawDuration;
-      // logMessage?.(`Leave ID ${l.leaveid} | StartDate: ${l.start_date} | EndDate: ${l.end_date} | Today: ${formatDateToISO(today)} | Duration calculated as ${Duration} days`);
 
       return {
         leaveid: l.leaveid,
         start_date: formatDateToISO(l.start_date),
         end_date: formatDateToISO(l.end_date),
         employeeid: l.employeeid,
-        fullName: `${emp.firstname || ''} ${emp.middlename ? `${emp.middlename.charAt(0)}.` : ''} ${emp.lastname || ''}`.trim(),
-        position: posMap.get(emp.positionid) || '',
-        department: deptMap.get(emp.departmentid) || '',
-        shift: `${shiftMap.get(emp.shiftid)?.timestart || ''} - ${shiftMap.get(emp.shiftid)?.timeend || ''}`,
+        fullName: `${emp.lastname}, ${emp.firstname}${emp.middlename ? ` ${emp.middlename.charAt(0)}.` : ''}`,
+        position: posMap.get(emp.positionid) || "",
+        department: deptMap.get(emp.departmentid) || "",
+        shift: `${formatTime12(shiftMap.get(emp.shiftid)?.timestart || "")} - ${formatTime12(shiftMap.get(emp.shiftid)?.timeend || "")}`,
         reason: l.reason,
         status: l.status,
+        type: l.type,
+        isPaid: l.is_paid,
         Duration,
       };
     });
-
   } catch (err) {
-    logMessage('getLeave error:', err);
+    logMessage("getLeave error:", err);
     return [];
   }
 });
 
-ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration) => {
+ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, type, isPaid, status) => {
   const normalizeError = (err) => {
     if (!err) return 'Unknown error';
     if (typeof err === 'string') return err;
@@ -1616,23 +1615,16 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration) =>
   };
 
   try {
-    logMessage('addLeave: start', { employeeIds, date, reason, duration });
-
     const targetDate = formatDateToISO(date);
-    logMessage('addLeave: formatted targetDate', targetDate);
-
     const startDate = new Date(targetDate);
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + duration - 1);
     const targetEndDate = endDate.toISOString().split('T')[0];
-    logMessage('addLeave: calculated targetEndDate', targetEndDate);
 
     let inserted = 0;
     let skipped = 0;
 
     for (const id of employeeIds) {
-      logMessage('addLeave: processing employee', id);
-
       const { data: existingLeave, error: leaveErr } = await supabase
         .from('leave')
         .select('leaveid')
@@ -1640,7 +1632,6 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration) =>
         .or(`and(start_date.lte.${targetEndDate},end_date.gte.${targetDate})`)
         .limit(1);
       if (leaveErr) throw new Error(normalizeError(leaveErr));
-      logMessage('addLeave: existingLeave', existingLeave);
 
       const { data: existingAttendance, error: attErr } = await supabase
         .from('attendance')
@@ -1650,55 +1641,71 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration) =>
         .lte('date', targetEndDate)
         .limit(1);
       if (attErr) throw new Error(normalizeError(attErr));
-      logMessage('addLeave: existingAttendance', existingAttendance);
 
       if ((existingLeave && existingLeave.length) || (existingAttendance && existingAttendance.length)) {
-        logMessage('addLeave: skipping employee due to conflict', id);
         skipped++;
         continue;
       }
 
-      const { data: empData, error: empErr } = await supabase
-        .from('employee')
-        .select('leavecredit')
-        .eq('employeeid', id)
-        .limit(1)
-        .single();
-      if (empErr) throw new Error(normalizeError(empErr));
-      if (!empData) throw new Error(`Employee ${id} not found`);
-      logMessage('addLeave: employee leave credit', { id, leavecredit: empData.leavecredit });
+      if (isPaid) {
+        const { data: empData, error } = await supabase
+          .from('employee')
+          .select('leavecredit')
+          .eq('employeeid', id)
+          .limit(1)
+          .single();
+        if (error) throw new Error(normalizeError(error));
 
-      if ((empData.leavecredit || 0) < duration) {
-        logMessage('addLeave: skipping employee due to insufficient leave credit', id);
-        skipped++;
-        continue;
+        if (!empData) throw new Error(`Employee ${id} not found`);
+        if ((empData.leavecredit || 0) < duration) {
+          skipped++;
+          continue;
+        }
+
+        const { error: updErr } = await supabase
+          .from('employee')
+          .update({ leavecredit: empData.leavecredit - duration })
+          .eq('employeeid', id);
+        if (updErr) throw new Error(normalizeError(updErr));
       }
-
-      const { error: updErr } = await supabase
-        .from('employee')
-        .update({ leavecredit: empData.leavecredit - duration })
-        .eq('employeeid', id);
-      if (updErr) throw new Error(normalizeError(updErr));
-      logMessage('addLeave: updated leave credit', { id, newLeaveCredit: empData.leavecredit - duration });
 
       const { error: insErr } = await supabase
         .from('leave')
-        .insert([{ employeeid: id, start_date: targetDate, end_date: targetEndDate, reason }]);
-      if (insErr) throw new Error(normalizeError(insErr));
-      logMessage('addLeave: inserted leave', { id, start_date: targetDate, end_date: targetEndDate, reason });
+        .insert([
+          {
+            employeeid: id,
+            start_date: targetDate,
+            end_date: targetEndDate,
+            reason,
+            type,
+            is_paid: isPaid,
+            status, 
+          },
+        ]);
 
+      if (insErr) throw new Error(normalizeError(insErr));
       inserted++;
     }
 
-    logMessage('addLeave: finished processing', { inserted, skipped });
-
     if (inserted === 0) {
-      return { success: false, message: 'No leave added (duplicates, conflicts, or insufficient credits)', inserted: 0, skipped };
+      return {
+        success: false,
+        message: 'No leave added (duplicates, conflicts, or insufficient credits)',
+        inserted: 0,
+        skipped,
+      };
     }
 
-    return { success: true, inserted, skipped };
+    return {
+      success: true,
+      message: `Successfully added ${inserted} leave${inserted > 1 ? 's' : ''}${skipped ? ` (${skipped} skipped)` : ''}.`,
+      inserted,
+      skipped,
+    };
+
   } catch (err) {
-    logMessage('addLeave error caught', err);
+    logMessage('addLeave error (raw):', err);
+    if (err && err.stack) logMessage('Stack trace:', err.stack);
     return { success: false, error: normalizeError(err) };
   }
 });

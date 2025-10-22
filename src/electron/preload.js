@@ -18,6 +18,16 @@ contextBridge.exposeInMainWorld('fileAPI', {
     ipcRenderer.on('ocr-progress', listener);
     return () => ipcRenderer.removeListener('ocr-progress', listener);
   },
+    createDirectory: (path) => ipcRenderer.invoke('file:createDirectory', path),
+  readDirectory: (path) => ipcRenderer.invoke('file:readDirectory', path),
+  readFile: (path) => ipcRenderer.invoke('file:readFile', path),
+  writeFile: (path, content) => ipcRenderer.invoke('file:writeFile', path, content),
+  startBatchOcr: (opts) => ipcRenderer.invoke('ocr:startBatch', opts),
+  onOcrProgress: (cb) => {
+    const listener = (_event, data) => cb(data);
+    ipcRenderer.on('ocr-progress', listener);
+    return () => ipcRenderer.removeListener('ocr-progress', listener);
+  },
 });
 
 contextBridge.exposeInMainWorld('userAPI', {
@@ -58,12 +68,11 @@ contextBridge.exposeInMainWorld('employeeAPI', {
 contextBridge.exposeInMainWorld('attendanceAPI', {
   getAttendanceColumns: () => ipcRenderer.invoke("getAttendanceColumns"),
   getEmployeeAttendance: (id, date) => ipcRenderer.invoke('getEmployeeAttendance', id, date),
-  getAttendance: () => ipcRenderer.invoke('getAttendance'),
-  getAttendanceByDate: (date) => ipcRenderer.invoke('getAttendanceByDate', date),
+  getAttendance: (date) => ipcRenderer.invoke('getAttendance', date),
   getAbsent: (date) => ipcRenderer.invoke('getAbsent', date),
   getLeave: (date) => ipcRenderer.invoke('getLeave', date),
-  addLeave: (employeeIds, date, reason, duration, type) =>
-    ipcRenderer.invoke('addLeave', employeeIds, date, reason, duration, type),
+  addLeave: (employeeIds, date, reason, duration, type, isPaid, status) =>
+    ipcRenderer.invoke('addLeave', employeeIds, date, reason, duration, type, isPaid, status),
   updateLeaveStatus: (ids, status) =>
     ipcRenderer.invoke("updateLeaveStatus", { ids, status }),
 });

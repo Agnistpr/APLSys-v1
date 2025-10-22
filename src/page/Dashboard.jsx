@@ -126,7 +126,7 @@ const Dashboard = ({
     ),
     "Approved Leaves": (
       <LeaveTab
-        type="Approved"
+        status="Approved"
         uid={uid}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");
@@ -139,7 +139,7 @@ const Dashboard = ({
     ),
     "Leave Requests": (
       <LeaveTab
-        type="Request"
+        status="Request"
         uid={uid}
         setActivePage={(page) => {
           setPreviousPage("Dashboard");

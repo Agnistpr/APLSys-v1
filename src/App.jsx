@@ -106,7 +106,15 @@ useEffect(() => {
     setActivePage("Auth");
   };
 
-  console.log("Current user:", user?.id);
+  const sharedProps = {
+    uid: user?.id,
+    activePage,
+    setActivePage,
+    setSelectedEmployeeId,
+    setPreviousPage,
+    setSelectedApplicantId,
+    selectedApplicantId,
+  };
 
   const renderPage = () => {
     if (!user) return <Auth onLogin={handleLogin} />;

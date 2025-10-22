@@ -169,7 +169,7 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
           window.toast("All rows were duplicates.", "error");
         } else {
           window.toast(
-            `✅ Imported ${res.inserted} ${res.type || "attendance"} record${
+            `Imported ${res.inserted} ${res.type || "attendance"} record${
               res.inserted === 1 ? "" : "s"
             } successfully.`,
             "success"

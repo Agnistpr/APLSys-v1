@@ -60,18 +60,52 @@ ipcMain.handle("clearSession", clearSession);
 ipcMain.handle("restoreSession", (_e, session) => restoreSession(null, session));
 
 ipcMain.handle("getCurrentUser", async () => {
+  // console.log("[getCurrentUser] called");
   try {
-    const { data, error } = await supabase.auth.getUser();
-    if (error) throw error;
-    return data?.user || null;
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+
+    const user = authData?.user;
+    if (!user) {
+      // console.warn("[getCurrentUser] no authenticated user");
+      return null;
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from("users")
+      .select("userid, uid, username, userrole, userimage, employeeid, createddate")
+      .eq("uid", user.id)
+      .single();
+
+    if (profileError) {
+      // console.warn("[getCurrentUser] no profile found:", profileError.message);
+    }
+
+    const merged = {
+      id: user.id,
+      email: user.email,
+      username: profile?.username || user.email,
+      userrole: profile?.userrole || "Unknown Role",
+      userimage: profile?.userimage || null,
+      employeeid: profile?.employeeid || null,
+      createddate: profile?.createddate || null,
+    };
+
+    // console.log("[getCurrentUser] merged user:", merged);
+    return merged;
   } catch (err) {
-    console.error("[getCurrentUser]", err.message);
+    // console.error("[getCurrentUser]", err.message);
     return null;
   }
 });
 
+
 supabase.auth.onAuthStateChange((_event, session) => {
-  console.log("[MAIN] auth-state-changed:", session?.user?.email || "no session");
+  // if (session) {
+  //   setSession(session);
+  // } else {
+  //   clearSession();
+  // } this is broken rn
   BrowserWindow.getAllWindows().forEach(win => {
     win.webContents.send("auth-state-changed", session);
   });
