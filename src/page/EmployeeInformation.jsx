@@ -108,7 +108,20 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
   useEffect(() => {
     const fetchEmployee = async () => {
       const data = await window.employeeAPI.getEmployee(employeeId);
-      setEmployee(data);
+
+      const deptObj = deptPosList.find(
+        (d) => d.departmentname === data.department
+      );
+      const posObj = deptPosList.find(
+        (d) => d.positionname === data.position
+      );
+
+      setEmployee({
+        ...data,
+        departmentid: deptObj?.departmentid || data.departmentid,
+        positionid: posObj?.positionid || data.positionid,
+      });
+
       if (data?.image) {
         setSelectedImage({
           type: data.imageType,
@@ -129,7 +142,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
 
     fetchEmployee();
     fetchAttendance();
-  }, [employeeId, selectedDate]);
+  }, [employeeId, selectedDate, deptPosList]);
 
   const calculateTimeDiff = (start, end) => {
     const startDate = new Date(`1970-01-01T${start}`);
@@ -166,12 +179,11 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
       }
 
       if (field === "position") {
-        const dept = employee.department;
-        const pos = safeValue;
+        const deptId = employee.departmentid;
+        const posId = safeValue;
+
         const validCombo = deptPosList.some(
-          (d) =>
-            d.departmentname.toLowerCase() === dept.toLowerCase() &&
-            d.positionname.toLowerCase() === pos.toLowerCase()
+          (d) => d.departmentid == deptId && d.positionid == posId
         );
 
         if (!validCombo) {
