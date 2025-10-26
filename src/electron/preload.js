@@ -4,15 +4,16 @@ contextBridge.exposeInMainWorld('fileAPI', {
   selectFile: (opts) => ipcRenderer.invoke("dialog:openFile", opts),
   saveFileToFolder: (opts) => ipcRenderer.invoke("file:saveToFolder", opts),
   readFileAsBase64: (filePath) => ipcRenderer.invoke("file:readAsBase64", filePath),
+  hexToBase64: (hexString) => ipcRenderer.invoke('file:hexToBase64', hexString),
   listDocuments: () => ipcRenderer.invoke("file:listDocuments"),
   deleteFile: (filePath) => ipcRenderer.invoke("file:delete", filePath),
   openDocument: (filePath) => ipcRenderer.invoke("file:openDocument", filePath),
   openFolder: (filePath) => ipcRenderer.invoke("open-folder", filePath),
-   createDirectory: (path) => ipcRenderer.invoke('file:createDirectory', path),
+  createDirectory: (path) => ipcRenderer.invoke('file:createDirectory', path),
   readDirectory: (path) => ipcRenderer.invoke('file:readDirectory', path),
   readFile: (path) => ipcRenderer.invoke('file:readFile', path),
   writeFile: (path, content) => ipcRenderer.invoke('file:writeFile', path, content),
-  startBatchOcr: (opts) => ipcRenderer.invoke('ocr:startBatch', opts),// start batch OCR in main and stream progress events
+  startBatchOcr: (opts) => ipcRenderer.invoke('ocr:startBatch', opts),
   onOcrProgress: (cb) => {
     const listener = (_event, data) => cb(data);
     ipcRenderer.on('ocr-progress', listener);
@@ -56,11 +57,7 @@ contextBridge.exposeInMainWorld('employeeAPI', {
   getEmployeeTableColumns: () => ipcRenderer.invoke('getEmployeeTableColumns'),
   searchEmployees: (term) => ipcRenderer.invoke('searchEmployees', term),
   updateEmployee: (employeeId, field, value) =>
-    ipcRenderer.invoke("updateEmployee", {
-      employeeId: String(employeeId),
-      field: String(field),
-      value: value
-    }),
+    ipcRenderer.invoke("updateEmployee", employeeId, field, value),
   getFilteredEmployees: (filters, mode) => ipcRenderer.invoke('getFilteredEmployees', { filters, mode }),
   getFilterOptions: () => ipcRenderer.invoke('getFilterOptions'),
 });

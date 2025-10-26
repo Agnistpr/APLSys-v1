@@ -117,6 +117,18 @@ ipcMain.handle("file:readAsBase64", async (event, filePath) => {
   }
 });
 
+// ipcMain.handle("file:hexToBase64", async (_, hex) => {
+//   try {
+//     // remove any potential "0x" prefix and spaces
+//     const cleanHex = hex.replace(/0x/g, "").replace(/\s+/g, "");
+//     const buffer = Buffer.from(cleanHex, "hex"); // convert hex -> bytes
+//     return buffer.toString("base64"); // bytes -> base64
+//   } catch (err) {
+//     console.error("hexToBase64 failed:", err);
+//     throw err;
+//   }
+// });
+
 ipcMain.handle("file:openDocument", async (_, filePath) => {
   try {
     await shell.openPath(filePath);

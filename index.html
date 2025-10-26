@@ -5,10 +5,10 @@
       default-src 'self';
       script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval';
       style-src 'self' 'unsafe-inline';
-      img-src 'self' data: blob:;
+      img-src 'self' data: blob: https://*.supabase.co;
       worker-src 'self' blob:;
       frame-src 'self' blob:;
-      connect-src 'self' blob: data: http://127.0.0.1:8000/ http://localhost:8000 https://cdn.jsdelivr.net https://generativelanguage.googleapis.com;
+      connect-src 'self' blob: data: http://127.0.0.1:8000/ http://localhost:8000 https://cdn.jsdelivr.net https://generativelanguage.googleapis.com https://*.supabase.co;
     ">
     <!-- NOTE TO SELF: need to remove unsafe-eval property pag deployment na-->
     <meta charset="UTF-8" />

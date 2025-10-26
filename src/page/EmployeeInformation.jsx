@@ -14,16 +14,12 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [uploadMessage, setUploadMessage] = useState("");
   const [isError, setIsError] = useState(false);
-
   const [deptPosList, setDeptPosList] = useState([]);
-
   const [sortColumn, setSortColumn] = useState("date");
   const [sortOrder, setSortOrder] = useState("asc");
   const [dropdownOpen, setDropdownOpen] = useState(false);
-
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState({});
-
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(5);
   const [loading, setLoading] = useState(true);
@@ -31,43 +27,15 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
   const [pendingChange, setPendingChange] = useState(null);
 
   const [selectedDate, setSelectedDate] = useState(() => {
-    return (
-      localStorage.getItem("attendanceDate") ||
-      ''
-    );
+    return localStorage.getItem("attendanceDate") || "";
   });
 
-  const columns = ["date", "shift", "timein", "timeout", "diff", "status"];
-  const columnLabelMap = {
-    date: "Date",
-    shift: "Shift Schedule",
-    timein: "Time In",
-    timeout: "Time Out",
-    diff: "UT/OT",
-    status: "Status",
-  };
-
   const validationRules = {
-    contact: {
-      regex: /^\d{11}$/,
-      message: "Contact number must be exactly 11 digits.",
-    },
-    pagibig_number: {
-      regex: /^\d{12}$/,
-      message: "PAGIBIG number must be exactly 12 digits.",
-    },
-    sss_number: {
-      regex: /^\d{10}$/,
-      message: "SSS number must be exactly 10 digits.",
-    },
-    bir_number: {
-      regex: /^\d{9}$/,
-      message: "BIR TIN must be exactly 9 digits.",
-    },
-    philhealth_number: {
-      regex: /^\d{12}$/,
-      message: "PhilHealth number must be exactly 12 digits.",
-    },
+    contact: { regex: /^\d{11}$/, message: "Contact number must be exactly 11 digits." },
+    pagibig_number: { regex: /^\d{12}$/, message: "PAGIBIG number must be exactly 12 digits." },
+    sss_number: { regex: /^\d{10}$/, message: "SSS number must be exactly 10 digits." },
+    bir_number: { regex: /^\d{9}$/, message: "BIR TIN must be exactly 9 digits." },
+    philhealth_number: { regex: /^\d{12}$/, message: "PhilHealth number must be exactly 12 digits." },
   };
 
   const departments = useMemo(() => {
@@ -76,10 +44,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     deptPosList.forEach((d) => {
       if (!seen.has(d.departmentid)) {
         seen.add(d.departmentid);
-        unique.push({
-          id: d.departmentid,
-          name: d.departmentname,
-        });
+        unique.push({ id: d.departmentid, name: d.departmentname });
       }
     });
     return unique;
@@ -89,10 +54,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     const map = {};
     deptPosList.forEach((d) => {
       if (!map[d.departmentid]) map[d.departmentid] = [];
-      map[d.departmentid].push({
-        id: d.positionid,
-        name: d.positionname,
-      });
+      map[d.departmentid].push({ id: d.positionid, name: d.positionname });
     });
     return map;
   }, [deptPosList]);
@@ -108,34 +70,21 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
   useEffect(() => {
     const fetchEmployee = async () => {
       const data = await window.employeeAPI.getEmployee(employeeId);
+      if (!data) return;
 
-      const deptObj = deptPosList.find(
-        (d) => d.departmentname === data.department
-      );
-      const posObj = deptPosList.find(
-        (d) => d.positionname === data.position
-      );
+      const deptObj = deptPosList.find((d) => d.departmentname === data.department);
+      const posObj = deptPosList.find((d) => d.positionname === data.position);
 
       setEmployee({
         ...data,
         departmentid: deptObj?.departmentid || data.departmentid,
         positionid: posObj?.positionid || data.positionid,
       });
-
-      if (data?.image) {
-        setSelectedImage({
-          type: data.imageType,
-          data: data.image,
-        });
-      }
     };
 
     const fetchAttendance = async () => {
       setLoading(true);
-      const data = await window.attendanceAPI.getEmployeeAttendance(
-        employeeId,
-        selectedDate
-      );
+      const data = await window.attendanceAPI.getEmployeeAttendance(employeeId, selectedDate);
       setLoading(false);
       setAttendance(data);
     };
@@ -143,20 +92,6 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     fetchEmployee();
     fetchAttendance();
   }, [employeeId, selectedDate, deptPosList]);
-
-  const calculateTimeDiff = (start, end) => {
-    const startDate = new Date(`1970-01-01T${start}`);
-    const endDate = new Date(`1970-01-01T${end}`);
-    return (endDate - startDate) / (1000 * 60);
-  };
-
-  const formatTime = (timeStr) => {
-    const [h, m] = timeStr.split(":");
-    const hour = parseInt(h, 10);
-    const suffix = hour >= 12 ? "PM" : "AM";
-    const formattedHour = hour % 12 || 12;
-    return `${formattedHour}:${m} ${suffix}`;
-  };
 
   const handleEditClick = (field, value) => {
     setEditingField(field);
@@ -166,9 +101,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
   const handleKeyDown = async (e, field, isDate = false) => {
     if (e.key === "Enter") {
       setEditingField(null);
-      let safeValue = isDate
-        ? new Date(fieldValue).toISOString().split("T")[0]
-        : fieldValue.trim();
+      let safeValue = isDate ? new Date(fieldValue).toISOString().split("T")[0] : fieldValue.trim();
 
       if (validationRules[field]) {
         const { regex, message } = validationRules[field];
@@ -181,11 +114,9 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
       if (field === "position") {
         const deptId = employee.departmentid;
         const posId = safeValue;
-
         const validCombo = deptPosList.some(
           (d) => d.departmentid == deptId && d.positionid == posId
         );
-
         if (!validCombo) {
           window.toast("Invalid department/position combination.", "error");
           return;
@@ -204,14 +135,12 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     let dbField = field;
     let dbValue = value;
 
-    // map name fields to id columns
     if (field === "department") dbField = "departmentid";
     if (field === "position") dbField = "positionid";
 
     try {
       await window.employeeAPI.updateEmployee(employeeId, dbField, dbValue);
 
-      // if department changed, reset position
       if (field === "department") {
         await window.employeeAPI.updateEmployee(employeeId, "positionid", null);
         setEmployee((prev) => ({ ...prev, positionid: null, position: "---" }));
@@ -267,9 +196,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
               onChange={(e) => {
                 const newPosId = e.target.value;
                 const newPos =
-                  positionsByDept[employee.departmentid]?.find(
-                    (p) => p.id == newPosId
-                  );
+                  positionsByDept[employee.departmentid]?.find((p) => p.id == newPosId);
                 setEmployee((prev) => ({
                   ...prev,
                   positionid: newPosId,
@@ -291,11 +218,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
           ) : (
             <input
               type={isDate ? "date" : "text"}
-              value={
-                isDate
-                  ? new Date(fieldValue).toISOString().split("T")[0]
-                  : fieldValue
-              }
+              value={isDate ? new Date(fieldValue).toISOString().split("T")[0] : fieldValue}
               autoFocus
               onChange={(e) => setFieldValue(e.target.value)}
               onKeyDown={(e) => handleKeyDown(e, field, isDate)}
@@ -307,92 +230,58 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
             {isDate
               ? new Date(employee[field]).toISOString().split("T")[0]
               : employee[field] || "—"}
-            <MdEdit
-              className="editIcon"
-              onClick={() => handleEditClick(field, employee[field])}
-            />
+            <MdEdit className="editIcon" onClick={() => handleEditClick(field, employee[field])} />
           </>
         )}
       </p>
     );
   };
 
-  const handleFile = async (filePath) => {
-    try {
-      const fileData = await window.fileAPI.readFileAsBase64(filePath);
-      return {
-        name: filePath.split(/[\\/]/).pop(),
-        data: fileData,
-        type: `image/${filePath.split(".").pop().toLowerCase()}`,
-      };
-    } catch (err) {
-      console.error("File handling failed:", err);
-      return null;
-    }
-  };
-
   const filePicker = async () => {
     try {
       const filePaths = await window.fileAPI.selectFile({ type: "images", multi: false });
       if (Array.isArray(filePaths) && filePaths.length > 0) {
-        const res = await handleFile(filePaths[0]);
-        if (res) {
-          setSelectedImage(res);
-          setUploadMessage("Profile image selected. Saving...");
+        const filePath = filePaths[0];
+        const fileData = await window.fileAPI.readFileAsBase64(filePath);
+        const fileExt = filePath.split(".").pop().toLowerCase();
+        const base64Data = `data:image/${fileExt};base64,${fileData}`;
+
+        setUploadMessage("Uploading...");
+        const res = await window.employeeAPI.updateEmployee(employeeId, "employeeimage", base64Data);
+
+        if (res.success) {
+          setEmployee((prev) => ({ ...prev, employeeimage: res.imageUrl }));
+          setUploadMessage("Profile image updated.");
           setIsError(false);
-          await saveProfileImage(res);
+        } else {
+          setUploadMessage("Upload failed.");
+          setIsError(true);
         }
       } else {
-        setIsError(true);
         setUploadMessage("No image selected.");
-      }
-      setTimeout(() => setUploadMessage(""), 3000);
-    } catch (err) {
-      console.error(err);
-      setIsError(true);
-      setUploadMessage("An error occurred while selecting the file.");
-      setTimeout(() => setUploadMessage(""), 3000);
-    }
-  };
-
-  const saveProfileImage = async (image = selectedImage) => {
-    if (!image) return;
-    try {
-      const res = await window.employeeAPI.updateEmployee(employeeId, "employeeimage", image.data);
-      if (res.success) {
-        setUploadMessage("Profile image saved successfully.");
-        setIsError(false);
-      } else {
-        setUploadMessage("Failed to save image.");
         setIsError(true);
       }
+      setTimeout(() => setUploadMessage(""), 3000);
     } catch (err) {
-      console.error(err);
-      setUploadMessage("Error saving image.");
+      console.error("Upload error:", err);
+      setUploadMessage("Error uploading image.");
       setIsError(true);
+      setTimeout(() => setUploadMessage(""), 3000);
     }
-    setTimeout(() => setUploadMessage(""), 3000);
   };
 
-  const uniqueValues = useMemo(() => {
-    const values = { status: new Set() };
-    attendance.forEach((row) => {
-      const expectedMinutes = calculateTimeDiff(row.shiftstart, row.shiftend);
-      const actualMinutes = calculateTimeDiff(row.timein, row.timeout);
-      const diff = actualMinutes - expectedMinutes;
-      const status = diff < 0 ? "Undertime" : "On time / Overtime";
-      values.status.add(status);
-    });
-    return { status: Array.from(values.status) };
-  }, [attendance]);
+  const calculateTimeDiff = (start, end) => {
+    const startDate = new Date(`1970-01-01T${start}`);
+    const endDate = new Date(`1970-01-01T${end}`);
+    return (endDate - startDate) / (1000 * 60);
+  };
 
   const filtered = useMemo(() => {
     return attendance.filter((row) => {
-      const expectedMinutes = calculateTimeDiff(row.shiftstart, row.shiftend);
-      const actualMinutes = calculateTimeDiff(row.timein, row.timeout);
-      const diff = actualMinutes - expectedMinutes;
+      const expected = calculateTimeDiff(row.shiftstart, row.shiftend);
+      const actual = calculateTimeDiff(row.timein, row.timeout);
+      const diff = actual - expected;
       const status = diff < 0 ? "Undertime" : "On time / Overtime";
-
       return Object.entries(selectedFilters).every(([column, values]) => {
         if (column === "__activeColumn") return true;
         if (column === "status") return values.length === 0 || values.includes(status);
@@ -405,16 +294,6 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     return [...filtered].sort((a, b) => {
       let aVal, bVal;
       switch (sortColumn) {
-        case "shift":
-          aVal = `${a.shiftstart}-${a.shiftend}`;
-          bVal = `${b.shiftstart}-${b.shiftend}`;
-          break;
-        case "status":
-          const diffA = calculateTimeDiff(a.timein, a.timeout) - calculateTimeDiff(a.shiftstart, a.shiftend);
-          const diffB = calculateTimeDiff(b.timein, b.timeout) - calculateTimeDiff(b.shiftstart, b.shiftend);
-          aVal = diffA < 0 ? "Undertime" : "On time / Overtime";
-          bVal = diffB < 0 ? "Undertime" : "On time / Overtime";
-          break;
         case "diff":
           aVal = calculateTimeDiff(a.timein, a.timeout) - calculateTimeDiff(a.shiftstart, a.shiftend);
           bVal = calculateTimeDiff(b.timein, b.timeout) - calculateTimeDiff(b.shiftstart, b.shiftend);
@@ -423,11 +302,8 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
           aVal = a[sortColumn] ?? "";
           bVal = b[sortColumn] ?? "";
       }
-
-      if (typeof aVal === "number" && typeof bVal === "number") {
+      if (typeof aVal === "number" && typeof bVal === "number")
         return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
-      }
-
       return sortOrder === "asc"
         ? String(aVal).localeCompare(String(bVal))
         : String(bVal).localeCompare(String(aVal));
@@ -452,10 +328,8 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
       <div className="employeeInfoGrid">
         <div className="employeeInfoPhoto">
           <div className="ImageContainer" onClick={filePicker}>
-            {selectedImage ? (
-              <img src={`data:${selectedImage.type};base64,${selectedImage.data}`} alt="Employee" className="previewImage" />
-            ) : employee.employeeimage ? (
-              <img src={`data:image/png;base64,${employee.employeeimage}`} alt="Profile" className="previewImage" />
+            {employee.employeeimage ? (
+              <img src={employee.employeeimage} alt="Profile" className="previewImage" />
             ) : (
               <div className="placeholderPhoto" />
             )}
@@ -463,7 +337,9 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
         </div>
 
         <div className="employeeInfoMeta">
-          <div className="employeeInfoName">{employee.employeeid} | {employee.name}</div>
+          <div className="employeeInfoName">
+            {employee.employeeid} | {employee.name}
+          </div>
           <div className="employeeInfoDetails">
             {renderEditableField("Department", "department")}
             {renderEditableField("Position", "position")}
@@ -484,16 +360,14 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
         <h1>Attendance Records</h1>
         <div className="attendanceControls">
           <SortDropdown
-            columns={["date", "shift", "timeIn", "arrivalDiff", "arrivalStatus", "timeOut", "hoursWorked", "workStatus"]}
+            columns={["date", "shift", "timein", "timeout", "diff", "status"]}
             columnLabelMap={{
               date: "Date",
               shift: "Shift",
-              timeIn: "Time In",
-              arrivalDiff: "Arrival Diff",
-              arrivalStatus: "Arrival Status",
-              timeOut: "Time Out",
-              hoursWorked: "Hours Worked",
-              workStatus: "Work Status",
+              timein: "Time In",
+              timeout: "Time Out",
+              diff: "UT/OT",
+              status: "Status",
             }}
             sortColumn={sortColumn}
             sortOrder={sortOrder}
@@ -510,11 +384,8 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
             setFilterOpen={setFilterOpen}
             selectedFilters={selectedFilters}
             setSelectedFilters={setSelectedFilters}
-            uniqueValues={uniqueValues}
-            columnLabelMap={{
-              arrivalStatus: "Arrival Status",
-              workStatus: "Work Status",
-            }}
+            uniqueValues={{ status: ["Undertime", "On time / Overtime"] }}
+            columnLabelMap={{ status: "Status" }}
           />
 
           <DatePicker
@@ -536,70 +407,52 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
               <th>Date</th>
               <th>Shift</th>
               <th>Time In</th>
-              <th>Arrival Diff</th>
-              <th>Arrival Status</th>
               <th>Time Out</th>
-              <th>Hours Worked</th>
-              <th>Work Status</th>
+              <th>UT/OT</th>
+              <th>Status</th>
             </tr>
           </thead>
-
           <tbody>
             {loading ? (
               Array.from({ length: itemsPerPage }).map((_, idx) => (
                 <tr key={idx} className="skeletonRow">
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <td key={i}>
-                      <div className="shimmerCell" />
-                    </td>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <td key={i}><div className="shimmerCell" /></td>
                   ))}
                 </tr>
               ))
             ) : paginated.length === 0 ? (
-              <tr>
-                <td colSpan={8}>No records found.</td>
-              </tr>
+              <tr><td colSpan={6}>No records found.</td></tr>
             ) : (
-              paginated.map((row, idx) => (
-                <tr key={idx}>
-                  <td>
-                    {row.date
-                      ? new Date(row.date).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })
-                      : "-"}
-                  </td>
-                  <td>{row.shift}</td>
-                  <td>{row.timeIn || "-"}</td>
-                  <td style={{ color: row.arrivalDiff > 0 ? "red" : row.arrivalDiff < 0 ? "green" : "black" }}>
-                    {row.arrivalDiff === 0 ? "-" : `${row.arrivalDiff > 0 ? "+" : ""}${row.arrivalDiff}`}
-                  </td>
-                  <td>{row.arrivalStatus}</td>
-                  <td>{row.timeOut || "-"}</td>
-                  <td style={{ color: row.workStatus === "Overtime" ? "green" : row.workStatus === "Undertime" ? "red" : "black" }}>
-                    {row.hoursWorked || "-"}
-                  </td>
-                  <td>{row.workStatus}</td>
-                </tr>
-              ))
+              paginated.map((row, idx) => {
+                const expected = calculateTimeDiff(row.shiftstart, row.shiftend);
+                const actual = calculateTimeDiff(row.timein, row.timeout);
+                const diff = actual - expected;
+                const status = diff < 0 ? "Undertime" : "On time / Overtime";
+                return (
+                  <tr key={idx}>
+                    <td>{new Date(row.date).toLocaleDateString()}</td>
+                    <td>{row.shift}</td>
+                    <td>{row.timein}</td>
+                    <td>{row.timeout}</td>
+                    <td>{diff}</td>
+                    <td>{status}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
-      <div className="tableFooter">
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          itemsPerPage={itemsPerPage}
-          totalItems={filtered.length}
-          onPageChange={setCurrentPage}
-          onItemsPerPageChange={setItemsPerPage}
-        />
-        <div className="emptyTableFooter"></div>
-      </div>
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        itemsPerPage={itemsPerPage}
+        totalItems={filtered.length}
+        onPageChange={setCurrentPage}
+        onItemsPerPageChange={setItemsPerPage}
+      />
 
       <ConfirmModal
         open={confirmChanges}

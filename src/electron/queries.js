@@ -1120,7 +1120,7 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
       contact: data.contact,
       email: data.email,
       address: data.address,
-      hiredate: formatDateToISO(data.hiredate),
+      hiredate: new Date(data.hiredate).toISOString().split("T")[0],
       sss_number: data.sss_number,
       pagibig_number: data.pagibig_number,
       philhealth_number: data.philhealth_number,
@@ -1128,7 +1128,7 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
       leavecredit: data.leavecredit,
       shiftstart: sh?.timestart ?? "",
       shiftend: sh?.timeend ?? "",
-      employeeimage: toBase64IfNeeded(data.employeeimage),
+      employeeimage: data.employeeimage || null,
     };
   } catch (err) {
     console.error("Error fetching employee details:", err);
@@ -1295,25 +1295,53 @@ ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate =
   }
 });
 
-ipcMain.handle('updateEmployee', async (event, { employeeId, field, value }) => {
+ipcMain.handle("updateEmployee", async (event, employeeId, field, value) => {
   try {
-    let payload = { [field]: value };
+    let updateData = {};
 
-    if (field === 'employeeimage' && typeof value === 'string') {
-      const base64Data = value.replace(/^data:image\/\w+;base64,/, '');
-      payload[field] = base64Data;
+    if (field === "employeeimage" && value.startsWith("data:image")) {
+      const base64Data = value.split(",")[1];
+      const buffer = Buffer.from(base64Data, "base64");
+      const fileExt = value.substring("data:image/".length, value.indexOf(";base64"));
+      const fileName = `${employeeId}_image.${fileExt}`;
+      const filePath = `${employeeId}_image.${fileExt}`;
+
+      console.log({
+        bucket: 'image',
+        filePath,
+        type: `image/${fileExt}`,
+        length: buffer.length,
+      });
+
+      const { error: uploadError } = await supabase.storage
+        .from("image")
+        .upload(filePath, buffer, {
+          contentType: `image/${fileExt}`,
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from("image")
+        .getPublicUrl(filePath);
+
+      updateData = { employeeimage: urlData.publicUrl };
+    } else {
+      updateData = { [field]: value };
     }
 
-    const { data, error } = await supabase
-      .from('employee')
-      .update(payload)
-      .eq('employeeid', employeeId);
+    const { error } = await supabase
+      .from("employee")
+      .update(updateData)
+      .eq("employeeid", employeeId);
 
     if (error) throw error;
-    return { success: true, data };
+
+    return { success: true, imageUrl: updateData.employeeimage || null };
   } catch (err) {
-    console.error('updateEmployee error:', err);
-    return { success: false, error: err.message };
+    console.error("❌ Error updating employee:", err);
+    return { success: false, message: err.message };
   }
 });
 
