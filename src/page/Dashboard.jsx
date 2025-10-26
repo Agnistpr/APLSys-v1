@@ -182,7 +182,7 @@ const Dashboard = ({
       <div className="topCards">
         {[
           [`Attendance (Yesterday)`, `${totalAttendance} / ${totalEmployees}`, <FaUserClock />],
-          ["Approved Leaves", String(totalApprovedLeaves), <FaClipboardCheck />],
+          ["Approved On Leave", String(totalApprovedLeaves), <FaClipboardCheck />],
           ["Leave Requests", String(totalLeaveRequests), <FaClipboardList />],
         ].map(([title, value, icon], idx) => (
           <div key={idx} className="dashboardCards">
@@ -198,11 +198,11 @@ const Dashboard = ({
       </div>
 
       <div className="tabContainer">
-        <div className="dashboardTabs">
+        <div className="tabs">
           {tabs.map((tab, idx) => (
             <button
               key={idx}
-              className={`dashboardTab ${selectedTab === tab ? "active" : ""}`}
+              className={`tab ${selectedTab === tab ? "active" : ""}`}
               onClick={() => handleTabChange(tab)}
             >
               {tab}

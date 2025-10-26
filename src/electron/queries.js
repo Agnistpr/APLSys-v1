@@ -1052,7 +1052,7 @@ ipcMain.handle("getDashboardCardData", async () => {
       supabase.from("employee").select("*", { count: "exact", head: true }),
       supabase.from("attendance").select("*", { count: "exact", head: true }).eq("date", yesterday),
       supabase.from("leave").select("*", { count: "exact", head: true }).eq("status", "Approved").lte("start_date", today).gte("end_date", today),
-      supabase.from("leave").select("*", { count: "exact", head: true }).eq("status", "Request").lte("start_date", today).gte("end_date", today),
+      supabase.from("leave").select("*", { count: "exact", head: true }).eq("status", "Request"),
     ]);
 
     const totalEmployees = Number(totalEmployeesRes.count || 0);
@@ -1904,16 +1904,35 @@ ipcMain.handle('addApplicant', async (event, resume) => {
 
 ipcMain.handle('getLogs', async (event, date) => {
   try {
-    let q = supabase.from('userlogs').select('userlogid, userid, useraction, description, dateofaction').order('dateofaction', { ascending: false });
-    if (date) q = q.filter('dateofaction', 'eq', formatDateToISO(date));
+    let q = supabase
+      .from('userlogs')
+      .select('userlogid, userid, useraction, description, dateofaction')
+      .order('dateofaction', { ascending: false });
+
+    if (date) {
+      const start = `${date}T00:00:00`;
+      const end = `${date}T23:59:59`;
+      q = q.gte('dateofaction', start).lte('dateofaction', end);
+    }
+
     const { data, error } = await q;
     if (error) throw error;
 
     const userIds = [...new Set((data || []).map(l => l.userid))];
-    const { data: users } = await supabase.from('users').select('userid, username').in('userid', userIds);
+    const { data: users } = await supabase
+      .from('users')
+      .select('userid, username')
+      .in('userid', userIds);
+
     const userMap = new Map((users || []).map(u => [u.userid, u.username]));
 
-    return (data || []).map(l => ({ userlogid: l.userlogid, username: userMap.get(l.userid) || '', useraction: l.useraction, description: l.description, dateofaction: formatDateToISO(l.dateofaction) }));
+    return (data || []).map(l => ({
+      userlogid: l.userlogid,
+      username: userMap.get(l.userid) || '',
+      useraction: l.useraction,
+      description: l.description,
+      dateofaction: l.dateofaction
+    }));
   } catch (err) {
     console.error('getLogs error:', err);
     return [];

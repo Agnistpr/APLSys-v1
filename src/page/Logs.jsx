@@ -1,134 +1,73 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { FiSearch, FiChevronRight } from 'react-icons/fi';
-import { MdClear, MdEdit, MdAdd, MdDelete } from 'react-icons/md';
-import { FaFilter } from 'react-icons/fa';
+import React, { useEffect, useState, useMemo } from "react";
+import { FiChevronRight } from "react-icons/fi";
+import { MdEdit, MdAdd, MdDelete } from "react-icons/md";
+import DatePicker from "../components/DatePicker.jsx";
+import FilterPanel from "../components/FilterPanel.jsx";
+import SearchBar from "../components/SearchBar.jsx";
+import Pagination from "../components/Pagination.jsx";
 
 const Logs = () => {
   const [logs, setLogs] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedDate, setSelectedDate] = useState('');
-
-  const inlineActions = ["filed leave"];
+  const [selectedDate, setSelectedDate] = useState(() => {
+    return localStorage.getItem("logsDate") || "";
+  });
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [expandedLogs, setExpandedLogs] = useState(new Set());
 
-  const filterRef = useRef(null);
+  const columns = ["user", "action"];
+  const columnLabelMap = { user: "User", action: "Action" };
 
-  const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [jumpPage, setJumpPage] = useState('');
-  const [showJumpInput, setShowJumpInput] = useState(false);
-
-  const columnLabelMap = { user: 'User', action: 'Action' };
-
-  // Close filter on outside click
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (filterRef.current && !filterRef.current.contains(e.target)) {
-        setFilterOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Fetch logs
-  useEffect(() => {
+    console.log("[Logs] Fetching logs for date:", selectedDate);
     const fetchLogs = async () => {
       const data = await window.utilityAPI.getLogs(selectedDate);
-      setLogs(data);
+      console.log("[Logs] Received logs:", data);
+      setLogs(data || []);
     };
     fetchLogs();
   }, [selectedDate]);
 
   const uniqueValues = useMemo(() => {
     const values = { user: new Set(), action: new Set() };
-    logs.forEach(row => {
-      values.user.add(row.user || '');
-      values.action.add(row.action || '');
+
+    logs.forEach((r) => {
+      values.user.add(r.username || "");
+
+      if (r.useraction) {
+        const short = r.useraction.split(" ")[0].toLowerCase();
+        values.action.add(short.charAt(0).toUpperCase() + short.slice(1));
+      }
     });
+
     return {
       user: Array.from(values.user),
-      action: Array.from(values.action),
+      action: Array.from(values.action)
     };
   }, [logs]);
 
-  const clearFilters = () => setSelectedFilters({});
-
-  const toggleFilterValue = (column, value) => {
-    setSelectedFilters(prev => {
-      const colValues = prev[column] || [];
-      const updated = colValues.includes(value)
-        ? colValues.filter(v => v !== value)
-        : [...colValues, value];
-      return { ...prev, [column]: updated, __activeColumn: column };
-    });
-  };
-
-  const getActionIcon = (action) => {
-    if (action.toLowerCase().includes("edit")) return <MdEdit />;
-    if (action.toLowerCase().includes("add")) return <MdAdd />;
-    if (action.toLowerCase().includes("delete")) return <MdDelete />;
-    return <MdEdit />;
-  };
-
-  const formatLogDetails = (log, mainDesc) => {
-    const action = log.useraction.toLowerCase();
-    if (action.includes("filed leave")) {
-      return `${log.username} filed leave for ${log.mainDesc}`;
-    }
-    if (action.includes("edited item ")) {
-      return `${log.username} ${log.useraction}`;
-    }
-    return `${log.username} ${log.useraction}`;
-  };
-
-  const formatTimestamp = (dateString) => {
-    const dateObj = new Date(dateString);
-    const now = new Date();
-
-    const isToday =
-      dateObj.getDate() === now.getDate() &&
-      dateObj.getMonth() === now.getMonth() &&
-      dateObj.getFullYear() === now.getFullYear();
-
-    const isSameYear = dateObj.getFullYear() === now.getFullYear();
-
-    if (isToday) {
-      return `Today ${dateObj.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-    }
-
-    const day = dateObj.getDate();
-    const daySuffix = (d) => {
-      if (d > 3 && d < 21) return "th";
-      switch (d % 10) {
-        case 1: return "st";
-        case 2: return "nd";
-        case 3: return "rd";
-        default: return "th";
-      }
-    };
-
-    const month = dateObj.toLocaleString("default", { month: "long" });
-    const year = isSameYear ? "" : `, ${dateObj.getFullYear()}`;
-    const time = dateObj.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-
-    return `${month} ${day}${daySuffix(day)}${year} - ${time}`;
-  };
-
   const filtered = useMemo(() => {
-    return logs.filter(row => {
+    return logs.filter((row) => {
       const matchesSearch =
         row.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         row.useraction?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         row.description?.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesFilters = Object.entries(selectedFilters).every(([column, values]) => {
-        if (column === '__activeColumn') return true;
-        const fieldMap = { user: 'username', action: 'useraction' };
-        const field = fieldMap[column] || column;
-        return values.length === 0 || values.includes(row[field] || '');
+      const matchesFilters = Object.entries(selectedFilters).every(([col, vals]) => {
+        if (col === "__activeColumn") return true;
+        const map = { user: "username", action: "useraction" };
+        const field = map[col];
+
+        if (col === "action") {
+          const short = (row.useraction || "").split(" ")[0];
+          const formatted = short.charAt(0).toUpperCase() + short.slice(1);
+          return !vals?.length || vals.includes(formatted);
+        }
+
+        return !vals?.length || vals.includes(row[field] || "");
       });
 
       return matchesSearch && matchesFilters;
@@ -142,11 +81,32 @@ const Logs = () => {
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
 
-  const toggleExpand = (idx) => {
-    setExpandedLogs(prev => {
-      const newSet = new Set(prev);
-      newSet.has(idx) ? newSet.delete(idx) : newSet.add(idx);
-      return newSet;
+  const toggleExpand = (i) => {
+    setExpandedLogs((prev) => {
+      const s = new Set(prev);
+      s.has(i) ? s.delete(i) : s.add(i);
+      return s;
+    });
+  };
+
+  const getActionIcon = (a) => {
+    const x = a.toLowerCase();
+    if (x.includes("edit")) return <MdEdit />;
+    if (x.includes("add")) return <MdAdd />;
+    if (x.includes("delete")) return <MdDelete />;
+    return <MdEdit />;
+  };
+
+  const formatLogDetails = (log) => `${log.username} ${log.useraction}`;
+
+  const formatTimestamp = (d) => {
+    const dateObj = new Date(d);
+    return dateObj.toLocaleString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
     });
   };
 
@@ -161,120 +121,48 @@ const Logs = () => {
         </div>
 
         <div className="logsControls">
-          <div className="filterContainer" ref={filterRef}>
-            <button className="filterBtn" onClick={() => setFilterOpen(prev => !prev)}>
-              <FaFilter />
-            </button>
+          <FilterPanel
+            filterOpen={filterOpen}
+            setFilterOpen={setFilterOpen}
+            selectedFilters={selectedFilters}
+            setSelectedFilters={setSelectedFilters}
+            uniqueValues={uniqueValues}
+            columnLabelMap={columnLabelMap}
+          />
 
-            {filterOpen && (
-              <div className="filterDropdown">
-                <div className="filterHeader">
-                  <strong>Filter by</strong>
-                  <button className="clearFilterBtn" onClick={clearFilters}>Clear</button>
-                </div>
-                <div className="filterColumns">
-                  {['user', 'action'].map((col) => (
-                    <div
-                      key={col}
-                      className={`filterColumnName ${selectedFilters[col] ? 'activeColumn' : ''}`}
-                      onClick={() => {
-                        setSelectedFilters((prev) => ({
-                          ...prev,
-                          __activeColumn: prev.__activeColumn === col ? null : col
-                        }));
-                      }}
-                    >
-                      {columnLabelMap[col]}
-                      <span className="chevronIcon">&gt;</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+          <DatePicker value={selectedDate} onChange={setSelectedDate} storageKey="logsDate" />
 
-            {filterOpen && selectedFilters.__activeColumn && (
-              <div className="filterValuesPanel">
-                <div className="filterValuesHeader">
-                  {columnLabelMap[selectedFilters.__activeColumn]}
-                </div>
-                <div className="filterValuesList">
-                  {uniqueValues[selectedFilters.__activeColumn]?.map((val, i) => (
-                    <label key={i} className="filterValueItem">
-                      <input
-                        type="checkbox"
-                        checked={selectedFilters[selectedFilters.__activeColumn]?.includes(val) || false}
-                        onChange={() => toggleFilterValue(selectedFilters.__activeColumn, val)}
-                      />
-                      {val || '—'}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="logCalendar">
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => {
-                setSelectedDate(e.target.value);
-                setCurrentPage(1);
-              }}
-            />
-          </div>
-
-          <div className="searchContainer">
-            <input
-              type="text"
-              placeholder="Search logs..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <button className="searchIconBtn"><FiSearch /></button>
-            {searchTerm && (
-              <button className="clearSearchBtn" onClick={() => setSearchTerm('')}>
-                <MdClear />
-              </button>
-            )}
-          </div>
+          <SearchBar value={searchTerm} onChange={setSearchTerm} />
         </div>
       </div>
 
       <div className="logList">
-        {paginated.map((log, idx) => {
-          const isInlineAction = inlineActions.some(action =>
-            log.useraction.toLowerCase().includes(action)
-          );
-
-          const isExpanded = expandedLogs.has(idx);
-          const [mainDescRaw, noteRaw] = log.description?.split('||NOTE||') || ['', ''];
-          const mainDesc = (mainDescRaw || '').trim();
-          const note = (noteRaw || '').trim();
-
+        {paginated.map((log, i) => {
+          const expanded = expandedLogs.has(i);
+          const [a = "", b = ""] = (log.description || "").split("||NOTE||");
           return (
             <div
-              key={idx}
+              key={i}
               className={`logEntry ${log.description ? "expandable" : ""}`}
-              onClick={() => !isInlineAction && log.description && toggleExpand(idx)}
+              onClick={() => log.description && toggleExpand(i)}
             >
               <div className="logLeftIcon">{getActionIcon(log.useraction)}</div>
               <div className="logMain">
                 <div className="logTop">{formatLogDetails(log)}</div>
                 <div className="logBottom">{formatTimestamp(log.dateofaction)}</div>
 
-                {!isInlineAction && isExpanded && log.description && (
+                {expanded && log.description && (
                   <div className="logExtra">
-                    {mainDesc && <div className="logMainDesc">{mainDesc}</div>}
-                    {note && <div className="logNote">{note}</div>}
+                    {a && a.trim() !== "" && <div className="logMainDesc">{a}</div>}
+                    {b && b.trim() !== "" && <div className="logNote">{b}</div>}
                   </div>
                 )}
               </div>
 
-              {!isInlineAction && log.description && (
+              {log.description && (
                 <div className="logExpandIcon">
                   <FiChevronRight
-                    style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
+                    style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
                   />
                 </div>
               )}
@@ -283,26 +171,17 @@ const Logs = () => {
         })}
       </div>
 
-      {filtered.length > 0 && (
-        <div className="tableFooter">
-          <div className="paginationItems">
-            <label>Items: </label>
-            <select
-              value={itemsPerPage === logs.length ? 'all' : itemsPerPage}
-              onChange={(e) => {
-                const val = e.target.value;
-                setItemsPerPage(val === 'all' ? logs.length : Number(val));
-                setCurrentPage(1);
-              }}
-            >
-              {[5, 10, 20, 50].map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-              <option value="all">All</option>
-            </select>
-          </div>
-        </div>
-      )}
+      <div className="tableFooter">
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          itemsPerPage={itemsPerPage}
+          totalItems={filtered.length}
+          onPageChange={setCurrentPage}
+          onItemsPerPageChange={setItemsPerPage}
+        />
+        <div></div>
+      </div>
     </div>
   );
 };

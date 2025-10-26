@@ -76,7 +76,12 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
     const filtered =
       status === "Approved"
         ? data.filter((l) => l.status === "Approved")
-        : data.filter((l) => ["Request", "Revoked", "Rejected"].includes(l.status));
+        : data.filter((l) => [
+          // "Revoked", 
+          // "Rejected",  
+          // "Cancelled",
+          "Request"
+        ].includes(l.status));
     setOnLeave(filtered);
     setLoading(false);
   };
