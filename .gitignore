@@ -12,6 +12,7 @@ db-data/
 logfile
 log.txt
 backups/
+.VSCodeCounter
 
 *.map
 __tests__/
