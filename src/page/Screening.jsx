@@ -6,7 +6,7 @@ import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
 
 
-const Screening = ({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage, selectedApplicantId, setSelectedResumeFile }) => {
+const Screening = ({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage, setSelectedResumeFile }) => {
   const [selectedTab, setSelectedTab] = useState("Pending");
   const [applicants, setApplicants] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -363,8 +363,15 @@ const Screening = ({ setActivePage, setSelectedApplicantId, setPreviousPage, act
                         <td colSpan={showCheckboxes ? 6 : 5}>No records found.</td>
                       </tr>
                     ) : (
-                      paginated.map((row) => (
-                        <tr key={row.applicantid}>
+                      paginated.map((row, idx) => (
+                        <tr 
+                          key={idx}
+                          onDoubleClick={() => {
+                            setSelectedApplicantId(row.applicantid);
+                            setPreviousPage(activePage);
+                            setActivePage("ApplicantInformation");
+                          }}
+                        >
                           {showCheckboxes && (
                             <td>
                               <input

@@ -26,6 +26,8 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
   const [showEmployees, setShowEmployees] = useState(false);
   const [showApplicants, setShowApplicants] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
+  const [showAnalyzer, setShowAnalyzer] = useState(false);
+  const [showApplicantInfo, setShowApplicantInfo] = useState(false);
 
   const [userName, setUserName] = useState(null);
   const [userRole, setUserRole] = useState(null);
@@ -57,6 +59,26 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+  // Always show the Applicants section if we're inside any of its pages
+  if (["Screening", "Training", "Analyzer", "ApplicantInformation"].includes(activePage)) {
+    setShowApplicants(true);
+  }
+
+  // Control Analyzer and Applicant Info visibility strictly based on the current page
+  if (activePage === "Analyzer") {
+    setShowAnalyzer(true);
+    setShowApplicantInfo(false);
+  } else if (activePage === "ApplicantInformation") {
+    setShowAnalyzer(false);
+    setShowApplicantInfo(true);
+  } else {
+    // Reset both when leaving applicant-related pages
+    setShowAnalyzer(false);
+    setShowApplicantInfo(false);
+  }
+  }, [activePage]);
 
   return (
     <div className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
@@ -130,12 +152,13 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
               {showApplicants ? <FaChevronDown /> : <FaChevronRight />}
             </span>
           </div>
+
           {showApplicants && (
             <div className="subNavList">
-              {['Screening', 'Training'].map((page, idx) => (
+              {["Screening", "Training"].map((page) => (
                 <div
-                  key={idx}
-                  className={`subNavItem ${activePage === page ? 'activeSubTab' : ''}`}
+                  key={page}
+                  className={`subNavItem ${activePage === page ? "activeSubTab" : ""}`}
                   onClick={() => setActivePage(page)}
                   title={page}
                 >
@@ -143,15 +166,39 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
                   <span>{page}</span>
                 </div>
               ))}
+
               {selectedApplicantId && (
-                <div
-                  className={`subNavItem ${activePage === 'Analyzer' ? 'activeSubTab' : ''}`}
-                  onClick={() => setActivePage('Analyzer')}
-                  title="Analyzer"
-                >
-                  {subNavIcons['Analyzer']}
-                  <span>Analyzer</span>
-                </div>
+                <>
+                  {/* Analyzer */}
+                  <div
+                    className={`subNavItem ${activePage === "Analyzer" ? "activeSubTab" : ""}`}
+                    onClick={() => {
+                      setShowAnalyzer(true);
+                      setShowApplicantInfo(false);
+                      setActivePage("Analyzer");
+                    }}
+                    title="Analyzer"
+                  >
+                    {subNavIcons["Analyzer"]}
+                    <span>Analyzer</span>
+                  </div>
+
+                  {/* Applicant Information (only if Analyzer is open) */}
+                  {showAnalyzer && (
+                    <div
+                      className={`subNavItem ${activePage === "ApplicantInformation" ? "activeSubTab" : ""}`}
+                      onClick={() => {
+                        setShowAnalyzer(false);
+                        setShowApplicantInfo(true);
+                        setActivePage("ApplicantInformation");
+                      }}
+                      title="Information"
+                    >
+                      <FaUserTie />
+                      <span>Information</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

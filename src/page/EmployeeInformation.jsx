@@ -157,6 +157,15 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     }
   };
 
+  const handleFieldBlur = (field, isDate) => {
+    if (fieldValue !== employee[field]) {
+      setPendingChange({ field, value: fieldValue });
+      setConfirmChanges(true);
+    } else {
+      setEditingField(null);
+    }
+  };
+
   const renderEditableField = (label, field, isDate = false) => {
     const isDepartment = field === "department";
     const isPosition = field === "position";
@@ -180,7 +189,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
                 }));
                 setFieldValue(newDeptId);
               }}
-              onBlur={() => setEditingField(null)}
+              onBlur={(e) => handleFieldBlur(field, isDate)}
               autoFocus
               onKeyDown={(e) => handleKeyDown(e, "department")}
             >
@@ -204,7 +213,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
                 }));
                 setFieldValue(newPosId);
               }}
-              onBlur={() => setEditingField(null)}
+              onBlur={(e) => handleFieldBlur(field, isDate)}
               disabled={!employee.departmentid}
               autoFocus
               onKeyDown={(e) => handleKeyDown(e, "position")}
@@ -222,7 +231,7 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
               autoFocus
               onChange={(e) => setFieldValue(e.target.value)}
               onKeyDown={(e) => handleKeyDown(e, field, isDate)}
-              onBlur={() => setEditingField(null)}
+              onBlur={(e) => handleFieldBlur(field, isDate)}
             />
           )
         ) : (
@@ -360,14 +369,25 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
         <h1>Attendance Records</h1>
         <div className="attendanceControls">
           <SortDropdown
-            columns={["date", "shift", "timein", "timeout", "diff", "status"]}
+            columns={[
+              "date",
+              "shift",
+              "timeIn",
+              "arrivalDiff",
+              "arrivalStatus",
+              "timeOut",
+              "hoursWorked",
+              "workStatus",
+            ]}
             columnLabelMap={{
               date: "Date",
               shift: "Shift",
-              timein: "Time In",
-              timeout: "Time Out",
-              diff: "UT/OT",
-              status: "Status",
+              timeIn: "Time In",
+              arrivalDiff: "Arrival Diff",
+              arrivalStatus: "Arrival Status",
+              timeOut: "Time Out",
+              hoursWorked: "Hours Worked",
+              workStatus: "Work Status",
             }}
             sortColumn={sortColumn}
             sortOrder={sortOrder}
@@ -384,8 +404,16 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
             setFilterOpen={setFilterOpen}
             selectedFilters={selectedFilters}
             setSelectedFilters={setSelectedFilters}
-            uniqueValues={{ status: ["Undertime", "On time / Overtime"] }}
-            columnLabelMap={{ status: "Status" }}
+            uniqueValues={{
+              shift: [...new Set(attendance.map((r) => r.shift))],
+              arrivalStatus: [...new Set(attendance.map((r) => r.arrivalStatus))],
+              workStatus: [...new Set(attendance.map((r) => r.workStatus))],
+            }}
+            columnLabelMap={{
+              shift: "Shift",
+              arrivalStatus: "Arrival Status",
+              workStatus: "Work Status",
+            }}
           />
 
           <DatePicker
@@ -407,36 +435,65 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
               <th>Date</th>
               <th>Shift</th>
               <th>Time In</th>
+              <th>Arrival Diff</th>
+              <th>Arrival Status</th>
               <th>Time Out</th>
-              <th>UT/OT</th>
-              <th>Status</th>
+              <th>Hours Worked</th>
+              <th>Work Status</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               Array.from({ length: itemsPerPage }).map((_, idx) => (
                 <tr key={idx} className="skeletonRow">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <td key={i}><div className="shimmerCell" /></td>
+                  {Array.from({ length: 11 }).map((_, i) => (
+                    <td key={i}>
+                      <div className="shimmerCell" />
+                    </td>
                   ))}
                 </tr>
               ))
             ) : paginated.length === 0 ? (
-              <tr><td colSpan={6}>No records found.</td></tr>
+              <tr>
+                <td colSpan={11}>No records found.</td>
+              </tr>
             ) : (
               paginated.map((row, idx) => {
-                const expected = calculateTimeDiff(row.shiftstart, row.shiftend);
-                const actual = calculateTimeDiff(row.timein, row.timeout);
-                const diff = actual - expected;
-                const status = diff < 0 ? "Undertime" : "On time / Overtime";
+                const colorForArrival = (status) => {
+                  if (status === "Late") return "red";
+                  if (status === "Early") return "green";
+                  return "black";
+                };
+                const colorForWork = (status) => {
+                  if (status === "Overtime") return "green";
+                  if (status === "Undertime") return "red";
+                  return "black";
+                };
+
                 return (
                   <tr key={idx}>
-                    <td>{new Date(row.date).toLocaleDateString()}</td>
-                    <td>{row.shift}</td>
-                    <td>{row.timein}</td>
-                    <td>{row.timeout}</td>
-                    <td>{diff}</td>
-                    <td>{status}</td>
+                    <td>
+                      {row.date
+                        ? new Date(row.date).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
+                        : "-"}
+                    </td>
+                    <td>{row.shift || "-"}</td>
+                    <td>{row.timeIn || "-"}</td>
+                    <td style={{ color: colorForArrival(row.arrivalStatus) }}>
+                      {row.arrivalDiff === 0
+                        ? "-"
+                        : `${row.arrivalDiff > 0 ? "+" : ""}${row.arrivalDiff}`}
+                    </td>
+                    <td>{row.arrivalStatus || "-"}</td>
+                    <td>{row.timeOut || "-"}</td>
+                    <td style={{ color: colorForWork(row.workStatus) }}>
+                      {row.hoursWorked || "-"}
+                    </td>
+                    <td>{row.workStatus || "-"}</td>
                   </tr>
                 );
               })
@@ -445,14 +502,17 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
         </table>
       </div>
 
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        itemsPerPage={itemsPerPage}
-        totalItems={filtered.length}
-        onPageChange={setCurrentPage}
-        onItemsPerPageChange={setItemsPerPage}
-      />
+      <div className="tableFooter">
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          itemsPerPage={itemsPerPage}
+          totalItems={filtered.length}
+          onPageChange={setCurrentPage}
+          onItemsPerPageChange={setItemsPerPage}
+        />
+        <div></div>
+      </div>
 
       <ConfirmModal
         open={confirmChanges}

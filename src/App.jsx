@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar.jsx';
 import Auth from './page/Auth.jsx';
 import Dashboard from './page/Dashboard.jsx';
 import EmployeeInformation from './page/EmployeeInformation.jsx';
+import ApplicantInformation from './page/ApplicantInformation.jsx';
 import Employee from './page/Employees.jsx';
 import Attendance from './page/Attendance.jsx';
 import Shifting from './page/Shifting.jsx';
@@ -163,6 +164,21 @@ useEffect(() => {
             }}
           />
         );
+      case "ApplicantInformation":
+        return (
+          <ApplicantInformation
+            applicantId={selectedApplicantId}
+            goBack={() => {
+              setSelectedApplicantId(null);
+              if (previousPage === "Dashboard") {
+                setActivePage("Dashboard");
+                if (previousTab) setSelectedTab(previousTab);
+              } else {
+                setActivePage(previousPage || "Dashboard");
+              }
+            }}
+          />
+        );
       default:
         return <Dashboard {...sharedProps} />;
     }
@@ -234,7 +250,6 @@ useEffect(() => {
             return next;
           });
 
-          // Show toast based on status
           const toastId = `task-${taskId}`;
           if (task.status === "in_progress") {
             toast.loading(
@@ -259,7 +274,6 @@ useEffect(() => {
     return () => clearInterval(interval);
   }, [activeTasks]);
 
-  // Add task tracking functions
   const trackTask = (taskId, metadata = {}) => {
     setActiveTasks(prev => {
       const next = new Map(prev);
@@ -276,7 +290,6 @@ useEffect(() => {
     });
   };
 
-  // Pass task tracking to children via props
   const sharedProps = {
     uid: user?.id,
     activePage,
@@ -284,7 +297,6 @@ useEffect(() => {
     setSelectedEmployeeId,
     setPreviousPage,
     setSelectedApplicantId,
-    selectedApplicantId,
     onTaskStart: trackTask,
     onTaskEnd: untrackTask
   };

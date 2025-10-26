@@ -27,10 +27,11 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
   const [itemsPerPage, setItemsPerPage] = useState(5);
   const [loading, setLoading] = useState(true);
 
-  const columns = ["date", "fullName", "department", "position", "shift"];
+  const columns = ["date", "fullName", "role", "department", "position", "shift"];
   const columnLabelMap = {
     date: "Date",
     fullName: "Name",
+    role: "Role",
     department: "Department",
     position: "Position",
     shift: "Shift",
@@ -52,13 +53,15 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
   }, [selectedDate]);
 
   const uniqueValues = useMemo(() => {
-    const values = { department: new Set(), position: new Set(), shift: new Set() };
+    const values = { role: new Set(), department: new Set(), position: new Set(), shift: new Set() };
     absence.forEach((row) => {
+      values.role.add(row.role);
       values.department.add(row.department);
       values.position.add(row.position);
       values.shift.add(row.shift);
     });
     return {
+      role: Array.from(values.role),
       department: Array.from(values.department),
       position: Array.from(values.position),
       shift: Array.from(values.shift),
@@ -174,6 +177,7 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
                       : "-"}
                   </td>                  
                   <td>{row.fullName}</td>
+                  <td>{row.role}</td>
                   <td>{row.department}</td>
                   <td>{row.position}</td>
                   <td>{row.shift || "-"}</td>

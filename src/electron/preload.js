@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld('employeeAPI', {
 contextBridge.exposeInMainWorld('attendanceAPI', {
   getAttendanceColumns: () => ipcRenderer.invoke("getAttendanceColumns"),
   getEmployeeAttendance: (id, date) => ipcRenderer.invoke('getEmployeeAttendance', id, date),
+  getApplicantAttendance: (applicantId, selectedDate = null) =>
+    ipcRenderer.invoke("getApplicantAttendance", applicantId, selectedDate),
   getAttendance: (date) => ipcRenderer.invoke('getAttendance', date),
   getAbsent: (date) => ipcRenderer.invoke('getAbsent', date),
   getLeave: (date) => ipcRenderer.invoke('getLeave', date),
@@ -81,6 +83,9 @@ contextBridge.exposeInMainWorld('inventoryAPI', {
 });
 
 contextBridge.exposeInMainWorld('applicantAPI', {
+  getApplicant: (applicantId) => ipcRenderer.invoke("getApplicant", applicantId),
+  updateApplicant: (applicantId, field, value) =>
+    ipcRenderer.invoke("updateApplicant", applicantId, field, value),
   getApplicants: (status) => ipcRenderer.invoke('getApplicants', status),
   addApplicant: (resume) => ipcRenderer.invoke("addApplicant", resume),
   updateApplicantsStatus: (ids, options) =>

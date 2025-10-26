@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { FaUserClock, FaClipboardCheck, FaClipboardList } from 'react-icons/fa';
-
 import AttendanceTab from '../tabs/AttendanceTab.jsx';
 import AbsenceTab from '../tabs/AbsenceTab.jsx';
 import LeaveTab from '../tabs/LeaveTab.jsx';
@@ -43,8 +42,17 @@ function useFitText({ text, maxSize = 28, minSize = 12 }) {
   return elementRef;
 }
 
-function CardValue({ value, max = 28, min = 12 }) {
+function CardValue({ value, loading, max = 28, min = 12 }) {
   const ref = useFitText({ text: value, maxSize: max, minSize: min });
+
+  if (loading) {
+    return (
+      <div className="cardValue spinnerInline">
+        <div className="spinner small" />
+      </div>
+    );
+  }
+
   return (
     <div ref={ref} className="cardValue">
       {value}
@@ -52,14 +60,14 @@ function CardValue({ value, max = 28, min = 12 }) {
   );
 }
 
-const Dashboard = ({ 
-  uid, 
-  setActivePage, 
-  setSelectedEmployeeId, 
-  setPreviousPage, 
-  selectedTab, 
-  setSelectedTab, 
-  setPreviousTab  
+const Dashboard = ({
+  uid,
+  setActivePage,
+  setSelectedEmployeeId,
+  setPreviousPage,
+  selectedTab,
+  setSelectedTab,
+  setPreviousTab
 }) => {
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
@@ -67,11 +75,13 @@ const Dashboard = ({
   const [totalAttendance, setTotalAttendance] = useState(0);
   const [totalApprovedLeaves, setTotalApprovedLeaves] = useState(0);
   const [totalLeaveRequests, setTotalLeaveRequests] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const handleTabChange = (tab) => setSelectedTab(tab);
 
   const fetchCounts = async () => {
     try {
+      setLoading(true);
       const counts = await window.utilityAPI.getDashboardCardData();
       if (counts) {
         setTotalEmployees(counts.totalEmployees || 0);
@@ -81,15 +91,21 @@ const Dashboard = ({
       }
     } catch (err) {
       console.error('Failed to fetch dashboard counts:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     const updateTimeAndData = async () => {
       const now = new Date();
-      setDateStr(now.toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric'
-      }));
+      setDateStr(
+        now.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        })
+      );
       setTimeStr(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       await fetchCounts();
     };
@@ -104,7 +120,7 @@ const Dashboard = ({
       <AttendanceTab
         uid={uid}
         setActivePage={(page) => {
-          setPreviousPage("Dashboard");
+          setPreviousPage('Dashboard');
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
@@ -116,7 +132,7 @@ const Dashboard = ({
       <AbsenceTab
         uid={uid}
         setActivePage={(page) => {
-          setPreviousPage("Dashboard");
+          setPreviousPage('Dashboard');
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
@@ -124,12 +140,12 @@ const Dashboard = ({
         refreshDashboard={fetchCounts}
       />
     ),
-    "Approved Leaves": (
+    'Approved Leaves': (
       <LeaveTab
         status="Approved"
         uid={uid}
         setActivePage={(page) => {
-          setPreviousPage("Dashboard");
+          setPreviousPage('Dashboard');
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
@@ -137,12 +153,12 @@ const Dashboard = ({
         refreshDashboard={fetchCounts}
       />
     ),
-    "Leave Requests": (
+    'Leave Requests': (
       <LeaveTab
         status="Request"
         uid={uid}
         setActivePage={(page) => {
-          setPreviousPage("Dashboard");
+          setPreviousPage('Dashboard');
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
@@ -150,11 +166,11 @@ const Dashboard = ({
         refreshDashboard={fetchCounts}
       />
     ),
-    "PPE Inventory": (
+    'PPE Inventory': (
       <InventoryTab
         uid={uid}
         setActivePage={(page) => {
-          setPreviousPage("Dashboard");
+          setPreviousPage('Dashboard');
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
@@ -164,7 +180,7 @@ const Dashboard = ({
     ),
   };
 
-  const tabs = ["Attendance", "Absent", "Approved Leaves", "Leave Requests", "PPE Inventory"];
+  const tabs = ['Attendance', 'Absent', 'Approved Leaves', 'Leave Requests', 'PPE Inventory'];
 
   return (
     <div className="dashboardContainer">
@@ -181,16 +197,16 @@ const Dashboard = ({
 
       <div className="topCards">
         {[
-          [`Attendance (Yesterday)`, `${totalAttendance} / ${totalEmployees}`, <FaUserClock />],
-          ["Approved On Leave", String(totalApprovedLeaves), <FaClipboardCheck />],
-          ["Leave Requests", String(totalLeaveRequests), <FaClipboardList />],
+          ['Attendance (Yesterday)', `${totalAttendance} / ${totalEmployees}`, <FaUserClock />],
+          ['Approved On Leave', String(totalApprovedLeaves), <FaClipboardCheck />],
+          ['Leave Requests', String(totalLeaveRequests), <FaClipboardList />],
         ].map(([title, value, icon], idx) => (
           <div key={idx} className="dashboardCards">
             <div className="cardBody">
               <div className="cardIcon">{icon}</div>
               <div className="cardInfo">
                 <div className="cardTitle">{title}</div>
-                <CardValue value={value} />
+                <CardValue value={value} loading={loading} />
               </div>
             </div>
           </div>
@@ -202,7 +218,7 @@ const Dashboard = ({
           {tabs.map((tab, idx) => (
             <button
               key={idx}
-              className={`tab ${selectedTab === tab ? "active" : ""}`}
+              className={`tab ${selectedTab === tab ? 'active' : ''}`}
               onClick={() => handleTabChange(tab)}
             >
               {tab}
@@ -210,7 +226,7 @@ const Dashboard = ({
           ))}
         </div>
 
-        <div className='scrollContainer'>
+        <div className="scrollContainer">
           <div className="dashboardContent">
             {tabComponents[selectedTab] || (
               <div style={{ padding: '20px', textAlign: 'center', color: '#555' }}>

@@ -1174,44 +1174,30 @@ ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate =
 
     let query = supabase
       .from("attendance")
-      .select(
-        `attendanceid, date, timein, timeout, employee:employeeid (
-          employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid
-        )`
-      )
-      .eq("employeeid", employeeId);
+      .select("attendanceid, date, timein, timeout, profileid, role")
+      .eq("profileid", employeeId)
+      .eq("role", "Employee");
 
     if (selectedDate) {
       query.eq("date", formatDateToISO(selectedDate));
     }
 
-    const { data: attendance, error } = await query;
+    const { data: attendanceBase, error } = await query;
     if (error) throw error;
 
-    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
-    const positionIds = [...new Set((attendance || []).map(a => a.employee?.positionid).filter(Boolean))];
-    const departmentIds = [...new Set((attendance || []).map(a => a.employee?.departmentid).filter(Boolean))];
+    const { data: employee, error: empError } = await supabase
+      .from("employee")
+      .select("employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid")
+      .eq("employeeid", employeeId)
+      .single();
+    if (empError) throw empError;
 
-    // Fetch related tables only if needed
     const { data: shifts } = await supabase
       .from("shift")
       .select("shiftid, timestart, timeend")
-      .in("shiftid", shiftIds.length ? shiftIds : [-1]);
-    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
+      .eq("shiftid", employee.shiftid);
+    const shift = shifts?.[0] || {};
 
-    const { data: positions } = await supabase
-      .from("position")
-      .select("positionid, positionname")
-      .in("positionid", positionIds.length ? positionIds : [-1]);
-    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
-
-    const { data: departments } = await supabase
-      .from("department")
-      .select("departmentid, departmentname")
-      .in("departmentid", departmentIds.length ? departmentIds : [-1]);
-    const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
-
-    // Helpers
     const parseDurationLabel = (mins) => {
       if (mins == null || isNaN(mins)) return "";
       const abs = Math.abs(mins);
@@ -1223,16 +1209,11 @@ ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate =
     const ARRIVAL_TOLERANCE = 15;
     const WORK_TOLERANCE = 15;
 
-    const rows = (attendance || []).map((a) => {
-      const emp = a.employee ?? {};
-      const pos = posMap.get(emp.positionid) || "";
-      const sh = shiftMap.get(emp.shiftid) || {};
-      const dept = deptMap.get(emp.departmentid) || "";
-
+    const rows = (attendanceBase || []).map((a) => {
       const timeInMin = timeToMinutes(a.timein);
       const timeOutMin = timeToMinutes(a.timeout);
-      const shiftStartMin = timeToMinutes(sh.timestart);
-      const shiftEndMin = timeToMinutes(sh.timeend);
+      const shiftStartMin = timeToMinutes(shift.timestart);
+      const shiftEndMin = timeToMinutes(shift.timeend);
 
       let arrivalDiff = 0;
       let arrivalStatus = "On Time";
@@ -1267,24 +1248,17 @@ ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate =
       }
 
       return {
-        attendanceid: a.attendanceid,
         date: formatDateToISO(a.date),
+        shift:
+          shift.timestart && shift.timeend
+            ? `${formatTime12(shift.timestart)} - ${formatTime12(shift.timeend)}`
+            : "",
         timeIn: formatTime12(a.timein),
-        timeOut: formatTime12(a.timeout),
-        shift: `${formatTime12(sh.timestart)} - ${formatTime12(sh.timeend)}`,
-        shiftStart: sh.timestart,
-        shiftEnd: sh.timeend,
-        position: pos,
-        department: dept,
         arrivalDiff: parseDurationLabel(arrivalDiff),
         arrivalStatus,
+        timeOut: formatTime12(a.timeout),
         hoursWorked,
-        workDiff: parseDurationLabel(workDiff),
         workStatus,
-        utot:
-          workDiff === 0
-            ? "Exact Time"
-            : `${parseDurationLabel(workDiff)} ${workStatus}`,
       };
     });
 
@@ -1345,28 +1319,25 @@ ipcMain.handle("updateEmployee", async (event, employeeId, field, value) => {
   }
 });
 
-ipcMain.handle('updateEmployeeField', async (event, { employeeId, field, value }) => {
-  try {
-    const { error } = await supabase.from('employee').update({ [field]: value }).eq('employeeid', employeeId);
-    if (error) throw error;
-    logMessage(`EDIT SUCCESS: employee=${employeeId} field=${field}`);
-    return { success: true };
-  } catch (err) {
-    console.error('updateEmployeeField failed:', err);
-    return { success: false, error: err.message };
-  }
-});
+// ipcMain.handle('updateEmployeeField', async (event, { employeeId, field, value }) => {
+//   try {
+//     const { error } = await supabase.from('employee').update({ [field]: value }).eq('employeeid', employeeId);
+//     if (error) throw error;
+//     logMessage(`EDIT SUCCESS: employee=${employeeId} field=${field}`);
+//     return { success: true };
+//   } catch (err) {
+//     console.error('updateEmployeeField failed:', err);
+//     return { success: false, error: err.message };
+//   }
+// });
 
 ipcMain.handle("getAttendance", async (event, date = null) => {
   try {
-    const targetDate = formatDateToISO(date);
+    const targetDate = date ? formatDateToISO(date) : null;
+
     const query = supabase
       .from("attendance")
-      .select(
-        `attendanceid, date, timein, timeout, employee:employeeid (
-          employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid
-        )`
-      );
+      .select("attendanceid, date, timein, timeout, profileid, role");
 
     if (targetDate) {
       query.eq("date", targetDate).order("timein", { ascending: true });
@@ -1374,8 +1345,33 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
       query.order("date", { ascending: false });
     }
 
-    const { data: attendance, error } = await query;
+    const { data: attendanceBase, error } = await query;
     if (error) throw error;
+
+    const attendance = await Promise.all(
+      (attendanceBase || []).map(async (a) => {
+        const role = (a.role || "Employee").toLowerCase();
+        let profile = null;
+
+        if (role === "employee") {
+          const { data } = await supabase
+            .from("employee")
+            .select("employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid")
+            .eq("employeeid", a.profileid)
+            .single();
+          profile = data;
+        } else if (role === "applicant") {
+          const { data } = await supabase
+            .from("applicant")
+            .select("applicantid, lastname, firstname, middlename, positionid, shiftid, departmentid")
+            .eq("applicantid", a.profileid)
+            .single();
+          profile = data;
+        }
+
+        return { ...a, employee: profile };
+      })
+    );
 
     const positionIds = [...new Set((attendance || []).map(a => a.employee?.positionid).filter(Boolean))];
     const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
@@ -1456,19 +1452,22 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
       return {
         attendanceid: a.attendanceid,
         date: formatDateToISO(a.date),
-        employeeid: emp.employeeid ?? "",
+        role: a.role,
+        employeeid: emp.employeeid ?? emp.applicantid ?? "",
         fullName: `${emp.lastname ?? ""}, ${emp.firstname ?? ""}${
           emp.middlename ? " " + emp.middlename.charAt(0) + "." : ""
         }`,
         department,
         position: pos,
-        shift: `${formatTime12(sh.timestart)} - ${formatTime12(sh.timeend)}`,
+        shift: sh.timestart && sh.timeend
+          ? `${formatTime12(sh.timestart)} - ${formatTime12(sh.timeend)}`
+          : "",
         timeIn: formatTime12(a.timein),
         timeOut: formatTime12(a.timeout),
-        arrivalDiff: parseDurationLabel(arrivalDiff), // ← now human-readable
+        arrivalDiff: parseDurationLabel(arrivalDiff),
         arrivalStatus,
         hoursWorked,
-        workDiff: parseDurationLabel(workDiff), // ← same here
+        workDiff: parseDurationLabel(workDiff),
         workStatus,
         utot:
           workDiff === 0
@@ -1484,26 +1483,48 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
   }
 });
 
-ipcMain.handle('getAbsent', async (event, date) => {
+ipcMain.handle("getAbsent", async (event, date) => {
   try {
+    const targetDate = date ? formatDateToISO(date) : null;
+
     const { data: employees, error: empErr } = await supabase
-      .from('employee')
-      .select('employeeid, lastname, firstname, middlename, department:departmentid ( departmentname ), position:positionid ( positionname ), shift:shiftid ( timestart, timeend )')
-      .order('lastname', { ascending: true });
+      .from("employee")
+      .select(
+        `employeeid, lastname, firstname, middlename,
+         department:departmentid ( departmentname ),
+         position:positionid ( positionname ),
+         shift:shiftid ( timestart, timeend )`
+      )
+      .order("lastname", { ascending: true });
     if (empErr) throw empErr;
 
-    const targetDate = date ? formatDateToISO(date) : null;
+    const { data: applicants, error: appErr } = await supabase
+      .from("applicant")
+      .select(
+        `applicantid, lastname, firstname, middlename,
+         department:departmentid ( departmentname ),
+         position:positionid ( positionname ),
+         shift:shiftid ( timestart, timeend )`
+      )
+      .order("lastname", { ascending: true });
+    if (appErr) throw appErr;
+
+    const profiles = [
+      ...employees.map((e) => ({ ...e, profileid: e.employeeid, role: "Employee" })),
+      ...applicants.map((a) => ({ ...a, profileid: a.applicantid, role: "Applicant" })),
+    ];
+
     const { data: attendance } = targetDate
-      ? await supabase.from('attendance').select('employeeid').eq('date', targetDate)
-      : await supabase.from('attendance').select('employeeid');
+      ? await supabase.from("attendance").select("profileid, role").eq("date", targetDate)
+      : await supabase.from("attendance").select("profileid, role");
 
     let leaves = [];
     if (targetDate) {
       const { data: allLeaves } = await supabase
-        .from('leave')
-        .select('employeeid, start_date, end_date, is_paid')
-        .eq('is_paid', true)
-        .eq('status', 'Approved');
+        .from("leave")
+        .select("employeeid, start_date, end_date, is_paid")
+        .eq("is_paid", true)
+        .eq("status", "Approved");
 
       const d = new Date(targetDate);
       leaves = (allLeaves || []).filter((l) => {
@@ -1513,29 +1534,41 @@ ipcMain.handle('getAbsent', async (event, date) => {
       });
     } else {
       const { data: allLeaves } = await supabase
-        .from('leave')
-        .select('employeeid')
-        .eq('is_paid', true);
+        .from("leave")
+        .select("employeeid")
+        .eq("is_paid", true);
       leaves = allLeaves || [];
     }
 
-    const present = new Set((attendance || []).map((r) => r.employeeid));
-    const onleave = new Set((leaves || []).map((r) => r.employeeid));
+    const present = new Set(
+      (attendance || []).map((r) => `${r.role.toLowerCase()}-${r.profileid}`)
+    );
+    const onleave = new Set(
+      (leaves || []).map((r) => `employee-${r.employeeid}`)
+    );
 
-    const absent = (employees || []).filter(
-      (e) => !present.has(e.employeeid) && !onleave.has(e.employeeid)
+    const absent = profiles.filter(
+      (p) =>
+        !present.has(`${p.role.toLowerCase()}-${p.profileid}`) &&
+        !onleave.has(`${p.role.toLowerCase()}-${p.profileid}`)
     );
 
     return absent.map((r) => ({
-      employeeid: r.employeeid,
-      fullName: `${r.lastname}, ${r.firstname}${r.middlename ? ` ${r.middlename.charAt(0)}.` : ''}`,
-      department: r.department?.departmentname ?? '',
-      position: r.position?.positionname ?? '',
-      shift: `${formatTime12(r.shift?.timestart) ?? ''} - ${formatTime12(r.shift?.timeend) ?? ''}`,
+      profileid: r.profileid,
+      role: r.role,
+      fullName: `${r.lastname}, ${r.firstname}${
+        r.middlename ? ` ${r.middlename.charAt(0)}.` : ""
+      }`,
+      department: r.department?.departmentname ?? "",
+      position: r.position?.positionname ?? "",
+      shift:
+        r.shift?.timestart && r.shift?.timeend
+          ? `${formatTime12(r.shift.timestart)} - ${formatTime12(r.shift.timeend)}`
+          : "",
       date: targetDate,
     }));
   } catch (err) {
-    console.error('getAbsent error:', err);
+    console.error("getAbsent error:", err);
     return [];
   }
 });
@@ -1827,6 +1860,226 @@ ipcMain.handle('getTrainees', async (event, status) => {
   }
 });
 
+ipcMain.handle("getApplicant", async (event, applicantId) => {
+  try {
+    const { data, error } = await supabase
+      .from("applicant")
+      .select(`
+        applicantid,
+        lastname,
+        firstname,
+        middlename,
+        contact,
+        email,
+        address,
+        gender,
+        age,
+        birthdate,
+        sss_number,
+        pagibig_number,
+        philhealth_number,
+        bir_number,
+        status,
+        applicationdate,
+        trainingdate,
+        department:departmentid ( departmentid, departmentname ),
+        position:positionid ( positionid, positionname ),
+        shift:shiftid ( shiftid, timestart, timeend ),
+        applicantimage,
+        resume
+      `)
+      .eq("applicantid", applicantId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    const dep = data.department ?? (Array.isArray(data.department) ? data.department[0] : null);
+    const pos = data.position ?? (Array.isArray(data.position) ? data.position[0] : null);
+    const sh = data.shift ?? (Array.isArray(data.shift) ? data.shift[0] : null);
+
+    const name = `${data.lastname}, ${data.firstname}${data.middlename ? ` ${data.middlename.charAt(0)}.` : ""}`;
+
+    return {
+      applicantid: data.applicantid,
+      name,
+      gender: data.gender,
+      age: data.age,
+      birthdate: new Date(data.birthdate).toISOString().split("T")[0],
+      department: dep?.departmentname ?? "",
+      position: pos?.positionname ?? "",
+      contact: data.contact,
+      email: data.email,
+      address: data.address,
+      sss_number: data.sss_number,
+      pagibig_number: data.pagibig_number,
+      philhealth_number: data.philhealth_number,
+      bir_number: data.bir_number,
+      status: data.status,
+      applicationdate: data.applicationdate ? new Date(data.applicationdate).toISOString().split("T")[0] : "",
+      trainingdate: data.trainingdate ? new Date(data.trainingdate).toISOString().split("T")[0] : "",
+      shiftstart: sh?.timestart ?? "",
+      shiftend: sh?.timeend ?? "",
+      applicantimage: data.applicantimage || null,
+      resume: data.resume || null,
+    };
+  } catch (err) {
+    console.error("Error fetching applicant details:", err);
+    return null;
+  }
+});
+
+ipcMain.handle("getApplicantAttendance", async (event, applicantId, selectedDate = null) => {
+  try {
+    if (!applicantId) throw new Error("Missing applicantId");
+
+    let query = supabase
+      .from("attendance")
+      .select("attendanceid, date, timein, timeout, profileid, role")
+      .eq("profileid", applicantId)
+      .eq("role", "Applicant");
+
+    if (selectedDate) {
+      query.eq("date", formatDateToISO(selectedDate));
+    }
+
+    const { data: attendanceBase, error } = await query;
+    if (error) throw error;
+
+    const { data: applicant, error: appError } = await supabase
+      .from("applicant")
+      .select("applicantid, lastname, firstname, middlename, positionid, shiftid, departmentid")
+      .eq("applicantid", applicantId)
+      .single();
+    if (appError) throw appError;
+
+    const { data: shifts } = await supabase
+      .from("shift")
+      .select("shiftid, timestart, timeend")
+      .eq("shiftid", applicant.shiftid);
+    const shift = shifts?.[0] || {};
+
+    const parseDurationLabel = (mins) => {
+      if (mins == null || isNaN(mins)) return "";
+      const abs = Math.abs(mins);
+      const hh = Math.floor(abs / 60);
+      const mm = abs % 60;
+      return `${hh}h ${mm}m`;
+    };
+
+    const ARRIVAL_TOLERANCE = 15;
+    const WORK_TOLERANCE = 15;
+
+    const rows = (attendanceBase || []).map((a) => {
+      const timeInMin = timeToMinutes(a.timein);
+      const timeOutMin = timeToMinutes(a.timeout);
+      const shiftStartMin = timeToMinutes(shift.timestart);
+      const shiftEndMin = timeToMinutes(shift.timeend);
+
+      let arrivalDiff = 0;
+      let arrivalStatus = "On Time";
+      let workStatus = "Exact Time";
+      let hoursWorked = "0h 0m";
+      let workDiff = 0;
+
+      if (
+        timeInMin != null &&
+        timeOutMin != null &&
+        shiftStartMin != null &&
+        shiftEndMin != null
+      ) {
+        arrivalDiff = timeInMin - shiftStartMin;
+        if (Math.abs(arrivalDiff) <= ARRIVAL_TOLERANCE) {
+          arrivalDiff = 0;
+          arrivalStatus = "On Time";
+        } else {
+          arrivalStatus = arrivalDiff > 0 ? "Late" : "Early";
+        }
+
+        const actualDur = timeOutMin - timeInMin;
+        const shiftDur = shiftEndMin - shiftStartMin;
+        workDiff = actualDur - shiftDur;
+        hoursWorked = parseDurationLabel(actualDur);
+
+        if (Math.abs(workDiff) <= WORK_TOLERANCE) {
+          workStatus = "Exact Time";
+        } else {
+          workStatus = workDiff > 0 ? "Overtime" : "Undertime";
+        }
+      }
+
+      return {
+        date: formatDateToISO(a.date),
+        shift:
+          shift.timestart && shift.timeend
+            ? `${formatTime12(shift.timestart)} - ${formatTime12(shift.timeend)}`
+            : "",
+        timeIn: formatTime12(a.timein),
+        arrivalDiff: parseDurationLabel(arrivalDiff),
+        arrivalStatus,
+        timeOut: formatTime12(a.timeout),
+        hoursWorked,
+        workStatus,
+      };
+    });
+
+    return rows;
+  } catch (err) {
+    console.error("getApplicantttendance error:", err);
+    return [];
+  }
+});
+
+ipcMain.handle("updateApplicant", async (event, applicantId, field, value) => {
+  try {
+    let updateData = {};
+
+    if (field === "applicantimage" && value.startsWith("data:image")) {
+      const base64Data = value.split(",")[1];
+      const buffer = Buffer.from(base64Data, "base64");
+      const fileExt = value.substring("data:image/".length, value.indexOf(";base64"));
+      const fileName = `${applicantId}_image.${fileExt}`;
+      const filePath = `${applicantId}_image.${fileExt}`;
+
+      console.log({
+        bucket: "applicant-images",
+        filePath,
+        type: `image/${fileExt}`,
+        length: buffer.length,
+      });
+
+      const { error: uploadError } = await supabase.storage
+        .from("applicant-images") // ⚠️ use a separate bucket if desired
+        .upload(filePath, buffer, {
+          contentType: `image/${fileExt}`,
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from("applicant-images")
+        .getPublicUrl(filePath);
+
+      updateData = { applicantimage: urlData.publicUrl };
+    } else {
+      updateData = { [field]: value };
+    }
+
+    const { error } = await supabase
+      .from("applicant")
+      .update(updateData)
+      .eq("applicantid", applicantId);
+
+    if (error) throw error;
+
+    return { success: true, imageUrl: updateData.applicantimage || null };
+  } catch (err) {
+    console.error("❌ Error updating applicant:", err);
+    return { success: false, message: err.message };
+  }
+});
+
 ipcMain.handle('getApplicants', async (event, status) => {
   try {
     const { data, error } = await supabase
@@ -2064,14 +2317,14 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
     }
 
     const userRole = position.positionname;
-    const allowedRoles = ['Accounting', 'President', 'HR', 'IT'];
+    const allowedRoles = ['Finance', 'President', 'HR Generalist', 'IT'];
 
     if (!allowedRoles.includes(userRole)) {
       logMessage(`Unauthorized signup attempt: ${email} (${userRole})`);
       return { error: `Only certain positions can create an account.` };
     }
 
-    const fullName = `${employee.lastname}, ${employee.firstname} ${employee.middlename || ''}`.trim();
+    const fullName = `${employee.lastname}, ${employee.firstname} || ''}`.trim();
 
     const { data, error } = await supabase.auth.signUp({
       email,

@@ -8,14 +8,13 @@ import ConfirmModal from "../components/ConfirmModal.jsx";
 
 const ApplicantInformation = ({ applicantId, goBack }) => {
   const [applicant, setApplicant] = useState(null);
-  const [applications, setApplications] = useState([]);
+  const [attendance, setAttendance] = useState([]);
   const [editingField, setEditingField] = useState(null);
   const [fieldValue, setFieldValue] = useState("");
-  const [selectedImage, setSelectedImage] = useState(null);
   const [uploadMessage, setUploadMessage] = useState("");
   const [isError, setIsError] = useState(false);
-  const [positionsList, setPositionsList] = useState([]);
-  const [sortColumn, setSortColumn] = useState("applicationDate");
+  const [deptPosList, setDeptPosList] = useState([]);
+  const [sortColumn, setSortColumn] = useState("date");
   const [sortOrder, setSortOrder] = useState("asc");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -27,18 +26,42 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
   const [pendingChange, setPendingChange] = useState(null);
 
   const [selectedDate, setSelectedDate] = useState(() => {
-    return localStorage.getItem("applicationDate") || "";
+    return localStorage.getItem("attendanceDate") || "";
   });
 
   const validationRules = {
     contact: { regex: /^\d{11}$/, message: "Contact number must be exactly 11 digits." },
-    email: { regex: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: "Invalid email address." },
+    pagibig_number: { regex: /^\d{12}$/, message: "PAGIBIG number must be exactly 12 digits." },
+    sss_number: { regex: /^\d{10}$/, message: "SSS number must be exactly 10 digits." },
+    bir_number: { regex: /^\d{9}$/, message: "BIR TIN must be exactly 9 digits." },
+    philhealth_number: { regex: /^\d{12}$/, message: "PhilHealth number must be exactly 12 digits." },
   };
+
+  const departments = useMemo(() => {
+    const unique = [];
+    const seen = new Set();
+    deptPosList.forEach((d) => {
+      if (!seen.has(d.departmentid)) {
+        seen.add(d.departmentid);
+        unique.push({ id: d.departmentid, name: d.departmentname });
+      }
+    });
+    return unique;
+  }, [deptPosList]);
+
+  const positionsByDept = useMemo(() => {
+    const map = {};
+    deptPosList.forEach((d) => {
+      if (!map[d.departmentid]) map[d.departmentid] = [];
+      map[d.departmentid].push({ id: d.positionid, name: d.positionname });
+    });
+    return map;
+  }, [deptPosList]);
 
   useEffect(() => {
     const fetchDeptPos = async () => {
       const result = await window.utilityAPI.getDeptPos();
-      setDeptPosList(result);
+      setDeptPosList(result || []);
     };
     fetchDeptPos();
   }, []);
@@ -47,34 +70,54 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     const fetchApplicant = async () => {
       const data = await window.applicantAPI.getApplicant(applicantId);
       if (!data) return;
-      setApplicant(data);
+
+      const deptObj = deptPosList.find((d) => d.departmentname === data.department);
+      const posObj = deptPosList.find((d) => d.positionname === data.position);
+
+      setApplicant({
+        ...data,
+        departmentid: deptObj?.departmentid || data.departmentid,
+        positionid: posObj?.positionid || data.positionid,
+      });
     };
 
-    const fetchApplications = async () => {
+    const fetchAttendance = async () => {
       setLoading(true);
-      const data = await window.applicantAPI.getApplicantApplications(applicantId, selectedDate);
+      const data = await window.attendanceAPI.getApplicantAttendance(applicantId, selectedDate);
       setLoading(false);
-      setApplications(data);
+      setAttendance(data || []);
     };
 
     fetchApplicant();
-    fetchApplications();
-  }, [applicantId, selectedDate]);
+    fetchAttendance();
+  }, [applicantId, selectedDate, deptPosList]);
 
   const handleEditClick = (field, value) => {
     setEditingField(field);
     setFieldValue(value);
   };
 
-  const handleKeyDown = async (e, field) => {
+  const handleKeyDown = async (e, field, isDate = false) => {
     if (e.key === "Enter") {
       setEditingField(null);
-      const safeValue = fieldValue.trim();
+      let safeValue = isDate ? new Date(fieldValue).toISOString().split("T")[0] : fieldValue.trim();
 
       if (validationRules[field]) {
         const { regex, message } = validationRules[field];
         if (!regex.test(safeValue)) {
           window.toast(message, "error");
+          return;
+        }
+      }
+
+      if (field === "position") {
+        const deptId = applicant.departmentid;
+        const posId = safeValue;
+        const validCombo = deptPosList.some(
+          (d) => d.departmentid == deptId && d.positionid == posId
+        );
+        if (!validCombo) {
+          window.toast("Invalid department/position combination.", "error");
           return;
         }
       }
@@ -88,9 +131,36 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     if (!pendingChange) return;
     const { field, value } = pendingChange;
 
+    let dbField = field;
+    let dbValue = value;
+
+    if (field === "department") dbField = "departmentid";
+    if (field === "position") dbField = "positionid";
+
     try {
-      await window.applicantAPI.updateApplicant(applicantId, field, value);
-      setApplicant((prev) => ({ ...prev, [field]: value }));
+      await window.applicantAPI.updateApplicant(applicantId, dbField, dbValue);
+
+      if (field === "department") {
+        const deptName = departments.find((d) => d.id == value)?.name;
+        setApplicant((prev) => ({
+          ...prev,
+          departmentid: value,
+          department: deptName,
+          positionid: null,
+          position: "---",
+        }));
+        await window.applicantAPI.updateApplicant(applicantId, "positionid", null);
+      } else if (field === "position") {
+        const posName = positionsByDept[applicant.departmentid]?.find((p) => p.id == value)?.name;
+        setApplicant((prev) => ({
+          ...prev,
+          positionid: value,
+          position: posName,
+        }));
+      } else {
+        setApplicant((prev) => ({ ...prev, [field]: value }));
+      }
+
       window.toast("Change saved successfully", "success");
     } catch (err) {
       console.error("Update failed:", err);
@@ -102,22 +172,97 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     }
   };
 
-  const renderEditableField = (label, field, type = "text") => {
+  const handleFieldBlur = (field, isDate) => {
+    if (fieldValue !== applicant[field]) {
+      setPendingChange({ field, value: fieldValue });
+      setConfirmChanges(true);
+    } else {
+      setEditingField(null);
+    }
+  };
+
+  const renderEditableField = (label, field, isDate = false) => {
+    const isDepartment = field === "department";
+    const isPosition = field === "position";
+
     return (
       <p key={field} className="editableField">
         <strong>{label}:</strong>{" "}
         {editingField === field ? (
-          <input
-            type={type}
-            value={fieldValue}
-            autoFocus
-            onChange={(e) => setFieldValue(e.target.value)}
-            onKeyDown={(e) => handleKeyDown(e, field)}
-            onBlur={() => setEditingField(null)}
-          />
+          isDepartment ? (
+            <select
+              value={applicant.departmentid || ""}
+              onChange={(e) => {
+                const newDeptId = e.target.value;
+                const newDept = departments.find((d) => d.id == newDeptId);
+                setApplicant((prev) => ({
+                  ...prev,
+                  departmentid: newDeptId,
+                  department: newDept?.name,
+                  positionid: null,
+                  position: "---",
+                }));
+                setFieldValue(newDeptId);
+              }}
+              onBlur={(e) => handleFieldBlur(field, isDate)}
+              autoFocus
+              onKeyDown={(e) => handleKeyDown(e, "department")}
+            >
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+          ) : isPosition ? (
+            <select
+              value={applicant.positionid || ""}
+              onChange={(e) => {
+                const newPosId = e.target.value;
+                const newPos =
+                  positionsByDept[applicant.departmentid]?.find((p) => p.id == newPosId);
+                setApplicant((prev) => ({
+                  ...prev,
+                  positionid: newPosId,
+                  position: newPos?.name,
+                }));
+                setFieldValue(newPosId);
+              }}
+              onBlur={(e) => handleFieldBlur(field, isDate)}
+              disabled={!applicant.departmentid}
+              autoFocus
+              onKeyDown={(e) => handleKeyDown(e, "position")}
+            >
+              {(positionsByDept[applicant.departmentid] || []).map((pos) => (
+                <option key={pos.id} value={pos.id}>
+                  {pos.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type={isDate ? "date" : "text"}
+              value={
+                isDate && fieldValue
+                  ? (() => {
+                      const d = new Date(fieldValue);
+                      return isNaN(d) ? "" : d.toISOString().split("T")[0];
+                    })()
+                  : fieldValue
+              }
+              autoFocus
+              onChange={(e) => setFieldValue(e.target.value)}
+              onKeyDown={(e) => handleKeyDown(e, field, isDate)}
+              onBlur={(e) => handleFieldBlur(field, isDate)}
+            />
+          )
         ) : (
           <>
-            {applicant[field] || "—"}
+            {isDate
+              ? applicant[field]
+                ? new Date(applicant[field]).toISOString().split("T")[0]
+                : "—"
+              : applicant[field] || "—"}
             <MdEdit className="editIcon" onClick={() => handleEditClick(field, applicant[field])} />
           </>
         )}
@@ -135,10 +280,10 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
         const base64Data = `data:image/${fileExt};base64,${fileData}`;
 
         setUploadMessage("Uploading...");
-        const res = await window.applicantAPI.updateApplicant(applicantId, "photo", base64Data);
+        const res = await window.applicantAPI.updateApplicant(applicantId, "applicantimage", base64Data);
 
-        if (res.success) {
-          setApplicant((prev) => ({ ...prev, photo: res.imageUrl }));
+        if (res?.success) {
+          setApplicant((prev) => ({ ...prev, applicantimage: res.imageUrl }));
           setUploadMessage("Profile image updated.");
           setIsError(false);
         } else {
@@ -158,20 +303,40 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     }
   };
 
+  const calculateTimeDiff = (start, end) => {
+    const startDate = new Date(`1970-01-01T${start}`);
+    const endDate = new Date(`1970-01-01T${end}`);
+    return (endDate - startDate) / (1000 * 60);
+  };
+
   const filtered = useMemo(() => {
-    return applications.filter((row) => {
+    return attendance.filter((row) => {
+      const expected = calculateTimeDiff(row.shiftstart, row.shiftend);
+      const actual = calculateTimeDiff(row.timein, row.timeout);
+      const diff = actual - expected;
+      const status = diff < 0 ? "Undertime" : "On time / Overtime";
       return Object.entries(selectedFilters).every(([column, values]) => {
         if (column === "__activeColumn") return true;
-        if (values.length === 0) return true;
-        return values.includes(row[column]);
+        if (column === "status") return values.length === 0 || values.includes(status);
+        return true;
       });
     });
-  }, [applications, selectedFilters]);
+  }, [attendance, selectedFilters]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortColumn] ?? "";
-      const bVal = b[sortColumn] ?? "";
+      let aVal, bVal;
+      switch (sortColumn) {
+        case "diff":
+          aVal = calculateTimeDiff(a.timein, a.timeout) - calculateTimeDiff(a.shiftstart, a.shiftend);
+          bVal = calculateTimeDiff(b.timein, b.timeout) - calculateTimeDiff(b.shiftstart, b.shiftend);
+          break;
+        default:
+          aVal = a[sortColumn] ?? "";
+          bVal = b[sortColumn] ?? "";
+      }
+      if (typeof aVal === "number" && typeof bVal === "number")
+        return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
       return sortOrder === "asc"
         ? String(aVal).localeCompare(String(bVal))
         : String(bVal).localeCompare(String(aVal));
@@ -186,48 +351,74 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
 
   if (!applicant) return <div className="loadingContainer"><div className="spinner"></div></div>;
 
+  const fullName = `${applicant.firstname || ""} ${applicant.middlename || ""} ${applicant.lastname || ""}`.trim();
+
   return (
-    <div className="applicantInfoContainer">
-      <div className="applicantInfoHeader">
+    <div className="employeeInfoContainer">
+      <div className="employeeInfoHeader">
         <h2>Applicant Profile</h2>
         <button onClick={goBack}>x</button>
       </div>
 
-      <div className="applicantInfoGrid">
-        <div className="applicantInfoPhoto">
+      <div className="employeeInfoGrid">
+        <div className="employeeInfoPhoto">
           <div className="ImageContainer" onClick={filePicker}>
-            {applicant.photo ? (
-              <img src={applicant.photo} alt="Profile" className="previewImage" />
+            {applicant.applicantimage ? (
+              <img src={applicant.applicantimage} alt="Profile" className="previewImage" />
             ) : (
               <div className="placeholderPhoto" />
             )}
           </div>
+          {uploadMessage && <div className={`uploadMessage ${isError ? "error" : ""}`}>{uploadMessage}</div>}
         </div>
 
-        <div className="applicantInfoMeta">
-          <div className="applicantInfoName">
-            {applicant.applicantId} | {applicant.name}
+        <div className="employeeInfoMeta">
+          <div className="employeeInfoName">
+            {applicant.applicantid} | {applicant.name}
           </div>
-          <div className="applicantInfoDetails">
-            {renderEditableField("Position Applied", "positionApplied")}
+          <div className="employeeInfoDetails">
+            {renderEditableField("Department", "department")}
+            {renderEditableField("Position", "position")}
+            {renderEditableField("Application Status", "status")}
             {renderEditableField("Contact", "contact")}
             {renderEditableField("Email", "email")}
             {renderEditableField("Address", "address")}
-            {renderEditableField("Application Date", "applicationDate", "date")}
-            {renderEditableField("Status", "status")}
+            {renderEditableField("Gender", "gender")}
+            {renderEditableField("Age", "age")}
+            {renderEditableField("Birthdate", "birthdate", true)}
+            {renderEditableField("Application Date", "applicationdate", true)}
+            {renderEditableField("Training Date", "trainingdate", true)}
+            {renderEditableField("SSS #", "sss_number")}
+            {renderEditableField("PAGIBIG #", "pagibig_number")}
+            {renderEditableField("PhilHealth #", "philhealth_number")}
+            {renderEditableField("BIR #", "bir_number")}
           </div>
         </div>
       </div>
 
-      <div className="applicationsHeaderRow">
-        <h1>Application History</h1>
-        <div className="applicationsControls">
+      <div className="attendanceHeaderRow">
+        <h1>Attendance Records</h1>
+        <div className="attendanceControls">
           <SortDropdown
-            columns={["positionApplied", "applicationDate", "status"]}
+            columns={[
+              "date",
+              "shift",
+              "timeIn",
+              "arrivalDiff",
+              "arrivalStatus",
+              "timeOut",
+              "hoursWorked",
+              "workStatus",
+            ]}
             columnLabelMap={{
-              positionApplied: "Position",
-              applicationDate: "Date",
-              status: "Status",
+              date: "Date",
+              shift: "Shift",
+              timeIn: "Time In",
+              arrivalDiff: "Arrival Diff",
+              arrivalStatus: "Arrival Status",
+              timeOut: "Time Out",
+              hoursWorked: "Hours Worked",
+              workStatus: "Work Status",
             }}
             sortColumn={sortColumn}
             sortOrder={sortOrder}
@@ -244,18 +435,26 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
             setFilterOpen={setFilterOpen}
             selectedFilters={selectedFilters}
             setSelectedFilters={setSelectedFilters}
-            uniqueValues={{ status: ["Pending", "Accepted", "Rejected"] }}
-            columnLabelMap={{ status: "Status" }}
+            uniqueValues={{
+              shift: [...new Set(attendance.map((r) => r.shift))],
+              arrivalStatus: [...new Set(attendance.map((r) => r.arrivalStatus))],
+              workStatus: [...new Set(attendance.map((r) => r.workStatus))],
+            }}
+            columnLabelMap={{
+              shift: "Shift",
+              arrivalStatus: "Arrival Status",
+              workStatus: "Work Status",
+            }}
           />
 
           <DatePicker
             value={selectedDate}
             onChange={(val) => {
               setSelectedDate(val);
-              localStorage.setItem("applicationDate", val);
+              localStorage.setItem("attendanceDate", val);
               setCurrentPage(1);
             }}
-            storageKey="applicationDate"
+            storageKey="attendanceDate"
           />
         </div>
       </div>
@@ -264,43 +463,87 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
         <table className={`tabTable ${loading ? "skeleton" : ""}`}>
           <thead>
             <tr>
-              <th>Position</th>
-              <th>Application Date</th>
-              <th>Status</th>
+              <th>Date</th>
+              <th>Shift</th>
+              <th>Time In</th>
+              <th>Arrival Diff</th>
+              <th>Arrival Status</th>
+              <th>Time Out</th>
+              <th>Hours Worked</th>
+              <th>Work Status</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               Array.from({ length: itemsPerPage }).map((_, idx) => (
                 <tr key={idx} className="skeletonRow">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <td key={i}><div className="shimmerCell" /></td>
+                  {Array.from({ length: 11 }).map((_, i) => (
+                    <td key={i}>
+                      <div className="shimmerCell" />
+                    </td>
                   ))}
                 </tr>
               ))
             ) : paginated.length === 0 ? (
-              <tr><td colSpan={3}>No records found.</td></tr>
+              <tr>
+                <td colSpan={11}>No records found.</td>
+              </tr>
             ) : (
-              paginated.map((row, idx) => (
-                <tr key={idx}>
-                  <td>{row.positionApplied}</td>
-                  <td>{new Date(row.applicationDate).toLocaleDateString()}</td>
-                  <td>{row.status}</td>
-                </tr>
-              ))
+              paginated.map((row, idx) => {
+                const colorForArrival = (status) => {
+                  if (status === "Late") return "red";
+                  if (status === "Early") return "green";
+                  return "black";
+                };
+                const colorForWork = (status) => {
+                  if (status === "Overtime") return "green";
+                  if (status === "Undertime") return "red";
+                  return "black";
+                };
+
+                return (
+                  <tr key={idx}>
+                    <td>
+                      {row.date
+                        ? new Date(row.date).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
+                        : "-"}
+                    </td>
+                    <td>{row.shift || "-"}</td>
+                    <td>{row.timeIn || "-"}</td>
+                    <td style={{ color: colorForArrival(row.arrivalStatus) }}>
+                      {row.arrivalDiff === 0
+                        ? "-"
+                        : `${row.arrivalDiff > 0 ? "+" : ""}${row.arrivalDiff}`}
+                    </td>
+                    <td>{row.arrivalStatus || "-"}</td>
+                    <td>{row.timeOut || "-"}</td>
+                    <td style={{ color: colorForWork(row.workStatus) }}>
+                      {row.hoursWorked || "-"}
+                    </td>
+                    <td>{row.workStatus || "-"}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        itemsPerPage={itemsPerPage}
-        totalItems={filtered.length}
-        onPageChange={setCurrentPage}
-        onItemsPerPageChange={setItemsPerPage}
-      />
+      <div className="tableFooter">
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          itemsPerPage={itemsPerPage}
+          totalItems={filtered.length}
+          onPageChange={setCurrentPage}
+          onItemsPerPageChange={setItemsPerPage}
+        />
+        <div></div>
+      </div>
 
       <ConfirmModal
         open={confirmChanges}

@@ -16,10 +16,11 @@ const Attendance = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, act
   const [selectedDate, setSelectedDate] = useState(() => localStorage.getItem('attendanceDate') || '');
   const sortRef = useRef(null);
 
-  const columns = ['date', 'fullName', 'position', 'shift', 'timeIn', 'timeOut', 'utot', 'status'];
+  const columns = ['date', 'fullName', 'role', 'position', 'shift', 'timeIn', 'timeOut', 'utot', 'status'];
   const columnLabelMap = {
     date: 'Date',
     fullName: 'Name',
+    role: 'Role',
     position: 'Position',
     shift: 'Shift',
     timeIn: 'Time In',
@@ -211,6 +212,7 @@ const Attendance = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, act
               >
                 <td>{row.date}</td>
                 <td>{row.fullName}</td>
+                <td>{row.role}</td>
                 <td>{row.position}</td>
                 <td>{formatTime(row.shift?.split(' - ')[0])} - {formatTime(row.shift?.split(' - ')[1])}</td>
                 <td>{formatTime(row.timeIn)}</td>
