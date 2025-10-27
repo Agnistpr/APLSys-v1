@@ -1891,7 +1891,8 @@ ipcMain.handle("addItem", async (event, form) => {
 ipcMain.handle("updateItem", async (event, form) => {
   try {
     const { itemid, itemname, quantity } = form;
-    const now = new Date().toISOString();
+    const now = new Date().toISOString().split("T")[0]; // <-- only "YYYY-MM-DD"
+
     const { error } = await supabase
       .from("inventory")
       .update({ itemname, quantity, lastmodified: now })
@@ -1901,22 +1902,47 @@ ipcMain.handle("updateItem", async (event, form) => {
     return { success: true };
   } catch (err) {
     console.error("updateItem error:", err);
-    throw err;
+    return { success: false, error: err.message };
   }
 });
 
 ipcMain.handle("addInventoryLog", async (event, { itemid, profileid, quantity, role }) => {
   try {
-    const today = new Date().toISOString().split("T")[0];
-    const { error } = await supabase
-      .from("inventorylogs")
-      .insert([{ itemid, profileid, quantity, date: today, role }]);
+    const safeItemId = Number(itemid);
+    const safeQuantity = Number(quantity) || 0;
+    const safeProfileId =
+      profileid === null || profileid === undefined || profileid === ""
+        ? null
+        : Number(profileid);
 
-    if (error) throw error;
-    return { success: true };
+    if (!safeItemId || isNaN(safeItemId)) {
+      return { success: false, error: "Invalid itemid" };
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+
+    const { data, error } = await supabase
+      .from("inventorylogs")
+      .insert([
+        {
+          itemid: safeItemId,
+          profileid: safeProfileId,
+          quantity: safeQuantity,
+          date: today,
+          role,
+        },
+      ])
+      .select();
+
+    if (error) {
+      logMessage("addInventoryLog supabase error:", error);
+      return { success: false, error: error.message || JSON.stringify(error) };
+    }
+
+    return { success: true, data };
   } catch (err) {
-    console.error("addInventoryLog error:", err);
-    throw err;
+    logMessage("addInventoryLog unexpected error:", err);
+    return { success: false, error: err?.message || String(err) };
   }
 });
 

@@ -80,29 +80,37 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
     const fetchProfiles = async () => {
       try {
         const emps = await window.employeeAPI.getEmployees();
-        const apps =
-          (await window.applicantAPI.getApplicant?.()) ||
-          (await window.applicantAPI.getApplicants?.()) ||
-          [];
-        const normalizedEmps = (emps || []).map((e) => ({
-          profileid: e.employeeid,
-          name: e.name || `${e.firstname ?? ""} ${e.lastname ?? ""}`.trim(),
-          department: e.department || "",
-          position: e.position || "",
-          role: "Employee",
-        }));
-        const normalizedApps = (apps || []).map((a) => ({
-          profileid: a.applicantid,
-          name: a.name || `${a.firstname ?? ""} ${a.lastname ?? ""}`.trim(),
-          department: a.department || "",
-          position: a.position || "",
-          role: "Applicant",
-        }));
-        setProfiles([...normalizedEmps, ...normalizedApps]);
+
+        const statusesToInclude = ["Pending", "Interview", "Training"];
+        let allApplicants = [];
+
+        for (const status of statusesToInclude) {
+          const batch = await window.applicantAPI.getApplicants(status);
+          if (Array.isArray(batch)) allApplicants.push(...batch);
+        }
+
+        const profiles = [
+          ...(emps || []).map(e => ({
+            profileid: e.employeeid,
+            name: e.name,
+            department: e.department,
+            position: e.position,
+            role: "Employee",
+          })),
+          ...(allApplicants || []).map(a => ({
+            profileid: a.applicantid,
+            name: a.fullname,
+            department: a.department,
+            position: a.position,
+            role: "Applicant",
+          })),
+        ];
+
+        setProfiles(profiles);
       } catch (err) {
-        console.error("Failed to fetch profiles", err);
       }
     };
+
     fetchProfiles();
   }, []);
 
@@ -180,31 +188,48 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
   const handleEditItem = async () => {
     try {
       const payload = {
-        itemid: editForm.itemid,
+        itemid: Number(editForm.itemid),
         itemname: editForm.itemname,
         quantity: Number(editForm.quantity) || 0,
       };
+
       const res = await window.inventoryAPI.updateItem(payload);
-      if (!res || res.success === false) throw new Error(res?.error || "Update failed");
-      await window.inventoryAPI.addInventoryLog({
-        itemid: editForm.itemid,
+      if (!res || res.success === false) {
+        throw new Error(res?.error || "Update failed");
+      }
+
+      const oldQty = Number(editForm.originalQuantity);
+      const newQty = Number(editForm.quantity);
+      const qtyChange = oldQty - newQty;
+
+      const logPayload = {
+        itemid: payload.itemid,
         profileid: editForm.profileid || null,
-        quantity: Number(editForm.quantity) || 0,
+        quantity: qtyChange,
         role: editForm.role || "Employee",
-      });
-      window.toast("Item updated successfully!", "success");
+      };
+
+      const logRes = await window.inventoryAPI.addInventoryLog(logPayload);
+
+      if (!logRes || logRes.success === false) {
+        window.toast("Item updated, but failed to record log.", "warning");
+      } else {
+        window.toast("Item updated successfully!", "success");
+      }
+
       setEditModalOpen(false);
       setEditForm({
         itemid: "",
         itemname: "",
         quantity: "",
+        originalQuantity: "",
         profileid: "",
         role: "Employee",
       });
       await refreshData();
       await window.userAPI.logAction(uid, "edited item", editForm.itemname);
-    } catch {
-      window.toast("Failed to update item", "error");
+    } catch (err) {
+      window.toast(err?.message || "Failed to update item", "error");
     }
   };
 
@@ -242,10 +267,12 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
   const editSuggestions = useMemo(() => {
     const role = editForm.role || "Employee";
     const q = (editSearchTerm || "").toLowerCase();
-    return profiles
+    const result = profiles
       .filter((p) => p.role === role)
       .filter((p) => (p.name || "").toLowerCase().includes(q))
       .slice(0, 10);
+
+    return result;
   }, [profiles, editForm.role, editSearchTerm]);
 
   return (
@@ -283,9 +310,9 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
                   className="editCardBtn"
                   onClick={() => {
                     setEditForm({
-                      itemid: row.itemid,
                       itemname: row.itemname,
                       quantity: row.quantity,
+                      itemid: row.itemid,
                       profileid: "",
                       role: "Employee",
                     });
@@ -474,7 +501,9 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
               <div className="selectedProfileTag">
                 Assigned to:{" "}
                 <strong>
-                  {profiles.find((p) => String(p.profileid) === String(editForm.profileid))?.name || "Selected"}
+                  {profiles.find(
+                    (p) => String(p.profileid) === String(editForm.profileid) && p.role === editForm.role
+                  )?.name || "Selected"}
                 </strong>
                 <button
                   onClick={() => setEditForm({ ...editForm, profileid: "" })}
