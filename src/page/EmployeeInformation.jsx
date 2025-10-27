@@ -349,18 +349,31 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
           <div className="employeeInfoName">
             {employee.employeeid} | {employee.name}
           </div>
-          <div className="employeeInfoDetails">
-            {renderEditableField("Department", "department")}
-            {renderEditableField("Position", "position")}
-            {renderEditableField("Leave Credit", "leavecredit")}
-            {renderEditableField("Contact", "contact")}
-            {renderEditableField("Email", "email")}
-            {renderEditableField("Address", "address")}
-            {renderEditableField("Hire Date", "hiredate", true)}
-            {renderEditableField("SSS #", "sss_number")}
-            {renderEditableField("PAGIBIG #", "pagibig_number")}
-            {renderEditableField("PhilHealth #", "philhealth_number")}
-            {renderEditableField("BIR #", "bir_number")}
+
+          <div className="employeeInfoColumns">
+            <div className="infoColumn">
+              {renderEditableField("Department", "department")}
+              {renderEditableField("Position", "position")}
+              {renderEditableField("Employee Type", "type")}
+              {renderEditableField("Leave Credit", "leavecredit")}
+              {renderEditableField("Hire Date", "hiredate", true)}
+            </div>
+
+            <div className="infoColumn">
+              {renderEditableField("Contact", "contact")}
+              {renderEditableField("Email", "email")}
+              {renderEditableField("Address", "address")}
+              {renderEditableField("Gender", "gender")}
+              {renderEditableField("Age", "age")}
+              {renderEditableField("Birthdate", "birthdate", true)}
+            </div>
+
+            <div className="infoColumn">
+              {renderEditableField("SSS #", "sss_number")}
+              {renderEditableField("PAGIBIG #", "pagibig_number")}
+              {renderEditableField("BIR #", "bir_number")}
+              {renderEditableField("PhilHealth #", "philhealth_number")}
+            </div>
           </div>
         </div>
       </div>

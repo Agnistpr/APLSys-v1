@@ -22,10 +22,12 @@ const subNavIcons = {
   Management: <MdManageSearch />
 };
 
-const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollapsed, selectedEmployeeId, setSelectedEmployeeId, selectedApplicantId, setSelectedApplicantId, setShowAnalyzer, showAnalyzer, showApplicantInfo, setShowApplicantInfo }) => {
+const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollapsed, selectedEmployeeId, setSelectedEmployeeId, selectedApplicantId, setSelectedApplicantId }) => {
   const [showEmployees, setShowEmployees] = useState(false);
   const [showApplicants, setShowApplicants] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
+  const [showAnalyzer, setShowAnalyzer] = useState(false);
+  const [showApplicantInfo, setShowApplicantInfo] = useState(false);
 
   const [userName, setUserName] = useState(null);
   const [userRole, setUserRole] = useState(null);
@@ -133,6 +135,7 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
 
           {showApplicants && (
             <div className="subNavList">
+              {/* Always visible */}
               {["Screening", "Training"].map((page) => (
                 <div
                   key={page}
@@ -145,34 +148,26 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
                 </div>
               ))}
 
-              {(activePage === "Analyzer" || showAnalyzer) && (
-                <div
-                  className={`subNavItem ${activePage === "Analyzer" ? "activeSubTab" : ""}`}
-                  onClick={() => {
-                    setActivePage("Analyzer");
-                    setShowAnalyzer(true); // ✅ mark as open
-                    setShowApplicantInfo(false);
-                  }}
-                  title="Analyzer"
-                >
-                  {subNavIcons["Analyzer"]}
-                  <span>Analyzer</span>
-                </div>
-              )}
+              {selectedApplicantId && (
+                <>
+                  <div
+                    className={`subNavItem ${activePage === "Analyzer" ? "activeSubTab" : ""}`}
+                    onClick={() => setActivePage("Analyzer")}
+                    title="Analyzer"
+                  >
+                    {subNavIcons["Analyzer"]}
+                    <span>Analyzer</span>
+                  </div>
 
-              {(activePage === "ApplicantInformation" || showApplicantInfo) && (
-                <div
-                  className={`subNavItem ${activePage === "ApplicantInformation" ? "activeSubTab" : ""}`}
-                  onClick={() => {
-                    setActivePage("ApplicantInformation");
-                    setShowApplicantInfo(true); // ✅ mark as open
-                    setShowAnalyzer(false);
-                  }}
-                  title="Information"
-                >
-                  <FaUserTie />
-                  <span>Information</span>
-                </div>
+                  <div
+                    className={`subNavItem ${activePage === "ApplicantInformation" ? "activeSubTab" : ""}`}
+                    onClick={() => setActivePage("ApplicantInformation")}
+                    title="Information"
+                  >
+                    <FaUserTie />
+                    <span>Information</span>
+                  </div>
+                </>
               )}
             </div>
           )}

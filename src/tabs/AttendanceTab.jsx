@@ -12,7 +12,7 @@ const getYesterday = () => {
   return d.toISOString().split("T")[0];
 };
 
-const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
+const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId, setSelectedApplicantId }) => {
   const [attendance, setAttendance] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState("fullName");
@@ -203,8 +203,19 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId }) => {
                 <tr
                   key={idx}
                   onDoubleClick={() => {
-                    setSelectedEmployeeId(row.employeeid);
-                    setActivePage("EmployeeInformation");
+                    switch (row.role) {
+                      case "Employee":
+                        setSelectedEmployeeId(row.profileid);
+                        setActivePage("EmployeeInformation");
+                        break;
+                      case "Applicant":
+                        setSelectedApplicantId(row.profileid);
+                        // setPreviousPage(activePage);
+                        setActivePage("ApplicantInformation");
+                        break;
+                      default:
+                        console.log("Something went wrong.");
+                    }
                   }}
                 >
                   <td>

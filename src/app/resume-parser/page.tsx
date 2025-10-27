@@ -133,7 +133,7 @@ const defaultResume = {
   custom: { descriptions: [] }
 };
 
-export default function ResumeParser({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage, selectedResumeFile, setSelectedResumeFile }) {
+export default function ResumeParser({ setActivePage, goBack, setPreviousPage, activePage, selectedResumeFile, setSelectedResumeFile }) {
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [textItems, setTextItems] = useState<TextItems>([]);
   const [editableResume, setEditableResume] = useState<any>({...defaultResume});
@@ -746,10 +746,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             </button>
           <button
             onClick={() => {
-              // setSelectedResumeFile(null);
-              setSelectedApplicantId(false);
-              setPreviousPage(activePage);
-              setActivePage("Screening");
+              goBack()
             }}
             className="btn-secondary"
           >
@@ -826,9 +823,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                     );
 
                     alert(`Applicant added! ID: ${added.applicantid}`);
-                    setSelectedApplicantId(false);
-                    setPreviousPage(activePage);
-                    setActivePage("Screening");
+                    goBack();
                   } catch (err) {
                     console.error("Failed to add applicant:", err);
                     alert("Error adding applicant.");

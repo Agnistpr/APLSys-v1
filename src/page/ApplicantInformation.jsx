@@ -284,14 +284,14 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
 
         if (res?.success) {
           setApplicant((prev) => ({ ...prev, applicantimage: res.imageUrl }));
-          setUploadMessage("Profile image updated.");
+          window.toast("Profile image updated.", "success");
           setIsError(false);
         } else {
-          setUploadMessage("Upload failed.");
+          window.toast("Something went wrong.", "error");
           setIsError(true);
         }
       } else {
-        setUploadMessage("No image selected.");
+        window.toast("No image uploaded.", "error");
         setIsError(true);
       }
       setTimeout(() => setUploadMessage(""), 3000);
@@ -376,22 +376,31 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
           <div className="employeeInfoName">
             {applicant.applicantid} | {applicant.name}
           </div>
-          <div className="employeeInfoDetails">
-            {renderEditableField("Department", "department")}
-            {renderEditableField("Position", "position")}
-            {renderEditableField("Application Status", "status")}
-            {renderEditableField("Contact", "contact")}
-            {renderEditableField("Email", "email")}
-            {renderEditableField("Address", "address")}
-            {renderEditableField("Gender", "gender")}
-            {renderEditableField("Age", "age")}
-            {renderEditableField("Birthdate", "birthdate", true)}
-            {renderEditableField("Application Date", "applicationdate", true)}
-            {renderEditableField("Training Date", "trainingdate", true)}
-            {renderEditableField("SSS #", "sss_number")}
-            {renderEditableField("PAGIBIG #", "pagibig_number")}
-            {renderEditableField("PhilHealth #", "philhealth_number")}
-            {renderEditableField("BIR #", "bir_number")}
+
+          <div className="employeeInfoColumns">
+            <div className="infoColumn">
+              {renderEditableField("Department", "department")}
+              {renderEditableField("Position", "position")}
+              {renderEditableField("Application Status", "status")}
+              {renderEditableField("Application Date", "applicationdate", true)}
+              {renderEditableField("Training Date", "trainingdate", true)}
+            </div>
+
+            <div className="infoColumn">
+              {renderEditableField("Contact", "contact")}
+              {renderEditableField("Email", "email")}
+              {renderEditableField("Address", "address")}
+              {renderEditableField("Gender", "gender")}
+              {renderEditableField("Age", "age")}
+              {renderEditableField("Birthdate", "birthdate", true)}
+            </div>
+
+            <div className="infoColumn">
+              {renderEditableField("SSS #", "sss_number")}
+              {renderEditableField("PAGIBIG #", "pagibig_number")}
+              {renderEditableField("BIR #", "bir_number")}
+              {renderEditableField("PhilHealth #", "philhealth_number")}
+            </div>
           </div>
         </div>
       </div>

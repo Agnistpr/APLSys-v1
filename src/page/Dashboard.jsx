@@ -67,7 +67,8 @@ const Dashboard = ({
   setPreviousPage,
   selectedTab,
   setSelectedTab,
-  setPreviousTab
+  setPreviousTab,
+  setSelectedApplicantId
 }) => {
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
@@ -124,6 +125,7 @@ const Dashboard = ({
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
+        setSelectedApplicantId={setSelectedApplicantId}
         setSelectedEmployeeId={setSelectedEmployeeId}
         refreshDashboard={fetchCounts}
       />
@@ -136,6 +138,7 @@ const Dashboard = ({
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
+        setSelectedApplicantId={setSelectedApplicantId}
         setSelectedEmployeeId={setSelectedEmployeeId}
         refreshDashboard={fetchCounts}
       />
@@ -149,6 +152,7 @@ const Dashboard = ({
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
+        setSelectedApplicantId={setSelectedApplicantId}
         setSelectedEmployeeId={setSelectedEmployeeId}
         refreshDashboard={fetchCounts}
       />
@@ -162,6 +166,7 @@ const Dashboard = ({
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
+        setSelectedApplicantId={setSelectedApplicantId}
         setSelectedEmployeeId={setSelectedEmployeeId}
         refreshDashboard={fetchCounts}
       />
@@ -174,6 +179,7 @@ const Dashboard = ({
           setPreviousTab(selectedTab);
           setActivePage(page);
         }}
+        setSelectedApplicantId={setSelectedApplicantId}
         setSelectedEmployeeId={setSelectedEmployeeId}
         refreshDashboard={fetchCounts}
       />

@@ -40,7 +40,10 @@ const App = () => {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
   const [selectedApplicantId, setSelectedApplicantId] = useState(null);
   const [selectedResumeFile, setSelectedResumeFile] = useState(null);
-  const [activeTasks, setActiveTasks] = useState(new Map()); // taskId -> task metadata
+  const [activeTasks, setActiveTasks] = useState(new Map());
+
+  const [showAnalyzer, setShowAnalyzer] = useState(false);
+  const [showApplicantInfo, setShowApplicantInfo] = useState(false);
 
 useEffect(() => {
   const restoreSession = async () => {
@@ -142,7 +145,17 @@ useEffect(() => {
       case "Analyzer":
         return (
           <Suspense fallback={<div>Loading Analyzer...</div>}>
-            <Analyzer {...sharedProps} selectedResumeFile={selectedResumeFile} setSelectedResumeFile={setSelectedResumeFile} />
+            <Analyzer 
+              {...sharedProps} 
+              showAnalyzer
+              setShowAnalyzer
+              selectedResumeFile={selectedResumeFile} 
+              setSelectedResumeFile={setSelectedResumeFile} 
+              goBack={() => {
+                setShowAnalyzer(false); 
+                setActivePage(previousPage || "Dashboard");
+              }}
+            />
           </Suspense>
         );
       case "Management":
@@ -167,9 +180,12 @@ useEffect(() => {
       case "ApplicantInformation":
         return (
           <ApplicantInformation
+            setShowApplicantInfo
+            showApplicantInfo
             applicantId={selectedApplicantId}
             goBack={() => {
               setSelectedApplicantId(null);
+              setShowApplicantInfo(false);
               if (previousPage === "Dashboard") {
                 setActivePage("Dashboard");
                 if (previousTab) setSelectedTab(previousTab);
@@ -312,7 +328,21 @@ useEffect(() => {
 
   return (
     <div>
-      {user && <Sidebar activePage={activePage} setActivePage={setActivePage} onLogout={handleLogout} isCollapsed={isSidebarCollapsed} setIsCollapsed={setIsSidebarCollapsed} selectedEmployeeId={selectedEmployeeId} setSelectedEmployeeId={setSelectedEmployeeId} selectedApplicantId={selectedApplicantId} setSelectedApplicantId={setSelectedApplicantId} />}
+      {user && <Sidebar 
+        activePage={activePage} 
+        setActivePage={setActivePage} 
+        onLogout={handleLogout} 
+        isCollapsed={isSidebarCollapsed} 
+        setIsCollapsed={setIsSidebarCollapsed} 
+        selectedEmployeeId={selectedEmployeeId} 
+        setSelectedEmployeeId={setSelectedEmployeeId} 
+        selectedApplicantId={selectedApplicantId} 
+        setSelectedApplicantId={setSelectedApplicantId} 
+        showAnalyzer={showAnalyzer}
+        setShowAnalyzer={setShowAnalyzer}
+        showApplicantInfo={showApplicantInfo}
+        setShowApplicantInfo={setShowApplicantInfo}
+      />}
       <Toasts />
       <div className={`content ${isSidebarCollapsed ? 'collapsed' : 'expanded'}`}>{renderPage()}</div>
       <Toaster richColors position="top-right" />

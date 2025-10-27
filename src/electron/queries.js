@@ -1089,6 +1089,9 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
         contact,
         email,
         address,
+        gender,
+        age,
+        birthdate,
         hiredate,
         sss_number,
         pagibig_number,
@@ -1098,7 +1101,8 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
         department:departmentid ( departmentid, departmentname ),
         position:positionid ( positionid, positionname ),
         shift:shiftid ( shiftid, timestart, timeend ),
-        employeeimage
+        employeeimage,
+        type
       `)
       .eq("employeeid", employeeId)
       .maybeSingle();
@@ -1120,6 +1124,9 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
       contact: data.contact,
       email: data.email,
       address: data.address,
+      gender: data.gender,
+      age: data.age,
+      birthdate: new Date(data.birthdate).toISOString().split("T")[0],
       hiredate: new Date(data.hiredate).toISOString().split("T")[0],
       sss_number: data.sss_number,
       pagibig_number: data.pagibig_number,
@@ -1129,6 +1136,7 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
       shiftstart: sh?.timestart ?? "",
       shiftend: sh?.timeend ?? "",
       employeeimage: data.employeeimage || null,
+      type: data.type ?? "",
     };
   } catch (err) {
     console.error("Error fetching employee details:", err);
@@ -1277,8 +1285,8 @@ ipcMain.handle("updateEmployee", async (event, employeeId, field, value) => {
       const base64Data = value.split(",")[1];
       const buffer = Buffer.from(base64Data, "base64");
       const fileExt = value.substring("data:image/".length, value.indexOf(";base64"));
-      const fileName = `${employeeId}_image.${fileExt}`;
-      const filePath = `${employeeId}_image.${fileExt}`;
+      const fileName = `Employee${employeeId}_image.${fileExt}`;
+      const filePath = `Employee${employeeId}_image.${fileExt}`;
 
       console.log({
         bucket: 'image',
@@ -1453,7 +1461,7 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
         attendanceid: a.attendanceid,
         date: formatDateToISO(a.date),
         role: a.role,
-        employeeid: emp.employeeid ?? emp.applicantid ?? "",
+        profileid: emp.employeeid ?? emp.applicantid ?? "",
         fullName: `${emp.lastname ?? ""}, ${emp.firstname ?? ""}${
           emp.middlename ? " " + emp.middlename.charAt(0) + "." : ""
         }`,
@@ -2038,18 +2046,18 @@ ipcMain.handle("updateApplicant", async (event, applicantId, field, value) => {
       const base64Data = value.split(",")[1];
       const buffer = Buffer.from(base64Data, "base64");
       const fileExt = value.substring("data:image/".length, value.indexOf(";base64"));
-      const fileName = `${applicantId}_image.${fileExt}`;
-      const filePath = `${applicantId}_image.${fileExt}`;
+      const fileName = `Applicant${applicantId}_image.${fileExt}`;
+      const filePath = `Applicant${applicantId}_image.${fileExt}`;
 
       console.log({
-        bucket: "applicant-images",
+        bucket: "image",
         filePath,
         type: `image/${fileExt}`,
         length: buffer.length,
       });
 
       const { error: uploadError } = await supabase.storage
-        .from("applicant-images") // ⚠️ use a separate bucket if desired
+        .from("image")
         .upload(filePath, buffer, {
           contentType: `image/${fileExt}`,
           upsert: true,
@@ -2058,7 +2066,7 @@ ipcMain.handle("updateApplicant", async (event, applicantId, field, value) => {
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage
-        .from("applicant-images")
+        .from("image")
         .getPublicUrl(filePath);
 
       updateData = { applicantimage: urlData.publicUrl };

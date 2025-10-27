@@ -1123,7 +1123,7 @@ body.login .content {
 .cardBody {
   display: flex;
   padding: 20px;
-  gap: 16px;
+  gap: 5px;
   align-items: center;
   justify-content: center;
   min-height: 70px;
@@ -2047,7 +2047,7 @@ body.login .content {
 .employeeInfoPhoto .placeholderPhoto {
   width: 250px;
   height: 250px;
-  background-image: url('./src/assets/placeholder.jpg');/* replacethilater*/
+  background-image: url('./src/assets/placeholder.jpg');
   background-size: cover;
   background-position: center;
   border-radius: 8px;
@@ -2056,29 +2056,56 @@ body.login .content {
 
 .employeeInfoMeta {
   flex: 1;
-  max-width: 700px;
+  max-width: 1000px;
+  display: flex;
+  flex-direction: column;
+  /* gap: 1.5rem; */
 }
 
 .employeeInfoName {
   font-weight: 600;
   font-size: 1.2rem;
-  margin-bottom: 10px;
+  /* margin-bottom: 10px; */
 }
 
-.employeeInfoDetails {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem 2rem;
-  font-size: 0.95rem;
+.employeeInfoColumns {
+  display: flex;
+  gap: 4rem;
 }
 
-.employeeInfoDetails p {
-  margin: 4px 0;
+.infoColumn .editableField {
   text-align: left;
 }
 
-.employeeInfoDetails strong {
+.employeeColumn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.employeeColumn h3 {
+  font-size: 1rem;
   font-weight: 600;
+  color: #444;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 0.25rem;
+}
+
+.employeeField {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.95rem;
+}
+
+.employeeField label {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.employeeField span {
+  color: #555;
 }
 
 .attendanceHeader {
