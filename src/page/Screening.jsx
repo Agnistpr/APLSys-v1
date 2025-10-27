@@ -5,7 +5,6 @@ import FilterPanel from "../components/FilterPanel.jsx";
 import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
 
-
 const Screening = ({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage, setSelectedResumeFile }) => {
   const [selectedTab, setSelectedTab] = useState("Pending");
   const [applicants, setApplicants] = useState([]);

@@ -31,6 +31,10 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
   const [userRole, setUserRole] = useState(null);
 
   useEffect(() => {
+    console.log("Sidebar states:", { activePage, showAnalyzer, showApplicantInfo });
+  }, [activePage, showAnalyzer, showApplicantInfo]);
+
+  useEffect(() => {
     const fetchUser = async () => {
       try {
         const user = await window.authAPI.getCurrentUser();

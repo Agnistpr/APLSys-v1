@@ -143,6 +143,7 @@ useEffect(() => {
           </Suspense>
         );
       case "Analyzer":
+        if (!showAnalyzer) setShowAnalyzer(true);
         return (
           <Suspense fallback={<div>Loading Analyzer...</div>}>
             <Analyzer 
@@ -178,6 +179,7 @@ useEffect(() => {
           />
         );
       case "ApplicantInformation":
+        if (!showApplicantInfo) setShowApplicantInfo(true);
         return (
           <ApplicantInformation
             setShowApplicantInfo

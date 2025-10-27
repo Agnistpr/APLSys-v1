@@ -5,7 +5,7 @@ import FilterPanel from "../components/FilterPanel.jsx";
 import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
 
-const Training = ({ activePage }) => {
+const Training = ({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage }) => {
   const [selectedTab, setSelectedTab] = useState("Training");
   const [applicants, setApplicants] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -243,8 +243,15 @@ const Training = ({ activePage }) => {
                         <td colSpan={showCheckboxes ? 6 : 5}>No records found.</td>
                       </tr>
                     ) : (
-                      paginated.map((row) => (
-                        <tr key={row.applicantid}>
+                      paginated.map((row, idx) => (
+                        <tr 
+                          key={idx}
+                          onDoubleClick={() => {
+                            setSelectedApplicantId(row.applicantid);
+                            setPreviousPage(activePage);
+                            setActivePage("ApplicantInformation");
+                          }}
+                        >
                           {showCheckboxes && (
                             <td>
                               <input
