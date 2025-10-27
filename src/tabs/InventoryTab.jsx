@@ -1,17 +1,16 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { FiEdit } from "react-icons/fi";
-import ImportModal from "../components/Import.jsx";
+import React, { useEffect, useState, useMemo, useRef } from "react";
+import { FiEdit, FiTrash2, FiPlus } from "react-icons/fi";
 import DatePicker from "../components/DatePicker.jsx";
 import SortDropdown from "../components/SortDropdown.jsx";
 import FilterPanel from "../components/FilterPanel.jsx";
 import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
+import ConfirmModal from "../components/ConfirmModal.jsx";
 
 const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
-  // --- State ---
   const [logs, setLogs] = useState([]);
   const [cardData, setCardData] = useState([]);
-
+  const [profiles, setProfiles] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState("name");
   const [sortOrder, setSortOrder] = useState("asc");
@@ -23,9 +22,23 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
   const [itemsPerPage, setItemsPerPage] = useState(5);
   const [loading, setLoading] = useState(true);
   const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ itemid: "", itemname: "", quantity: "" });
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [editForm, setEditForm] = useState({
+    itemid: "",
+    itemname: "",
+    quantity: "",
+    profileid: "",
+    role: "Employee",
+  });
+  const [addForm, setAddForm] = useState({
+    itemname: "",
+    quantity: "",
+  });
+  const [editSearchTerm, setEditSearchTerm] = useState("");
+  const suggestionRef = useRef(null);
 
-  // --- Columns ---
   const columns = ["name", "department", "position", "itemname", "quantity", "date"];
   const columnLabelMap = {
     name: "Name",
@@ -36,30 +49,67 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
     date: "Date",
   };
 
-  // --- Fetch Logs & Cards ---
   useEffect(() => {
     const fetchLogs = async () => {
-      setLoading(true);
-      const data = await window.inventoryAPI.getInventoryLogs(selectedDate?.trim() || "");
-      setLogs(data);
-      setLoading(false);
+      try {
+        setLoading(true);
+        const data = await window.inventoryAPI.getInventoryLogs(selectedDate?.trim() || "");
+        setLogs(data || []);
+      } catch {
+        window.toast("Failed to load inventory logs", "error");
+      } finally {
+        setLoading(false);
+      }
     };
     fetchLogs();
   }, [selectedDate]);
 
   useEffect(() => {
     const fetchCardData = async () => {
-      const data = await window.inventoryAPI.getInventoryCard();
-      setCardData(data);
+      try {
+        const data = await window.inventoryAPI.getInventoryCard();
+        setCardData(data || []);
+      } catch {
+        window.toast("Failed to load inventory summary", "error");
+      }
     };
     fetchCardData();
+  }, []);
+
+  useEffect(() => {
+    const fetchProfiles = async () => {
+      try {
+        const emps = await window.employeeAPI.getEmployees();
+        const apps =
+          (await window.applicantAPI.getApplicant?.()) ||
+          (await window.applicantAPI.getApplicants?.()) ||
+          [];
+        const normalizedEmps = (emps || []).map((e) => ({
+          profileid: e.employeeid,
+          name: e.name || `${e.firstname ?? ""} ${e.lastname ?? ""}`.trim(),
+          department: e.department || "",
+          position: e.position || "",
+          role: "Employee",
+        }));
+        const normalizedApps = (apps || []).map((a) => ({
+          profileid: a.applicantid,
+          name: a.name || `${a.firstname ?? ""} ${a.lastname ?? ""}`.trim(),
+          department: a.department || "",
+          position: a.position || "",
+          role: "Applicant",
+        }));
+        setProfiles([...normalizedEmps, ...normalizedApps]);
+      } catch (err) {
+        console.error("Failed to fetch profiles", err);
+      }
+    };
+    fetchProfiles();
   }, []);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, selectedFilters, selectedDate]);
 
-  // --- Unique Filter Values ---
   const uniqueValues = useMemo(() => {
     const values = { department: new Set(), position: new Set(), itemname: new Set() };
     logs.forEach((r) => {
@@ -74,11 +124,11 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
     };
   }, [logs]);
 
-  // --- Filtered, Sorted, Paginated ---
   const filtered = useMemo(() => {
     return logs.filter((row) => {
-      const matchesSearch = Object.values(row)
-        .some((val) => String(val || "").toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchesSearch = Object.values(row).some((val) =>
+        String(val || "").toLowerCase().includes(searchTerm.toLowerCase())
+      );
       const matchesFilters = Object.entries(selectedFilters).every(([col, vals]) => {
         return col === "__activeColumn" || !vals.length || vals.includes(row[col] || "");
       });
@@ -103,49 +153,154 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
 
-  // --- Render ---
+  const refreshData = async () => {
+    const updated = await window.inventoryAPI.getInventoryCard();
+    setCardData(updated || []);
+    const newLogs = await window.inventoryAPI.getInventoryLogs(selectedDate?.trim() || "");
+    setLogs(newLogs || []);
+  };
+
+  const handleAddItem = async () => {
+    try {
+      const added = await window.inventoryAPI.addItem({
+        itemname: addForm.itemname,
+        quantity: Number(addForm.quantity) || 0,
+      });
+      if (!added || !added.itemid) throw new Error("Add failed");
+      window.toast("Item added successfully!", "success");
+      setAddModalOpen(false);
+      setAddForm({ itemname: "", quantity: "" });
+      await refreshData();
+      await window.userAPI.logAction(uid, "added new item", `${addForm.itemname} (${addForm.quantity})`);
+    } catch {
+      window.toast("Failed to add item", "error");
+    }
+  };
+
+  const handleEditItem = async () => {
+    try {
+      const payload = {
+        itemid: editForm.itemid,
+        itemname: editForm.itemname,
+        quantity: Number(editForm.quantity) || 0,
+      };
+      const res = await window.inventoryAPI.updateItem(payload);
+      if (!res || res.success === false) throw new Error(res?.error || "Update failed");
+      await window.inventoryAPI.addInventoryLog({
+        itemid: editForm.itemid,
+        profileid: editForm.profileid || null,
+        quantity: Number(editForm.quantity) || 0,
+        role: editForm.role || "Employee",
+      });
+      window.toast("Item updated successfully!", "success");
+      setEditModalOpen(false);
+      setEditForm({
+        itemid: "",
+        itemname: "",
+        quantity: "",
+        profileid: "",
+        role: "Employee",
+      });
+      await refreshData();
+      await window.userAPI.logAction(uid, "edited item", editForm.itemname);
+    } catch {
+      window.toast("Failed to update item", "error");
+    }
+  };
+
+  const handleDeleteItem = (itemid, itemname) => {
+    setPendingDelete({ itemid, itemname });
+    setConfirmOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    try {
+      if (!pendingDelete) return;
+      const res = await window.inventoryAPI.deleteItem(pendingDelete.itemid);
+      if (res && res.success === false) throw new Error(res.error || "Delete failed");
+      window.toast(`Deleted "${pendingDelete.itemname}"`, "success");
+      await refreshData();
+      await window.userAPI.logAction(uid, "deleted item", pendingDelete.itemname);
+    } catch {
+      window.toast("Failed to delete item", "error");
+    } finally {
+      setPendingDelete(null);
+      setConfirmOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (suggestionRef.current && !suggestionRef.current.contains(event.target)) {
+        setEditSearchTerm("");
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const editSuggestions = useMemo(() => {
+    const role = editForm.role || "Employee";
+    const q = (editSearchTerm || "").toLowerCase();
+    return profiles
+      .filter((p) => p.role === role)
+      .filter((p) => (p.name || "").toLowerCase().includes(q))
+      .slice(0, 10);
+  }, [profiles, editForm.role, editSearchTerm]);
+
   return (
     <div className="tabSection">
-      {/* ====== Inventory Cards ====== */}
       <div className="inventoryRow">
-        <h2 className="tabTitle">Inventory</h2>
-        <button className="exportBtn" onClick={() => window.exportAPI.exportInventory()}>
-          Export
+        <div className="tabTitleGroup">
+          <h2 className="tabTitle">Inventory</h2>
+          <button className="exportBtn" onClick={() => window.exportAPI.exportInventory()}>
+            Export
+          </button>
+        </div>
+        <button className="addBtn" onClick={() => setAddModalOpen(true)}>
+          <FiPlus /> Add Item
         </button>
       </div>
 
-      <div className="tabCards">
+      <div className="tabCards" style={{ scrollBehavior: "smooth" }}>
         {cardData.map((row, idx) => (
-          <div key={idx} className="dashboardCards">
+          <div key={row.itemid ?? idx} className="dashboardCards">
             <div className="cardBody">
-              <div className="cardInfo">
-                <div className="cardValue">{row.quantity}</div>
-                <div className="cardTitle">{row.itemname}</div>
-              </div>
+              <div className="cardTitle">{row.itemname}</div>
+              <div className="cardValue">{row.quantity}</div>
             </div>
+            <button
+              className="deleteCardBtn floating"
+              onClick={() => handleDeleteItem(row.itemid, row.itemname)}
+              title="Delete item"
+            >
+              <FiTrash2 />
+            </button>
             <div className="cardFooter">
-              Last Modified:{" "}
-              {row.lastmodified ? new Date(row.lastmodified).toLocaleDateString() : "—"}
-              <button
-                className="editCardBtn"
-                onClick={() => {
-                  setEditForm({
-                    itemid: row.itemid,
-                    itemname: row.itemname,
-                    quantity: row.quantity,
-                  });
-                  setEditModalOpen(true);
-                }}
-                title="Edit item"
-              >
-                <FiEdit />
-              </button>
+              Last Modified: {row.lastmodified ? new Date(row.lastmodified).toLocaleDateString() : "—"}
+              <div className="flex gap-2">
+                <button
+                  className="editCardBtn"
+                  onClick={() => {
+                    setEditForm({
+                      itemid: row.itemid,
+                      itemname: row.itemname,
+                      quantity: row.quantity,
+                      profileid: "",
+                      role: "Employee",
+                    });
+                    setEditModalOpen(true);
+                  }}
+                  title="Edit item"
+                >
+                  <FiEdit />
+                </button>
+              </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* ====== Logs Section ====== */}
       <div className="tabHeaderRow">
         <h2 className="tabTitle">Inventory Logs</h2>
         <div className="tabControls">
@@ -161,7 +316,6 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
             dropdownOpen={dropdownOpen}
             setDropdownOpen={setDropdownOpen}
           />
-
           <FilterPanel
             filterOpen={filterOpen}
             setFilterOpen={setFilterOpen}
@@ -170,18 +324,18 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
             uniqueValues={uniqueValues}
             columnLabelMap={columnLabelMap}
           />
-
           <DatePicker
             value={selectedDate}
-            onChange={setSelectedDate}
+            onChange={(val) => {
+              setSelectedDate(val);
+              localStorage.setItem("inventoryDate", val);
+            }}
             storageKey="inventoryDate"
           />
-
           <SearchBar value={searchTerm} onChange={setSearchTerm} />
         </div>
       </div>
 
-      {/* ====== Table ====== */}
       <div className="tableContainer">
         <table className={`tabTable ${loading ? "skeleton" : ""}`}>
           <thead>
@@ -191,45 +345,20 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
               ))}
             </tr>
           </thead>
-
           <tbody>
             {loading ? (
-              Array.from({ length: itemsPerPage }).map((_, idx) => (
-                <tr key={idx} className="skeletonRow">
-                  {columns.map((_, i) => (
-                    <td key={i}>
-                      <div className="shimmerCell" />
-                    </td>
-                  ))}
-                </tr>
-              ))
+              <tr><td colSpan={columns.length}>Loading...</td></tr>
             ) : paginated.length === 0 ? (
-              <tr>
-                <td colSpan={columns.length}>No records found.</td>
-              </tr>
+              <tr><td colSpan={columns.length}>No records found.</td></tr>
             ) : (
               paginated.map((row, idx) => (
-                <tr
-                  key={idx}
-                  onDoubleClick={() => {
-                    setSelectedEmployeeId(row.employeeid);
-                    setActivePage("EmployeeInformation");
-                  }}
-                >
+                <tr key={idx}>
                   <td>{row.name}</td>
                   <td>{row.department}</td>
                   <td>{row.position}</td>
                   <td>{row.itemname}</td>
                   <td>{row.quantity}</td>
-                  <td>
-                    {row.date
-                      ? new Date(row.date).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })
-                      : "-"}
-                  </td>
+                  <td>{row.date ? new Date(row.date).toLocaleDateString() : "-"}</td>
                 </tr>
               ))
             )}
@@ -237,7 +366,6 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
         </table>
       </div>
 
-      {/* ====== Footer ====== */}
       <div className="tableFooter">
         <Pagination
           currentPage={currentPage}
@@ -250,60 +378,115 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
         />
       </div>
 
-      {/* ====== Edit Modal ====== */}
+      <ConfirmModal
+        open={confirmOpen}
+        title="Delete Item"
+        message={`Are you sure you want to delete "${pendingDelete?.itemname}"?`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={confirmDelete}
+        onCancel={() => setConfirmOpen(false)}
+      />
+
+      {addModalOpen && (
+        <div className="modalOverlay" onClick={(e) => {
+          if (e.target.classList.contains("modalOverlay")) setAddModalOpen(false);
+        }}>
+          <div className="modalContent">
+            <h3>Add New Item</h3>
+            <label>Item Name</label>
+            <input
+              type="text"
+              value={addForm.itemname}
+              onChange={(e) => setAddForm({ ...addForm, itemname: e.target.value })}
+            />
+            <label>Quantity</label>
+            <input
+              type="number"
+              value={addForm.quantity}
+              onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })}
+            />
+            <div className="modalActions">
+              <button onClick={() => setAddModalOpen(false)}>Cancel</button>
+              <button onClick={handleAddItem}>Add</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editModalOpen && (
-        <div
-          className="modalOverlay"
-          onClick={(e) => {
-            if (e.target.classList.contains("modalOverlay")) {
-              setEditModalOpen(false);
-            }
-          }}
-        >
+        <div className="modalOverlay" onClick={(e) => {
+          if (e.target.classList.contains("modalOverlay")) setEditModalOpen(false);
+        }}>
           <div className="modalContent">
             <h3>Edit Item</h3>
-
             <label>Item Name</label>
             <input
               type="text"
               value={editForm.itemname}
               onChange={(e) => setEditForm({ ...editForm, itemname: e.target.value })}
             />
-
             <label>Quantity</label>
             <input
               type="number"
               value={editForm.quantity}
               onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
             />
-
+            <label>Role</label>
+            <select
+              value={editForm.role}
+              onChange={(e) => {
+                setEditForm({ ...editForm, role: e.target.value, profileid: "" });
+                setEditSearchTerm("");
+              }}
+            >
+              <option value="Employee">Employee</option>
+              <option value="Applicant">Applicant</option>
+            </select>
+            <label>Associate With (search)</label>
+            <div className="employeeSearchBox" ref={suggestionRef}>
+              <input
+                type="text"
+                className="searchInput"
+                placeholder={`Search ${editForm.role}s by name...`}
+                value={editSearchTerm}
+                onChange={(e) => setEditSearchTerm(e.target.value)}
+              />
+              {editSearchTerm && editSuggestions.length > 0 && (
+                <ul className="suggestionList">
+                  {editSuggestions.map((p) => (
+                    <li
+                      key={p.profileid}
+                      className={`suggestionItem ${String(editForm.profileid) === String(p.profileid) ? "selected" : ""}`}
+                      onClick={() => {
+                        setEditForm({ ...editForm, profileid: p.profileid });
+                        setEditSearchTerm("");
+                      }}
+                    >
+                      <strong>{p.name}</strong>
+                      <span>{p.department} • {p.position}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {editForm.profileid && (
+              <div className="selectedProfileTag">
+                Assigned to:{" "}
+                <strong>
+                  {profiles.find((p) => String(p.profileid) === String(editForm.profileid))?.name || "Selected"}
+                </strong>
+                <button
+                  onClick={() => setEditForm({ ...editForm, profileid: "" })}
+                  style={{ marginLeft: 8 }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <div className="modalActions">
               <button onClick={() => setEditModalOpen(false)}>Cancel</button>
-              <button
-                onClick={async () => {
-                  const oldItem = cardData.find((i) => i.itemid === editForm.itemid);
-                  await window.inventoryAPI.updateItem(editForm);
-                  setEditModalOpen(false);
-                  const updated = await window.inventoryAPI.getInventoryCard();
-                  setCardData(updated);
-
-                  if (oldItem) {
-                    const diffs = [];
-                    const labelMap = { itemname: "Item Name", quantity: "Quantity" };
-                    for (const key of Object.keys(labelMap)) {
-                      const oldVal = String(oldItem[key] ?? "");
-                      const newVal = String(editForm[key] ?? "");
-                      if (oldVal !== newVal) diffs.push(`${labelMap[key]}: "${oldVal}" → "${newVal}"`);
-                    }
-                    if (diffs.length) {
-                      const description = diffs.map((d) => `- ${d}`).join("\n");
-                      await window.userAPI.logAction(uid, `edited item "${oldItem.itemname}"`, description);
-                    }
-                  }
-                }}
-              >
-                Save
-              </button>
+              <button onClick={handleEditItem}>Save</button>
             </div>
           </div>
         </div>

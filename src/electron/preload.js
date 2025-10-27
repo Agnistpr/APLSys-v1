@@ -80,10 +80,13 @@ contextBridge.exposeInMainWorld('inventoryAPI', {
   getInventoryLogs: (date) => ipcRenderer.invoke('getInventoryLogs', date),
   getInventoryCard: () => ipcRenderer.invoke('getInventoryCard'),
   updateItem: (data) => ipcRenderer.invoke('updateItem', data),
+  addItem: (data) => ipcRenderer.invoke("addItem", data),
+  deleteItem: (itemid) => ipcRenderer.invoke("deleteItem", itemid),
 });
 
 contextBridge.exposeInMainWorld('applicantAPI', {
   getApplicant: (applicantId) => ipcRenderer.invoke("getApplicant", applicantId),
+  addInventoryLog: async (data) => ipcRenderer.invoke("addInventoryLog", data),
   updateApplicant: (applicantId, field, value) =>
     ipcRenderer.invoke("updateApplicant", applicantId, field, value),
   getApplicants: (status) => ipcRenderer.invoke('getApplicants', status),

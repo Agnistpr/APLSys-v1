@@ -1791,33 +1791,52 @@ ipcMain.handle('updateLeaveStatus', async (event, { ids, status }) => {
   }
 });
 
-ipcMain.handle('getInventoryLogs', async (event, date) => {
+ipcMain.handle("getInventoryLogs", async (event, date) => {
   try {
-    let q = supabase.from('inventorylogs').select('logid, employeeid, itemid, quantity, date').order('date', { ascending: false });
-    if (date) q = q.eq('date', formatDateToISO(date));
+    let q = supabase
+      .from("inventorylogs")
+      .select("logid, profileid, itemid, quantity, date, role")
+      .order("date", { ascending: false });
+
+    if (date) q = q.eq("date", formatDateToISO(date));
     const { data, error } = await q;
     if (error) throw error;
 
-    const employeeIds = [...new Set((data || []).map(l => l.employeeid))];
-    const { data: employees } = await supabase.from('employee').select('employeeid, lastname, firstname, middlename, departmentid, positionid').in('employeeid', employeeIds);
-    const empMap = new Map((employees || []).map(e => [e.employeeid, e]));
+    const employeeIds = data.filter(d => d.role === "Employee").map(d => d.profileid);
+    const applicantIds = data.filter(d => d.role === "Applicant").map(d => d.profileid);
 
-    const { data: departments } = await supabase.from('department').select('departmentid, departmentname');
+    const { data: employees } = await supabase
+      .from("employee")
+      .select("employeeid, firstname, middlename, lastname, departmentid, positionid")
+      .in("employeeid", employeeIds);
+
+    const { data: applicants } = await supabase
+      .from("applicant")
+      .select("applicantid, firstname, middlename, lastname, departmentid, positionid")
+      .in("applicantid", applicantIds);
+
+    const empMap = new Map((employees || []).map(e => [e.employeeid, e]));
+    const appMap = new Map((applicants || []).map(a => [a.applicantid, a]));
+
+    const { data: departments } = await supabase.from("department").select("departmentid, departmentname");
     const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
 
-    const { data: positions } = await supabase.from('position').select('positionid, positionname');
+    const { data: positions } = await supabase.from("position").select("positionid, positionname");
     const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
 
-    const { data: inventory } = await supabase.from('inventory').select('itemid, itemname');
+    const { data: inventory } = await supabase.from("inventory").select("itemid, itemname");
     const itemMap = new Map((inventory || []).map(i => [i.itemid, i.itemname]));
 
     const rows = (data || []).map((l) => {
-      const e = empMap.get(l.employeeid) || {};
+      const person = l.role === "Employee" ? empMap.get(l.profileid) : appMap.get(l.profileid);
+      const name = person
+        ? `${person.lastname || ""}, ${person.firstname || ""}${person.middlename ? ` ${person.middlename.charAt(0)}.` : ""}`
+        : "";
       return {
-        name: `${e.lastname || ''}, ${e.firstname || ''}${e.middlename ? ` ${e.middlename.charAt(0)}.` : ''}`,
-        department: deptMap.get(e.departmentid) || '',
-        position: posMap.get(e.positionid) || '',
-        itemname: itemMap.get(l.itemid) || '',
+        name,
+        department: deptMap.get(person?.departmentid) || "",
+        position: posMap.get(person?.positionid) || "",
+        itemname: itemMap.get(l.itemid) || "",
         quantity: l.quantity,
         date: formatDateToISO(l.date),
       };
@@ -1825,29 +1844,89 @@ ipcMain.handle('getInventoryLogs', async (event, date) => {
 
     return rows;
   } catch (err) {
-    console.error('getInventoryLogs error:', err);
+    console.error("getInventoryLogs error:", err);
     return [];
   }
 });
 
-ipcMain.handle('getInventoryCard', async () => {
+ipcMain.handle("getInventoryCard", async () => {
   try {
-    const { data, error } = await supabase.from('inventory').select('itemid, itemname, quantity, lastmodified').order('itemid', { ascending: true });
+    const { data, error } = await supabase
+      .from("inventory")
+      .select("itemid, itemname, quantity, lastmodified")
+      .order("itemid", { ascending: true });
+
     if (error) throw error;
-    return (data || []).map(r => ({ itemid: r.itemid, itemname: r.itemname, quantity: r.quantity, lastmodified: formatDateToISO(r.lastmodified) }));
+
+    return (data || []).map((r) => ({
+      itemid: r.itemid,
+      itemname: r.itemname,
+      quantity: r.quantity,
+      lastmodified: formatDateToISO(r.lastmodified),
+    }));
   } catch (err) {
-    console.error('getInventoryCard error:', err);
+    console.error("getInventoryCard error:", err);
     return [];
   }
 });
 
-ipcMain.handle('updateItem', async (event, { itemid, itemname, quantity }) => {
+ipcMain.handle("addItem", async (event, form) => {
   try {
-    const { error } = await supabase.from('inventory').update({ itemname, quantity }).eq('itemid', itemid);
+    const { itemname, quantity } = form;
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("inventory")
+      .insert([{ itemname, quantity, lastmodified: now }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error("addItem error:", err);
+    throw err;
+  }
+});
+
+ipcMain.handle("updateItem", async (event, form) => {
+  try {
+    const { itemid, itemname, quantity } = form;
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("inventory")
+      .update({ itemname, quantity, lastmodified: now })
+      .eq("itemid", itemid);
+
     if (error) throw error;
     return { success: true };
   } catch (err) {
-    console.error('updateItem error:', err);
+    console.error("updateItem error:", err);
+    throw err;
+  }
+});
+
+ipcMain.handle("addInventoryLog", async (event, { itemid, profileid, quantity, role }) => {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const { error } = await supabase
+      .from("inventorylogs")
+      .insert([{ itemid, profileid, quantity, date: today, role }]);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    console.error("addInventoryLog error:", err);
+    throw err;
+  }
+});
+
+ipcMain.handle("deleteItem", async (event, itemid) => {
+  try {
+    const { error } = await supabase.from("inventory").delete().eq("itemid", itemid);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    console.error("deleteItem error:", err);
     return { success: false, error: err.message };
   }
 });
