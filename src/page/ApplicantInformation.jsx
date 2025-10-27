@@ -25,9 +25,16 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
   const [confirmChanges, setConfirmChanges] = useState(false);
   const [pendingChange, setPendingChange] = useState(null);
 
+  const [confirmImageChange, setConfirmImageChange] = useState(false);
+  const [pendingImage, setPendingImage] = useState(null);
+
   const [selectedDate, setSelectedDate] = useState(() => {
     return localStorage.getItem("attendanceDate") || "";
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedFilters, selectedDate]);
 
   const validationRules = {
     contact: { regex: /^\d{11}$/, message: "Contact number must be exactly 11 digits." },
@@ -70,27 +77,20 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     const fetchApplicant = async () => {
       const data = await window.applicantAPI.getApplicant(applicantId);
       if (!data) return;
-
-      const deptObj = deptPosList.find((d) => d.departmentname === data.department);
-      const posObj = deptPosList.find((d) => d.positionname === data.position);
-
-      setApplicant({
-        ...data,
-        departmentid: deptObj?.departmentid || data.departmentid,
-        positionid: posObj?.positionid || data.positionid,
-      });
+      setApplicant(data);
     };
+    fetchApplicant();
+  }, [applicantId]);
 
+  useEffect(() => {
     const fetchAttendance = async () => {
       setLoading(true);
       const data = await window.attendanceAPI.getApplicantAttendance(applicantId, selectedDate);
+      setAttendance(data);
       setLoading(false);
-      setAttendance(data || []);
     };
-
-    fetchApplicant();
     fetchAttendance();
-  }, [applicantId, selectedDate, deptPosList]);
+  }, [applicantId, selectedDate]);
 
   const handleEditClick = (field, value) => {
     setEditingField(field);
@@ -140,26 +140,23 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     try {
       await window.applicantAPI.updateApplicant(applicantId, dbField, dbValue);
 
-      if (field === "department") {
-        const deptName = departments.find((d) => d.id == value)?.name;
-        setApplicant((prev) => ({
-          ...prev,
-          departmentid: value,
-          department: deptName,
-          positionid: null,
-          position: "---",
-        }));
-        await window.applicantAPI.updateApplicant(applicantId, "positionid", null);
-      } else if (field === "position") {
-        const posName = positionsByDept[applicant.departmentid]?.find((p) => p.id == value)?.name;
-        setApplicant((prev) => ({
-          ...prev,
-          positionid: value,
-          position: posName,
-        }));
-      } else {
-        setApplicant((prev) => ({ ...prev, [field]: value }));
-      }
+      setApplicant((prev) => {
+        const newState = { ...prev };
+        if (field === "department") {
+          newState.positionid = null;
+          newState.position = "---";
+          newState.departmentid = value;
+        } else if (field === "position") {
+          newState.positionid = value;
+          const posObj = deptPosList.find(
+            (d) => d.departmentid === prev.departmentid && d.positionid == value
+          );
+          newState.position = posObj?.positionname || "---";
+        } else {
+          newState[field] = value;
+        }
+        return newState;
+      });
 
       window.toast("Change saved successfully", "success");
     } catch (err) {
@@ -273,32 +270,51 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
   const filePicker = async () => {
     try {
       const filePaths = await window.fileAPI.selectFile({ type: "images", multi: false });
-      if (Array.isArray(filePaths) && filePaths.length > 0) {
-        const filePath = filePaths[0];
-        const fileData = await window.fileAPI.readFileAsBase64(filePath);
-        const fileExt = filePath.split(".").pop().toLowerCase();
-        const base64Data = `data:image/${fileExt};base64,${fileData}`;
+      if (!filePaths?.length) return;
 
-        setUploadMessage("Uploading...");
-        const res = await window.applicantAPI.updateApplicant(applicantId, "applicantimage", base64Data);
+      const filePath = filePaths[0];
+      const fileData = await window.fileAPI.readFileAsBase64(filePath);
+      const fileExt = filePath.split(".").pop().toLowerCase();
+      const base64Data = `data:image/${fileExt};base64,${fileData}`;
 
-        if (res?.success) {
-          setApplicant((prev) => ({ ...prev, applicantimage: res.imageUrl }));
-          window.toast("Profile image updated.", "success");
-          setIsError(false);
-        } else {
-          window.toast("Something went wrong.", "error");
-          setIsError(true);
-        }
+      if (applicant.applicantimage) {
+        setPendingImage(base64Data);
+        setConfirmImageChange(true);
       } else {
-        window.toast("No image uploaded.", "error");
+        const res = await window.applicantAPI.updateApplicant(applicantId, "applicantimage", base64Data);
+        if (res.success) {
+          setApplicant(prev => ({ ...prev, applicantimage: res.imageUrl }));
+          window.toast("Profile image updated.", "success");
+        } else {
+          window.toast("Upload failed.", "error");
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setIsError(true);
+    }
+  };
+
+  const handleConfirmImage = async () => {
+    if (!pendingImage) return;
+    setConfirmImageChange(false);
+
+    try {
+      const res = await window.applicantAPI.updateApplicant(applicantId, "applicantimage", pendingImage);
+      if (res.success) {
+        setApplicant(prev => ({ ...prev, applicantimage: res.imageUrl }));
+        window.toast("Profile image updated.", "success");
+        setIsError(false);
+      } else {
+        window.toast("Something went wrong.", "error");
         setIsError(true);
       }
-      setTimeout(() => setUploadMessage(""), 3000);
     } catch (err) {
-      console.error("Upload error:", err);
-      setUploadMessage("Error uploading image.");
+      console.error(err);
+      window.toast("Something went wrong.", "error");
       setIsError(true);
+    } finally {
+      setPendingImage(null);
       setTimeout(() => setUploadMessage(""), 3000);
     }
   };
@@ -564,6 +580,19 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
         onCancel={() => {
           setConfirmChanges(false);
           setPendingChange(null);
+        }}
+      />
+
+      <ConfirmModal
+        open={confirmImageChange}
+        title="Confirm Image Change"
+        message="Are you sure you want to save this change? This cannot be undone and changes may take some time."
+        confirmLabel="Yes"
+        cancelLabel="No"
+        onConfirm={handleConfirmImage}
+        onCancel={() => {
+          setConfirmImageChange(false);
+          setPendingImage(null);
         }}
       />
     </div>

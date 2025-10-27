@@ -49,6 +49,10 @@ const Logs = () => {
     };
   }, [logs]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedFilters, selectedDate]);
+
   const filtered = useMemo(() => {
     return logs.filter((row) => {
       const matchesSearch =

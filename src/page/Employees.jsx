@@ -55,6 +55,10 @@ const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activ
     fetchEmployees();
   }, []);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedFilters]);
+
   // 🧠 Unique values for filters
   const uniqueValues = useMemo(() => {
     const values = { department: new Set(), position: new Set(), shift: new Set() };

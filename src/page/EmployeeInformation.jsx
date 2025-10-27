@@ -26,6 +26,9 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
   const [confirmChanges, setConfirmChanges] = useState(false);
   const [pendingChange, setPendingChange] = useState(null);
 
+  const [confirmImageChange, setConfirmImageChange] = useState(false);
+  const [pendingImage, setPendingImage] = useState(null);
+
   const [selectedDate, setSelectedDate] = useState(() => {
     return localStorage.getItem("attendanceDate") || "";
   });
@@ -58,6 +61,10 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     });
     return map;
   }, [deptPosList]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedFilters, selectedDate]);
 
   useEffect(() => {
     const fetchDeptPos = async () => {
@@ -175,6 +182,31 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     }
   };
 
+  const handleConfirmImage = async () => {
+    if (!pendingImage) return;
+
+    setConfirmImageChange(false);
+    try {
+      const res = await window.employeeAPI.updateEmployee(employeeId, "employeeimage", pendingImage);
+
+      if (res.success) {
+        setEmployee(prev => ({ ...prev, employeeimage: res.imageUrl }));
+        window.toast("Profile image updated.", "success");
+        setIsError(false);
+      } else {
+        window.toast("Something went wrong.", "error");
+        setIsError(true);
+      }
+    } catch (err) {
+      console.error(err);
+      window.toast("Something went wrong.", "error");
+      setIsError(true);
+    } finally {
+      setPendingImage(null);
+      setTimeout(() => setUploadMessage(""), 3000);
+    }
+  };
+
   const handleFieldBlur = (field, isDate) => {
     if (fieldValue !== employee[field]) {
       setPendingChange({ field, value: fieldValue });
@@ -273,25 +305,22 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
         const fileExt = filePath.split(".").pop().toLowerCase();
         const base64Data = `data:image/${fileExt};base64,${fileData}`;
 
-        setUploadMessage("Uploading...");
         const res = await window.employeeAPI.updateEmployee(employeeId, "employeeimage", base64Data);
 
-        if (res.success) {
-          setEmployee((prev) => ({ ...prev, employeeimage: res.imageUrl }));
-          setUploadMessage("Profile image updated.");
-          setIsError(false);
+        if (employee.employeeimage) {
+          setPendingImage(base64Data);
+          setConfirmImageChange(true);
         } else {
-          setUploadMessage("Upload failed.");
-          setIsError(true);
+          const res = await window.employeeAPI.updateEmployee(employeeId, "employeeimage", base64Data);
+          if (res.success) {
+            setEmployee((prev) => ({ ...prev, employeeimage: res.imageUrl }));
+            window.toast("Profile image updated.", "success");
+          } else {
+            window.toast("Upload failed.", "error");
+          }
         }
-      } else {
-        setUploadMessage("No image selected.");
-        setIsError(true);
       }
-      setTimeout(() => setUploadMessage(""), 3000);
     } catch (err) {
-      console.error("Upload error:", err);
-      setUploadMessage("Error uploading image.");
       setIsError(true);
       setTimeout(() => setUploadMessage(""), 3000);
     }
@@ -555,6 +584,19 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
         onCancel={() => {
           setConfirmChanges(false);
           setPendingChange(null);
+        }}
+      />
+
+      <ConfirmModal
+        open={confirmImageChange}
+        title="Confirm Image Change"
+        message="Are you sure you want to save this change? This cannot be undone and changes may take some time."
+        confirmLabel="Yes"
+        cancelLabel="No"
+        onConfirm={handleConfirmImage}
+        onCancel={() => {
+          setConfirmImageChange(false);
+          setPendingImage(null);
         }}
       />
     </div>

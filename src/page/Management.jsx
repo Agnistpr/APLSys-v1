@@ -22,6 +22,9 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   const [processingMap, setProcessingMap] = useState({}); 
   const columnLabelMap = { type: "Type" };
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedFilters]);
 
   // load pending set from localStorage after docs are loaded
   useEffect(() => {

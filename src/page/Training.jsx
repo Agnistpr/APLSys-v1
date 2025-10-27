@@ -50,6 +50,10 @@ const Training = ({ setActivePage, setSelectedApplicantId, setPreviousPage, acti
   }, []);
 
   useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedFilters]);
+
+  useEffect(() => {
     if (selectedTab === "Training") setApplicants(trainingApplicants);
     else if (selectedTab === "Hired") setApplicants(hiredApplicants);
     else if (selectedTab === "Rejected") setApplicants(rejectedApplicants);

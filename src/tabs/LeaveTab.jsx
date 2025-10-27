@@ -48,7 +48,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
     "isPaid",
     "duration",
     "date",
-    "status"
+    // "status"
   ];
 
   const columnLabelMap = {
@@ -61,7 +61,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
     isPaid: "Paid Leave",
     duration: "Duration",
     date: "Date",
-    status: "Status"
+    // status: "Status"
   };
 
   const addToast = (message, type) => {
@@ -69,6 +69,10 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
     setToasts((prev) => [...prev, { id, message, type }]);
   };
   const removeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedFilters, selectedDate]);
 
   const fetchOnLeave = async () => {
     setLoading(true);
@@ -127,7 +131,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
       isPaid: new Set(),
       type: new Set(),
       duration: new Set(),
-      status: new Set(),
+      // status: new Set(),
     };
 
     onLeave.forEach((row) => {
@@ -137,7 +141,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
       if (row.isPaid) values.isPaid.add(row.isPaid);
       if (row.type) values.type.add(row.type);
       if (row.Duration) values.duration.add(row.Duration);
-      if (row.status) values.status.add(row.status);
+      // if (row.status) values.status.add(row.status);
     });
 
     return {
@@ -147,7 +151,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
       isPaid: Array.from(values.isPaid),
       type: Array.from(values.type),
       duration: Array.from(values.duration),
-      status: Array.from(values.status),
+      // status: Array.from(values.status),
     };
   }, [onLeave]);
 
@@ -293,7 +297,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
               <th>Type</th>
               <th>Reason</th>
               <th>Duration</th>
-              {status === "Request" && <th>Status</th>}
+              {/* {status === "Request" && <th>Status</th>} */}
             </tr>
           </thead>
           <tbody>
@@ -374,7 +378,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
                       ? `${row.Duration} day${row.Duration > 1 ? "s" : ""}`
                       : "-"}
                   </td>
-                  {status === "Request" && <td>{row.status}</td>}
+                  {/* {status === "Request" && <td>{row.status}</td>} */}
                 </tr>
               ))
             )}

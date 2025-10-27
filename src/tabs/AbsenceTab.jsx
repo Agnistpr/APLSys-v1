@@ -52,6 +52,10 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
     fetchAbsences();
   }, [selectedDate]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedFilters, selectedDate]);
+
   const uniqueValues = useMemo(() => {
     const values = { role: new Set(), department: new Set(), position: new Set(), shift: new Set() };
     absence.forEach((row) => {

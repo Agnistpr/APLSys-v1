@@ -9,7 +9,7 @@ import Dashboard from './page/Dashboard.jsx';
 import EmployeeInformation from './page/EmployeeInformation.jsx';
 import ApplicantInformation from './page/ApplicantInformation.jsx';
 import Employee from './page/Employees.jsx';
-import Attendance from './page/Attendance.jsx';
+// import Attendance from './page/Attendance.jsx';
 import Shifting from './page/Shifting.jsx';
 import Training from './page/Training.jsx';
 import Management from './page/Management.jsx';
@@ -130,8 +130,8 @@ useEffect(() => {
         return <Dashboard {...sharedProps} selectedTab={selectedTab} setSelectedTab={setSelectedTab} setPreviousTab={setPreviousTab} />;
       case "Employee":
         return <Employee {...sharedProps} />;
-      case "Attendance":
-        return <Attendance {...sharedProps} />;
+      // case "Attendance":
+      //   return <Attendance {...sharedProps} />;
       case "Shifting":
         return <Shifting />;
       case "Training":

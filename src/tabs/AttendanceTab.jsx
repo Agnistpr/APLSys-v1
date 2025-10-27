@@ -74,6 +74,10 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId, setSelected
     fetchAttendance();
   }, [selectedDate]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedFilters, selectedDate]);
+
   const uniqueValues = useMemo(() => {
     const values = { role: new Set(), department: new Set(), position: new Set(), shift: new Set(), arrivalStatus: new Set(), workStatus: new Set() };
     attendance.forEach((row) => {
