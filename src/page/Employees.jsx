@@ -163,39 +163,47 @@ const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activ
             ))}
           </tr>
         </thead>
-        <tbody>
-          {loading ? (
-            <SkeletonLoader rows={itemsPerPage} columns={columns.length} />
-          ) : paginated.length === 0 ? (
-            <tr>
-              <td colSpan={columns.length}>No employees found.</td>
-            </tr>
-          ) : (
-            paginated.map((emp) => (
-              <tr
-                key={emp.employeeid}
-                onDoubleClick={() => {
-                  setSelectedEmployeeId(emp.employeeid);
-                  setPreviousPage(activePage);
-                  setActivePage("EmployeeInformation");
-                }}
-              >
-                {columns.map((col) => {
-                  if (col === "shift") {
-                    const shiftStr = emp.shift || "";
-                    const [start, end] = shiftStr.split(" - ");
-                    return (
-                      <td key={col}>
-                        {formatTime(start)} - {formatTime(end)}
-                      </td>
-                    );
-                  }
-                  return <td key={col}>{emp[col] || "N/A"}</td>;
-                })}
+          <tbody>
+            {loading ? (
+              Array.from({ length: itemsPerPage }).map((_, idx) => (
+                <tr key={idx} className="skeletonRow">
+                  {columns.map((_, i) => (
+                    <td key={i}>
+                      <div className="shimmerCell" />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : paginated.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length}>No employees found.</td>
               </tr>
-            ))
-          )}
-        </tbody>
+            ) : (
+              paginated.map((emp) => (
+                <tr
+                  key={emp.employeeid}
+                  onDoubleClick={() => {
+                    setSelectedEmployeeId(emp.employeeid);
+                    setPreviousPage(activePage);
+                    setActivePage("EmployeeInformation");
+                  }}
+                >
+                  {columns.map((col) => {
+                    if (col === "shift") {
+                      const shiftStr = emp.shift || "";
+                      const [start, end] = shiftStr.split(" - ");
+                      return (
+                        <td key={col}>
+                          {formatTime(start)} - {formatTime(end)}
+                        </td>
+                      );
+                    }
+                    return <td key={col}>{emp[col] || "N/A"}</td>;
+                  })}
+                </tr>
+              ))
+            )}
+          </tbody>
       </table>
 
       <div className="tableFooter">

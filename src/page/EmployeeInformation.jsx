@@ -71,27 +71,33 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     const fetchEmployee = async () => {
       const data = await window.employeeAPI.getEmployee(employeeId);
       if (!data) return;
-
-      const deptObj = deptPosList.find((d) => d.departmentname === data.department);
-      const posObj = deptPosList.find((d) => d.positionname === data.position);
-
-      setEmployee({
-        ...data,
-        departmentid: deptObj?.departmentid || data.departmentid,
-        positionid: posObj?.positionid || data.positionid,
-      });
+      setEmployee(data);
     };
+    fetchEmployee();
+  }, [employeeId]);
 
+  useEffect(() => {
+    if (!employee || deptPosList.length === 0) return;
+
+    const deptObj = deptPosList.find((d) => d.departmentname === employee.department);
+    const posObj = deptPosList.find((d) => d.positionname === employee.position);
+
+    setEmployee((prev) => ({
+      ...prev,
+      departmentid: deptObj?.departmentid || prev.departmentid,
+      positionid: posObj?.positionid || prev.positionid,
+    }));
+  }, [deptPosList, employee]);
+
+  useEffect(() => {
     const fetchAttendance = async () => {
       setLoading(true);
       const data = await window.attendanceAPI.getEmployeeAttendance(employeeId, selectedDate);
-      setLoading(false);
       setAttendance(data);
+      setLoading(false);
     };
-
-    fetchEmployee();
     fetchAttendance();
-  }, [employeeId, selectedDate, deptPosList]);
+  }, [employeeId, selectedDate]);
 
   const handleEditClick = (field, value) => {
     setEditingField(field);
@@ -141,10 +147,22 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     try {
       await window.employeeAPI.updateEmployee(employeeId, dbField, dbValue);
 
-      if (field === "department") {
-        await window.employeeAPI.updateEmployee(employeeId, "positionid", null);
-        setEmployee((prev) => ({ ...prev, positionid: null, position: "---" }));
-      }
+      setEmployee((prev) => {
+        const newState = { ...prev };
+        if (field === "department") {
+          newState.positionid = null;
+          newState.position = "---";
+          newState.departmentid = value;
+        } else if (field === "position") {
+          newState.positionid = value;
+          const posObj = deptPosList
+            .find((d) => d.departmentid === prev.departmentid && d.positionid == value);
+          newState.position = posObj?.positionname || "---";
+        } else {
+          newState[field] = value;
+        }
+        return newState;
+      });
 
       window.toast("Change saved successfully", "success");
     } catch (err) {

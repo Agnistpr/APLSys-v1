@@ -2074,7 +2074,30 @@ body.login .content {
 }
 
 .infoColumn .editableField {
-  text-align: left;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: 100%;
+  position: relative;
+  gap: 4px;
+}
+
+.infoColumn .editableField strong {
+  flex-shrink: 0; 
+  min-width: max-content;
+}
+
+.infoColumn .editableField span,
+.infoColumn .editableField select,
+.infoColumn .editableField input {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+
+.editIcon {
+  cursor: pointer;
+  flex-shrink: 0;
+  visibility: hidden;
 }
 
 .employeeColumn {
@@ -2106,6 +2129,30 @@ body.login .content {
 
 .employeeField span {
   color: #555;
+}
+
+.editableField:hover .editIcon {
+  visibility: visible;
+}
+
+.employeeInfoPhoto {
+  width: 250px;
+  height: 250px;
+  position: relative;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  /* overflow: hidden; */
+}
+
+.previewImage,
+.placeholderPhoto {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .attendanceHeader {
@@ -2148,37 +2195,6 @@ body.login .content {
 
 .attendanceTable td[style*="green"] {
   color: #43a047;
-}
-
-.editIcon {
-  margin-left: 6px;
-  cursor: pointer;
-  visibility: hidden;
-  position: absolute;
-}
-
-.editableField:hover .editIcon {
-  visibility: visible;
-}
-
-.employeeInfoPhoto {
-  width: 250px;
-  height: 250px;
-  position: relative;
-  border-radius: 8px;
-  border: 1px solid #ccc;
-  /* overflow: hidden; */
-}
-
-.previewImage,
-.placeholderPhoto {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
 }
 /* #endregion employeeInfo Styles */
 

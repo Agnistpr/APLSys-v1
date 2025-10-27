@@ -25,13 +25,13 @@ const Training = ({ setActivePage, setSelectedApplicantId, setPreviousPage, acti
 
   const selectAllRef = useRef(null);
 
-  const columns = ["applicantid", "fullname", "department", "position", "applicationdate"];
+  const columns = ["applicantid", "fullname", "department", "position", "trainingdate"];
   const columnLabelMap = {
     applicantid: "ID",
     fullname: "Name",
     department: "Department",
     position: "Position",
-    applicationdate: "Application Date",
+    trainingdate: "Training Date",
   };
 
   const fetchAllApplicants = async () => {
@@ -225,7 +225,7 @@ const Training = ({ setActivePage, setSelectedApplicantId, setPreviousPage, acti
                       <th>Name</th>
                       <th>Department</th>
                       <th>Position</th>
-                      <th>Application Date</th>
+                      <th>Training Date</th>
                     </tr>
                   </thead>
 
@@ -266,8 +266,8 @@ const Training = ({ setActivePage, setSelectedApplicantId, setPreviousPage, acti
                           <td>{row.department}</td>
                           <td>{row.position}</td>
                           <td>
-                            {row.applicationdate
-                              ? new Date(row.applicationdate).toLocaleDateString("en-US", {
+                            {row.trainingdate
+                              ? new Date(row.trainingdate).toLocaleDateString("en-US", {
                                   month: "short",
                                   day: "numeric",
                                   year: "numeric",

@@ -208,13 +208,21 @@ const Dashboard = ({
           ['Leave Requests', String(totalLeaveRequests), <FaClipboardList />],
         ].map(([title, value, icon], idx) => (
           <div key={idx} className="dashboardCards">
-            <div className="cardBody">
-              <div className="cardIcon">{icon}</div>
-              <div className="cardInfo">
-                <div className="cardTitle">{title}</div>
-                <CardValue value={value} loading={loading} />
+          <div className="cardBody">
+            {loading ? (
+              <div className="cardLoader spinnerInline">
+                <div className="spinner" />
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="cardIcon">{icon}</div>
+                <div className="cardInfo">
+                  <div className="cardTitle">{title}</div>
+                  <CardValue value={value} />
+                </div>
+              </>
+            )}
+          </div>
           </div>
         ))}
       </div>
