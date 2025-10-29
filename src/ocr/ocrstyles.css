@@ -2073,6 +2073,49 @@ body {
   color: hsl(var(--muted-foreground));
 }
 
+#ocr-root 
+.ocr-toast,
+.toast-persistent-class {
+  pointer-events: auto !important;
+  z-index: 99999 !important;
+}
+
+#ocr-root .toast-persistent-class button[aria-label="Close"] {
+  cursor: pointer;
+  opacity: 0.7;
+  padding: 4px;
+  transition: opacity 0.2s;
+  z-index: 100;
+}
+
+/* Sonner / Toaster close button — make sure it's clickable */
+.ocr-toast button[aria-label="Close"],
+.toast-persistent-class button[aria-label="Close"] {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  opacity: 0.95;
+  padding: 4px;
+  border-radius: 6px;
+  background: transparent;
+  transition: background 0.12s, opacity 0.12s;
+  z-index: 100000; /* above toast content */
+}
+
+
+/* Ensure the toast viewport is interactive and above everything */
+[data-sonner-toaster], .toaster, .toast-persistent-class, .ocr-toast {
+  pointer-events: auto !important;
+  z-index: 99999 !important;
+}
+
+#ocr-root 
+.ocr-toast button[aria-label="Close"]:hover,
+.toast-persistent-class button[aria-label="Close"]:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+}
+
 #ocr-root .after\:absolute::after {
   content: var(--tw-content);
   position: absolute;

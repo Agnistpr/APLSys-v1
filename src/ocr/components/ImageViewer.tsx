@@ -59,6 +59,7 @@ interface ImageViewerProps {
   //imageUrl: string;
   fileUrl: string;
   fileType: string;
+  fileName: string;
   onTextExtracted: (extraction: ExtractedText | ExtractedText[]) => void;
   extractedData: ExtractedText[];
 }
@@ -75,14 +76,31 @@ export async function classifyTextWithNER(text: string) {
   return res.data.entities;
 }
 
+// Update the classification function
 export async function classifyTextWithAI(text: string) {
-  const res = await axios.post("http://localhost:8000/ai/deepseek-label-extracted-text", { text });
-  return res.data;
+  try {
+    const res = await axios.post("http://localhost:8000/ai/deepseek-label-extracted-text", { 
+      text,
+      fileName: "document.txt" // Add filename for context
+    });
+    
+    // Ensure we handle both array and object responses
+    if (Array.isArray(res.data)) {
+      return res.data.map(item => item.tag || item.label || item.key).filter(Boolean);
+    } else if (typeof res.data === 'object') {
+      return Object.keys(res.data).filter(key => res.data[key] && typeof res.data[key] === 'string');
+    }
+    return [];
+  } catch (err) {
+    console.error('AI classification failed:', err);
+    return [];
+  }
 }
 
 export const ImageViewer: React.FC<ImageViewerProps> = ({
   fileUrl,
   fileType,
+  fileName,
   onTextExtracted,
   extractedData
 }) => {
@@ -95,7 +113,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
   const [currentSelection, setCurrentSelection] = useState<SelectionBox | null>(null);
-  const [mode, setMode] = useState<'' | 'select'>('select');
+  const [mode, setMode] = useState<'' | 'select'>(''); // Change default to empty string
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [parsing, setParsing] = useState(false);
 
@@ -135,8 +153,15 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const performOCR = useCallback(async (selection: SelectionBox) => {
     if (!imageRef.current) return;
 
+    const toastId = `ocr-${fileName || 'unsaved'}`;
     setIsProcessingOCR(true);
-    toast.loading("Processing OCR...", { id: "ocr-process" });
+    toast.loading(`${fileName || 'OCR'}: Processing region...`, { 
+      id: toastId,
+      duration: 2000,
+      dismissible: true,
+      className: 'ocr-toast',
+      style: { pointerEvents: 'auto' }
+    });
 
     try {
       const img = imageRef.current;
@@ -188,18 +213,19 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           tags,
           confidence: Math.round(confidence),
         });
-        toast.success("Text extracted successfully", { id: "ocr-process" });
+        toast.success(`${fileName}: Region extracted`, { id: toastId });
       } else {
-        toast.error("No text found in selected area", { id: "ocr-process" });
+        toast.error("No text found in selected area", { id: toastId });
       }
     } catch (err) {
       console.error(err);
-      toast.error("Failed to process OCR", { id: "ocr-process" });
+      toast.error(`${fileName}: Failed to process region`, { id: toastId });
     } finally {
       setIsProcessingOCR(false);
       setCurrentSelection(null);
+      toast.dismiss(toastId);
     }
-  }, [onTextExtracted]);
+  }, [fileName, onTextExtracted]);
 
   //Mouse mapping helper
   const getImageCoords = useCallback((e: React.MouseEvent) => {
@@ -289,94 +315,87 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   }, [isSelecting, selectionDisplay, performOCR]);
 
   const handleFullScanOCR = useCallback(async () => {
-  if (!imageRef.current) return;
+    if (!imageRef.current) return;
 
-  setIsProcessingOCR(true);
-  toast.loading("Processing full scan OCR...", { id: "ocr-process" });
+    const toastId = `ocr-${fileName || 'unsaved'}`;
+    setIsProcessingOCR(true);
+    toast.loading(`${fileName || 'OCR'}: Processing...`, {
+      id: toastId,
+      duration: 2000,
+      dismissible: true,
+      className: 'ocr-toast',
+      style: { pointerEvents: 'auto' }
+  });
 
-  try {
-    const img = imageRef.current;
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas context not available");
+    try {
+      const img = imageRef.current;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas context not available");
 
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
 
-    const imageData = canvas.toDataURL("image/png");
-    const result = await ocrFullScan(imageData);
-    console.log("OCR result:", result);
+      const imageData = canvas.toDataURL("image/png");
+      const result = await ocrFullScan(imageData);
+      console.log("OCR result:", result);
 
-    // If result is the doctr structured output:
-    let text = "";
-    if (result.pages) {
-      text = result.pages
-        .map(page =>
-          page.blocks
-            .map(block =>
-              block.lines
-                .map(line =>
-                  line.words.map(word => word.value).join(" ")
-                ).join("\n")
-            ).join("\n")
-        ).join("\n\n");
-      console.log("Extracted text for Gemini:", text);
-    }
-    if (!text.trim()) {
-      toast.error("No text found in image", { id: "ocr-process" });
-      return;
-    }
+      // If result is the doctr structured output:
+      let text = "";
+      if (result.pages) {
+        text = result.pages
+          .map(page =>
+            page.blocks
+              .map(block =>
+                block.lines
+                  .map(line =>
+                    line.words.map(word => word.value).join(" ")
+                  ).join("\n")
+              ).join("\n")
+          ).join("\n\n");
+        console.log("Extracted text for Gemini:", text);
+      }
+      if (!text || !text.trim()) {
+        toast.error(`${fileName}: No text found`, { id: toastId });
+        return;
+      }
 
-    // Use Gemini to label the full extracted text
-    const geminiResult = await classifyTextWithAI(text);
-    // Assume geminiResult has a structure like { tags: [...], ... }
-    // If it returns a flat object, convert to array for extraction display
-    let extractions: ExtractedText[] = [];
-    if (Array.isArray(geminiResult)) {
-      extractions = geminiResult.map((item: any, i: number) => ({
-        id: `${Date.now()}-${i}`,
-        text: item.text || item.word || "",
-        bbox: { x: 0, y: 0, width: 0, height: 0 },
-        tags: (item.entities || item.tags || [])
-          .map((ent: any) => typeof ent === "string" ? entityToTag(ent) : entityToTag(ent.entity || ent.tag || ent.key))
-          .filter(Boolean),
-        confidence: item.confidence || undefined,
-      }));
-    } else if (geminiResult && typeof geminiResult === "object" && Array.isArray(geminiResult.entities)) {
-      extractions = geminiResult.entities.map((ent: any, i: number) => ({
-        id: `${Date.now()}-${i}`,
-        text: ent.text || ent.word || "",
-        bbox: { x: 0, y: 0, width: 0, height: 0 },
-        tags: [entityToTag(ent.entity || ent.tag || ent.key)].filter(Boolean),
-        confidence: ent.confidence || undefined,
-      }));
-    } else if (geminiResult && typeof geminiResult === "object") {
-      extractions = Object.entries(geminiResult)
-        .filter(([_, value]) => typeof value === "string" && value.trim() !== "")
-        .map(([key, value], i) => ({
-          id: `${Date.now()}-${i}`,
-          text: String(value),
+      // Normalize -> split into paragraphs or lines so the OCR panel shows multiple items
+      const paragraphs = text.split(/\n{2,}|\r\n{2,}/).map(p => p.trim()).filter(Boolean);
+      let items: ExtractedText[] = [];
+
+      // Process each paragraph with AI classification
+      for (const paragraph of paragraphs) {
+        let tags: string[] = [];
+        try {
+          tags = await classifyTextWithAI(paragraph);
+        } catch (err) {
+          console.error('Classification failed:', err);
+        }
+
+        items.push({
+          id: `${Date.now()}-${items.length}`,
+          text: paragraph,
           bbox: { x: 0, y: 0, width: 0, height: 0 },
-          tags: [entityToTag(key)].filter(Boolean),
-          confidence: undefined,
-        }));
-    }
+          tags: tags,
+        });
+      }
 
-    if (extractions.length > 0) {
-      onTextExtracted(extractions);
-      toast.success("Full scan OCR completed", { id: "ocr-process" });
-    } else {
-      toast.error("No text found in image", { id: "ocr-process" });
+      onTextExtracted(items);
+      toast.success(`${fileName}: OCR completed`, { id: toastId });
+    } catch (error) {
+      console.error("Full Scan OCR Error:", error);
+      toast.error(`${fileName}: Failed to process OCR`, {
+        id: toastId,
+        duration: 4000
+      });
+    } finally {
+      setIsProcessingOCR(false);
+      setCurrentSelection(null);
+      toast.dismiss(toastId);
     }
-  } catch (error) {
-    console.error("Full Scan OCR Error:", error);
-    toast.error("Failed to process full scan OCR", { id: "ocr-process" });
-  } finally {
-    setIsProcessingOCR(false);
-    setCurrentSelection(null);
-  }
-}, [onTextExtracted]);
+  }, [fileName, onTextExtracted]);
 
   useEffect(() => {
     const handleGlobalMouseUp = () => {
@@ -464,7 +483,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        style={{ cursor: mode === 'select' ? "crosshair" : "default"}}
+        style={{ cursor: mode === 'select' ? "crosshair" : "default", zIndex: 0, pointerEvents: 'auto'}}
       >
         {/* single image element used for all coordinate math */}
         {fileUrl ? (
@@ -512,8 +531,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-10 pointer-events-auto">
           <Button size="sm" onClick={handleZoomIn} title="Zoom In"><ZoomIn /></Button>
           <Button size="sm" onClick={handleZoomOut} title="Zoom Out"><ZoomOut /></Button>
-          <Button size="sm" onClick={handleRotate} title="Rotate Clockwise"><RotateCw /></Button>
-          <Button size="sm" onClick={handleRotateCounterclockwise} title="Rotate Counterclockwise"><RotateCcw /></Button>
+          {/* <Button size="sm" onClick={handleRotate} title="Rotate Clockwise"><RotateCw /></Button> */}
+          {/* <Button size="sm" onClick={handleRotateCounterclockwise} title="Rotate Counterclockwise"><RotateCcw /></Button> */}
           <Button size="sm" onClick={handleReset} title="Reset View"><Maximize /></Button>
           <Button 
             size="sm" 
@@ -525,11 +544,11 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
             Full Scan OCR
           </Button>
           <Button
-            variant={isRegionMode ? 'default' : 'outline'}
+            variant={mode === 'select' ? 'default' : 'outline'}
             size="sm"
             onClick={() => {
               setIsRegionMode(!isRegionMode);
-              setMode(isRegionMode ? '' : 'select');
+              setMode(mode === 'select' ? '' : 'select');
             }}
           >
             <Square className="w-4 h-4 mr-1" />

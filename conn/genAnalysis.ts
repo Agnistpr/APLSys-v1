@@ -1,6 +1,55 @@
 //import { Resume } from "src/app/lib/redux/types";
 import { JOB_ROLES, JobRole } from "src/app/data/jobRoles";
+import { defaultResume } from "../src/electron/aiStore";
 import axios from "axios";
+
+export function normalizeGeminiResume(raw: any) {
+  if (!raw) return { ...defaultResume };
+
+  if (typeof raw === "string") {
+    return {
+      ...defaultResume,
+      profile: { ...defaultResume.profile, name: raw, firstName: "", lastName: "" }
+    };
+  }
+
+  const profileRaw = raw.profile ?? raw?.profile_data ?? raw;
+  const profile = {
+    firstName: profileRaw.firstName ?? profileRaw.first_name ?? profileRaw.first ?? "",
+    middleName: profileRaw.middleName ?? profileRaw.middle_name ?? profileRaw.middle ?? "",
+    lastName: profileRaw.lastName ?? profileRaw.last_name ?? profileRaw.last ?? "",
+    email: profileRaw.email ?? profileRaw.email_address ?? "",
+    phone: profileRaw.phone ?? profileRaw.phone_number ?? "",
+    location: profileRaw.location ?? profileRaw.address ?? "",
+    age: profileRaw.age ?? "",
+    gender: profileRaw.gender ?? "",
+    name: profileRaw.name ?? [profileRaw.firstName, profileRaw.middleName, profileRaw.lastName].filter(Boolean).join(" ") ?? ""
+  };
+
+  const educations = Array.isArray(raw.educations) ? raw.educations
+    : Array.isArray(raw.education) ? raw.education
+    : defaultResume.educations;
+
+  const workExperiences = Array.isArray(raw.workExperiences) ? raw.workExperiences
+    : Array.isArray(raw.work_experiences) ? raw.work_experiences
+    : defaultResume.workExperiences;
+
+  const projects = Array.isArray(raw.projects) ? raw.projects
+    : Array.isArray(raw.project) ? raw.project
+    : defaultResume.projects;
+
+  const skills = raw.skills ?? raw.skill ?? defaultResume.skills;
+  const custom = raw.custom ?? defaultResume.custom;
+
+  return {
+    profile,
+    educations,
+    workExperiences,
+    projects,
+    skills,
+    custom
+  };
+}
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -33,7 +82,7 @@ async function parseRetryDelayFromError(err: any): Promise<number | null> {
   return null;
 }
 
-export async function analyzeResumeWithGemini(payload: {
+export async function analyzeResumeWithDS(payload: {
   resume: string;
   job_role?: string;
   job_description?: string;

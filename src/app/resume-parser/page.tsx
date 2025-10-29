@@ -1,99 +1,68 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
+import { Toaster } from "sonner";
 import type { TextItems } from "../lib/parse-resume-from-pdf/types";
 import { ResumeDropzone } from "../components/ResumeDropzone";
 import { ResumeTable } from "./ResumeTable";
-import { analyzeResumeWithGemini } from "../../../conn/genAnalysis";
+import { analyzeResumeWithDS } from "../../../conn/genAnalysis";
+import { persistGeminiResult } from "./aiActions";
 import { JOB_ROLES } from "../data/jobRoles";
-// import { BatchResumeAnalyzer } from "./BatchResumeAnalyzer";
+import { BatchResumeAnalyzer } from "./BatchResumeAnalyzer";
+import { normalizeGeminiResume } from "../../../conn/genAnalysis";
 import axios from "axios";
+import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
+import { 
+  exportJSON,
+  mapEntitiesToResume,
+  calculateCandidateScore,
+  renderAnalysisSections,
+  getApplicantName,
+  reconstructBlobUrl,
+  fileToBase64,
+  persistGeminiAnalysis
+} from './utils';
+import { CandidateScoreCard } from '../components/CandidateScoreCard';
 
-function exportJSON(data: any, filename: string) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function mapEntitiesToResume(entities: any[]): any {
-  // Merge all NAME entities
-  const nameEntities = entities.filter(e => e.entity?.toLowerCase() === "name");
-  const fullName = nameEntities.map(e => e.word).join(" ").replace(/\s+/g, " ").trim();
-
-  // Use only the first valid phone and email
-  const phoneEntity = entities.find(e => e.entity?.toLowerCase() === "phone" && /\d{7,}/.test(e.word.replace(/\D/g, "")));
-  const emailEntity = entities.find(e => e.entity?.toLowerCase() === "email" && e.word.includes("@"));
-
-  // Split full name
-  const parts = fullName.split(/\s+/);
-  const firstName = parts[0] || "";
-  const lastName = parts.length > 1 ? parts[parts.length - 1] : "";
-  const middleName = parts.length > 2 ? parts.slice(1, -1).join(" ") : "";
-  const resume = {
-    profile: {
-      name: fullName, firstName, middleName, lastName,
-      email: emailEntity ? emailEntity.word.replace(/\s/g, "") : "",
-      phone: phoneEntity ? phoneEntity.word.replace(/\s/g, "") : "",
-      location: "",
-      age: "",
-      gender: "",
-      url: "",
-      summary: "",
-    },
-    educations: [],
-    workExperiences: [],
-    projects: [],
-    skills: { featuredSkills: [], descriptions: [] },
-    custom: { descriptions: [] },
+const sanitizeEditableResume = (r: any) => {
+    if (!r || typeof r !== "object") return { ...defaultResume };
+    return {
+      profile: r.profile || defaultResume.profile,
+      educations: Array.isArray(r.educations) ? r.educations : defaultResume.educations,
+      workExperiences: Array.isArray(r.workExperiences) ? r.workExperiences : defaultResume.workExperiences,
+      projects: Array.isArray(r.projects) ? r.projects : defaultResume.projects,
+      skills: r.skills || defaultResume.skills,
+      custom: r.custom || defaultResume.custom,
+    };
   };
 
-  for (const ent of entities) {
-    const label = ent.entity?.toLowerCase();
-    switch (label) {
-      case "name":
-        resume.profile.name = ent.word;
-        break;
-      case "email":
-        resume.profile.email = ent.word;
-        break;
-      case "phone":
-        resume.profile.phone = ent.word;
-        break;
-      case "location":
-        resume.profile.location = ent.word;
-        break;
-      case "skills":
-        resume.skills.descriptions.push(ent.word);
-        break;
-      // Add more cases as needed
-      default:
-        break;
+  // Helper: set nested value by dot-path (supports numeric indices)
+  const setByPath = (obj: any, path: string, value: any) => {
+    const parts = path.split('.');
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const p = parts[i];
+      if (/^\d+$/.test(p)) {
+        const idx = Number(p);
+        if (!Array.isArray(cur)) cur = cur[parts[i - 1]] = [];
+        while (cur.length <= idx) cur.push({});
+        cur = cur[idx];
+      } else {
+        if (cur[p] === undefined || cur[p] === null) cur[p] = {};
+        cur = cur[p];
+      }
     }
-  }
-  return resume;
-}
+    const last = parts[parts.length - 1];
+    if (/^\d+$/.test(last)) {
+      const idx = Number(last);
+      if (!Array.isArray(cur)) cur = cur[parts[parts.length - 2]] = [];
+      cur[idx] = value;
+    } else {
+      cur[last] = value;
+    }
+  };
 
-function calculateCandidateScore(sections, weights) {
-  let total = 0;
-  for (const key in weights) {
-    total += (sections[key] || 0) * weights[key];
-  }
-  return Math.round(total);
-}
-
-
-function getApplicantName(resume: any) {
-  if (!resume || !resume.profile) return "applicant";
-  // Try to build from first/middle/last if name is missing
-  const { name, firstName, middleName, lastName } = resume.profile;
-  if (name && typeof name === "string" && name.trim()) return name.replace(/[^a-zA-Z0-9-_]/g, "_");
-  const fullName = [firstName, middleName, lastName].filter(Boolean).join(" ");
-  return fullName ? fullName.replace(/[^a-zA-Z0-9-_]/g, "_") : "applicant";
-}
+/* ------------------------------ Constants ------------------------------ */
 
 const RESUME_EXAMPLES = [
   {
@@ -108,43 +77,174 @@ const RESUME_EXAMPLES = [
 
 const defaultFileUrl = RESUME_EXAMPLES[1]["fileUrl"];
 
-const defaultResume = {
-  profile: {
-    firstName: "",
-    middleName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    location: "",
-    age: "",
-    gender: "",
-    name: "",
-  },
-  educations: [
-    { school: "", degree: "", field: "", date: "" }
-  ],
-  workExperiences: [
-    { company: "", position: "", date: "", description: "" }
-  ],
-  projects: [
-    { name: "", description: "", date: "" }
-  ],
-  skills: { featuredSkills: [], descriptions: [] },
-  custom: { descriptions: [] }
-};
-
-export default function ResumeParser({ setActivePage, goBack, setPreviousPage, activePage, selectedResumeFile, setSelectedResumeFile }) {
+export default function ResumeParser({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage, selectedResumeFile, setSelectedResumeFile }) {
+  console.log("DEBUG ResumeTable:", typeof ResumeTable, ResumeTable);
+  console.log("DEBUG CandidateScoreCard:", typeof CandidateScoreCard, CandidateScoreCard);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [textItems, setTextItems] = useState<TextItems>([]);
-  const [editableResume, setEditableResume] = useState<any>({...defaultResume});
-  const [analysisResult, setAnalysisResult] = useState<string>("");
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string>("Production");
-  const [selectedJobRole, setSelectedJobRole] = useState<string>("");
-  const [customJobDescription, setCustomJobDescription] = useState("");
-  const [activeTab, setActiveTab] = useState<"parsing" | "analysis">("parsing");
   const [resumeName, setResumeName] = useState("");
   const [isParsingResume, setIsParsingResume] = useState(false);
+  const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  //const { addTask, updateTask } = useAnalysisStore();
+
+  // const {
+  //   currentFile,
+  //   editableResume,
+  //   parseComplete,
+  //   setParsed,
+  //   isHydrated,
+  //   setHydrated,
+  //   analysisResult,
+  //   selectedCategory,
+  //   selectedJobRole,
+  //   customJobDescription,
+  //   activeTab,
+  //   isProcessing,
+  //   setCurrentFile,
+  //   setEditableResume,
+  //   setAnalysisResult,
+  //   setSelectedCategory,
+  //   setSelectedJobRole,
+  //   setCustomJobDescription,
+  //   setActiveTab,
+  //   setProcessing
+  // } = useAnalysisStore();
+
+  const currentFile = useAnalysisStore(state => state.currentFile);
+  const editableResume = useAnalysisStore(state => state.editableResume);
+  const parseComplete = useAnalysisStore(state => state.parseComplete);
+  const isHydrated = useAnalysisStore(state => state.isHydrated);
+  const analysisResult = useAnalysisStore(state => state.analysisResult);
+  const selectedCategory = useAnalysisStore(state => state.selectedCategory);
+  const selectedJobRole = useAnalysisStore(state => state.selectedJobRole);
+  const customJobDescription = useAnalysisStore(state => state.customJobDescription);
+  const activeTab = useAnalysisStore(state => state.activeTab);
+  const isProcessing = useAnalysisStore(state => state.isProcessing);
+
+  // actions
+  const setCurrentFile = useAnalysisStore(state => state.setCurrentFile);
+  const setEditableResume = useAnalysisStore(state => state.setEditableResume);
+  const setHydrated = useAnalysisStore(state => state.setHydrated);
+  const setAnalysisResult = useAnalysisStore(state => state.setAnalysisResult);
+  const setSelectedCategory = useAnalysisStore(state => state.setSelectedCategory);
+  const setSelectedJobRole = useAnalysisStore(state => state.setSelectedJobRole);
+  const setCustomJobDescription = useAnalysisStore(state => state.setCustomJobDescription);
+  const setActiveTab = useAnalysisStore(state => state.setActiveTab);
+  const setProcessing = useAnalysisStore(state => state.setProcessing);
+  const setParsed = useAnalysisStore(state => state.setParsed);
+  const addTask = useAnalysisStore(state => state.addTask);
+  const updateTask = useAnalysisStore(state => state.updateTask);
+
+  // Group related state
+  const [fileState, setFileState] = useState({
+    fileUrl: null as string | null,
+    resumeName: "",
+    textItems: [] as TextItems[],
+  });
+
+  const [analysisState, setAnalysisState] = useState({
+    loadingAnalysis: false,
+    isParsingResume: false,
+  });
+
+  // Ensure editableResume always has a valid shape for the ResumeTable
+  const safeResume = editableResume || defaultResume;
+
+  // Add handleFieldPathChange function before the return statement
+  const handleFieldPathChange = useCallback((fieldPath: string, value: any) => {
+    setEditableResume(prev => {
+      const next = JSON.parse(JSON.stringify(prev || defaultResume));
+      try {
+        setByPath(next, fieldPath, value);
+      } catch (e) {
+        console.error("handleFieldPathChange failed for", fieldPath, e);
+      }
+      return next;
+    });
+  }, [setEditableResume]);
+
+const handleFileChange = useCallback(async (fileUrl: string, fileName: string, fileObj?: File) => {
+  setFileState(prev => ({
+    ...prev,
+    fileUrl,
+    resumeName: fileName
+  }));
+
+  let base64String = "";
+  if (fileObj instanceof File) {
+    base64String = await fileToBase64(fileObj);
+  }
+
+  setCurrentFile({
+    url: fileUrl,
+    name: fileName || "uploaded_file.pdf",
+    type: 'application/pdf',
+    data: base64String, //now actually filled
+  });
+
+  setEditableResume(prev => prev ?? { ...defaultResume });
+}, [setCurrentFile, setEditableResume]);
+
+  // Initialize store with default resume on mount
+  useEffect(() => {
+    if (!editableResume) {
+      setEditableResume({...defaultResume});
+    }
+  }, []);
+  
+  // Initialize from persisted state
+  useEffect(() => {
+    if (!isHydrated) return;
+    const currfile = useAnalysisStore.getState().currentFile;
+
+
+    // Restore file preview if we have a currentFile
+    if (currfile?.data) {
+      try{
+        const url = reconstructBlobUrl(currfile.data, currfile.type);
+        setFileUrl(url);
+        setResumeName(currfile.name || "resume.pdf");
+        console.log("Hydrated file to base64 -> new blob url:", url);
+      }
+      catch (e)
+      {
+        console.error("Failed to reconstruct blob file:", e);
+      }
+    } else if (currfile?.url && !currfile?.url.startsWith("blob:")) {
+      setFileUrl(currfile.url);
+      setResumeName(currfile.name || "resume.pdf");
+      console.log("Hydrated file to existing URL");
+    }
+
+    // Defensive hydrate of editableResume: only write if sanitized differs
+    try {
+      if (parseComplete && editableResume) {
+        const sanitized = sanitizeEditableResume(editableResume);
+        if (!sanitized || typeof sanitized !== "object" || !sanitized.profile) {
+          throw new Error("sanitization produced invalid resume");
+        }
+        // Avoid write-if-equal to prevent infinite loop
+        const curJson = JSON.stringify(editableResume);
+        const sanJson = JSON.stringify(sanitized);
+        if (curJson !== sanJson) {
+          setEditableResume(sanitized);
+        }
+      }
+
+    } catch (e) {
+      console.error("Failed to hydrate editableResume — clearing persisted store:", e);
+      try { localStorage.removeItem("resume-analysis-store"); } catch {}
+      setEditableResume({ ...defaultResume });
+      setParsed(false);
+    }
+  }, [isHydrated, currentFile, parseComplete]);
+
+  useEffect(() => {
+    if (isHydrated && useAnalysisStore.getState().analysisResult) {
+      setHasAnalyzed(true);
+    }
+  }, [isHydrated]);
 
   const [scoringWeights, setScoringWeights] = useState({
     skills: 0.3,
@@ -181,11 +281,22 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
   useEffect(() => {
     if (activePage === "Analyzer" && !selectedResumeFile) {
-      setEditableResume({...defaultResume});
-      setAnalysisResult("");
+      const storeResume = useAnalysisStore.getState().editableResume;
+      const hasProfile = !!(storeResume && storeResume.profile && Object.keys(storeResume.profile).length > 0);
+      if (!hasProfile) {
+        setEditableResume({ ...defaultResume });
+        setAnalysisResult("");
+      }
     }
   }, [activePage, selectedResumeFile]);
 
+  // Add effect to update description when role changes
+  useEffect(() => {
+    if (selectedCategory && selectedJobRole) {
+      const defaultDesc = JOB_ROLES[selectedCategory][selectedJobRole]?.description || "";
+      setCustomJobDescription(defaultDesc);
+    }
+  }, [selectedCategory, selectedJobRole]);
   
   function handleNERExtraction(nerResult: any) {
     const { profile, entities } = nerResult;
@@ -209,66 +320,56 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     });
   }
 
-  function normalizeGeminiResume(raw: any) {
-    if (!raw) return { ...defaultResume };
-
-    // If backend returned a plain string, keep it as profile.name
-    if (typeof raw === "string") {
-      return {
-        ...defaultResume,
-        profile: { ...defaultResume.profile, name: raw, firstName: "", lastName: "" }
-      };
-    }
-
-    // If the backend returned an object but possibly nested or snake_cased
-    const profileRaw = raw.profile ?? raw?.profile_data ?? raw;
-    const profile = {
-      firstName: profileRaw.firstName ?? profileRaw.first_name ?? profileRaw.first ?? "",
-      middleName: profileRaw.middleName ?? profileRaw.middle_name ?? profileRaw.middle ?? "",
-      lastName: profileRaw.lastName ?? profileRaw.last_name ?? profileRaw.last ?? "",
-      email: profileRaw.email ?? profileRaw.email_address ?? "",
-      phone: profileRaw.phone ?? profileRaw.phone_number ?? "",
-      location: profileRaw.location ?? profileRaw.address ?? "",
-      age: profileRaw.age ?? "",
-      gender: profileRaw.gender ?? "",
-      name: profileRaw.name ?? [profileRaw.firstName, profileRaw.middleName, profileRaw.lastName].filter(Boolean).join(" ") ?? ""
-    };
-
-    const educations = Array.isArray(raw.educations) ? raw.educations
-      : Array.isArray(raw.education) ? raw.education
-      : defaultResume.educations;
-
-    const workExperiences = Array.isArray(raw.workExperiences) ? raw.workExperiences
-      : Array.isArray(raw.work_experiences) ? raw.work_experiences
-      : defaultResume.workExperiences;
-
-    const projects = Array.isArray(raw.projects) ? raw.projects
-      : Array.isArray(raw.project) ? raw.project
-      : defaultResume.projects;
-
-    const skills = raw.skills ?? raw.skill ?? defaultResume.skills;
-    const custom = raw.custom ?? defaultResume.custom;
-
-    return {
-      profile,
-      educations,
-      workExperiences,
-      projects,
-      skills,
-      custom
-    };
-  }
+  // async function fileToB64(fileObj)
+  // {
+  //   let b64String = "";
+  //   if (fileObj instanceof File) 
+  //     {
+  //       b64String = await fileToBase64(fileObj);
+  //     }
+  //   return b64String || "";
+  // }
   
-
   // AI FALLBACKS
   async function geminiExtractResumeProfile(text: string): Promise<any> {
-    const response = await axios.post("http://127.0.0.1:8000/ai/gemini-extract-resume-profile", { text });
-    return response.data;
-  }
+    if (!text || typeof text !== "string") {
+      throw new Error("geminiExtractResumeProfile requires a text string");
+    }
 
+    // Trim and guard against accidental large non-string payloads
+    const safeText = text.trim();
+    if (safeText.length < 20) {
+      throw new Error("Extracted text is too short for resume extraction");
+    }
+
+    try {
+      const response = await axios.post(
+        "http://127.0.0.1:8000/ai/gemini-extract-resume-profile",
+        { text: safeText },
+        { headers: { "Content-Type": "application/json" } }
+      );
+      return response.data;
+    } catch (err: any) {
+      console.error("Gemini extraction failed:", {
+        error: err,
+        request: err?.request,
+        response: err?.response?.data,
+      });
+      // bubble a useful message to caller
+      throw new Error(err?.response?.data?.error || err?.message || "Gemini extraction failed");
+    }
+  }
+  
   async function handleFileGeminiPipeline(file: File) {
     try {
-      toast.loading("Resume uploaded, waiting for extraction...", { id: "ai-process"});
+      toast("Resume uploaded, waiting for extraction...", { 
+        id: "ai-process",
+        description: "Processing resume, you can close this while it runs.",
+        icon: "⏳",
+        dismissible: true,
+        duration: Infinity,
+      });
+
       const extractedText = await extractResumeText(file); 
       const resumeJson = await geminiExtractResumeProfile(extractedText);
       console.log("geminiExtractResumeProfile raw:", resumeJson);
@@ -284,23 +385,24 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         }
       }
 
-      const normalized = normalizeGeminiResume(parsed);
+      const normalized = normalizeGeminiResume(resumeJson);
       // Merge with defaultResume to ensure all expected keys exist (and not overwrite arrays accidentally)
       const merged = {
         ...defaultResume,
         ...normalized,
-        profile: { ...defaultResume.profile, ...(normalized.profile || {}) },
-        educations: normalized.educations && normalized.educations.length ? normalized.educations : defaultResume.educations,
-        workExperiences: normalized.workExperiences && normalized.workExperiences.length ? normalized.workExperiences : defaultResume.workExperiences,
-        projects: normalized.projects && normalized.projects.length ? normalized.projects : defaultResume.projects,
-        skills: normalized.skills ?? defaultResume.skills,
-        custom: normalized.custom ?? defaultResume.custom
-      };
+        profile: {
+            ...defaultResume.profile,
+            ...(normalized?.profile || {}),
+          },
+        };
 
       console.log("Setting editableResume ->", merged);
 
+      
+      await persistGeminiResult(merged); // Directly set the Gemini result
+      //setParsed(true);
+      console.log("DEBUG store state:", useAnalysisStore.getState());
       toast.success("Extraction successful", {id: "ai-process"});
-      setEditableResume({ ...defaultResume, ...resumeJson }); // Directly set the Gemini result
     } catch (err) {
       console.error("Gemini pipeline failed:", err);
       alert("Failed to parse resume with Gemini.");
@@ -313,9 +415,27 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     const formData = new FormData();
     formData.append("file", file);
     console.log("Uploading file:", file);
+
     const response = await axios.post("http://127.0.0.1:8000/parser/extract-resume-text", formData);
-    console.log("Response:", response)
-    return response.data; // plain text
+    console.log("Response:", response);
+
+    // Normalize response -> always return a string
+    const data = response.data;
+    if (typeof data === "string") {
+      return data;
+    }
+
+    // Common server shapes: { text: "..." } or { result: "..." }
+    if (data && typeof data.text === "string") return data.text;
+    if (data && typeof data.result === "string") return data.result;
+    if (data && typeof data.data === "string") return data.data;
+
+    // fallback: try to build a readable string (avoid passing objects to gemini endpoint)
+    try {
+      return JSON.stringify(data);
+    } catch (e) {
+      return "";
+    }
   }
 
   // 2. Label tokens using NER endpoint
@@ -343,8 +463,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     }
   }
 
-  // --- END NER Integration ---
-
   useEffect(() => {
     if (selectedResumeFile && selectedResumeFile.data && selectedResumeFile.type) {
       // Convert base64 to File and then to blob URL
@@ -358,9 +476,31 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       const url = URL.createObjectURL(blob);
       setFileUrl(url);
       setResumeName(selectedResumeFile.name || "uploaded_resume.pdf");
+
+      // Initialize with default resume structure
+      setEditableResume({...defaultResume});
     }
   // Only run when a new file is selected
   }, [selectedResumeFile]);
+
+  //Track dynamically created blob URLs and revoke only those on unmount
+  useEffect(() => {
+    const createdUrls = new Set<string>();
+
+    // When you set a blob URL, remember it
+    if (fileUrl && fileUrl.startsWith("blob:")) {
+      createdUrls.add(fileUrl);
+    }
+
+    return () => {
+      for (const url of createdUrls) {
+        console.log("Revoking blob URL on unmount:", url);
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [fileUrl]);
+
+
 
   // New function to handle manual parsing
   const handleParseResume = async () => {
@@ -369,318 +509,283 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       return;
     }
 
-    setIsParsingResume(true);
+    const taskId = `parse-${Date.now()}`;
+    setProcessing(true);
+    addTask({
+      id: taskId,
+      type: "parse",
+      status: "started",
+      fileName: resumeName,
+      startedAt: Date.now()
+    });
+
+    toast(`Parsing ${resumeName}...`, {
+      id: taskId,
+      description: "Processing resume, you can close this while it runs.",
+      icon: "⏳",
+      dismissible: true,
+      duration: Infinity,
+    });
+
+
     try {
-      const response = await fetch(fileUrl);
-      const blob = await response.blob();
-      const file = new File([blob], resumeName, { type: "application/pdf" });
-      await handleFileGeminiPipeline(file);
-      toast.success("Resume parsed successfully");
+      // Initialize with default structure before parsing
+      setEditableResume({...defaultResume});
+
+      // const fetchUrl = (currentFile && currentFile.url) ? currentFile.url : fileUrl;
+      // if (!fetchUrl) throw new Error("No file URL available to parse");
+
+
+      // const response = await fetch(fetchUrl);
+      // const blob = await response.blob();
+
+      // const filename = resumeName || "resume.pdf";
+      // const file = new File([blob], filename, { type: "application/pdf" });
+
+      let file: File | null = null;
+
+      // Prefer the persisted base64 if available
+      if (currentFile?.data) {
+        try {
+          console.log("DEBUG reconstructing File from persisted base64 data...");
+          const byteString = atob(currentFile.data);
+          const ab = new ArrayBuffer(byteString.length);
+          const ia = new Uint8Array(ab);
+          for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+          }
+          const blob = new Blob([ab], { type: currentFile.type || "application/pdf" });
+          file = new File([blob], currentFile.name || "resume.pdf", { type: currentFile.type });
+        } catch (e) {
+          console.error("Failed to reconstruct File from base64:", e);
+        }
+      }
+
+      // Fallback to fetching blob URL if base64 not available
+      if (!file) {
+        const fetchUrl = currentFile?.url || fileUrl;
+        if (!fetchUrl) throw new Error("No file URL available to parse");
+        const response = await fetch(fetchUrl);
+        const blob = await response.blob();
+        file = new File([blob], resumeName || "resume.pdf", { type: "application/pdf" });
+      }
+
+      if (!file) throw new Error("Could not prepare file for parsing");
+
+      
+      // Extract text first
+      const extractedText = await extractResumeText(file);
+      
+      // Then process with Gemini
+      const resumeJson = await geminiExtractResumeProfile(extractedText);
+      console.log("DEBUG geminiExtractResumeProfile result:", resumeJson);
+      
+      // Check for Gemini error response
+      if (resumeJson?.error) {
+        throw new Error(resumeJson.error);
+      }
+
+
+      //Persist to store
+      await persistGeminiResult(resumeJson);
+
+      // const unsubscribe = useAnalysisStore.subscribe(
+      //   s => s.editableResume,
+      //   (newResume) => {
+      //     console.log("Store editableResume changed:", newResume);
+      //     setEditableResume(newResume);
+      //     unsubscribe(); // clean up after one trigger
+      //   }
+      // );
+      
+      // Immediately reflect parsed resume in local state
+      setEditableResume(useAnalysisStore.getState().editableResume);
+      setParsed(true);
+
+      
+      // Update task and UI state
+      updateTask(taskId, { 
+        status: "completed",
+        result: resumeJson,
+        completedAt: Date.now()
+      });
+
+      // const normalized = normalizeGeminiResume(resumeJson);
+      // const merged = {
+      //   ...defaultResume,
+      //   ...normalized,
+      //   profile: {
+      //     ...defaultResume.profile,
+      //     ...(normalized?.profile || {})
+      //   }
+      // };
+
+      console.log("DEBUG store after persist:", useAnalysisStore.getState());
+      console.log("DEBUG parsed resume immediately reflected:", useAnalysisStore.getState().editableResume);
+      toast.success(`${resumeName} parsed successfully`, { id: taskId });
+
     } catch (err) {
       console.error("Failed to parse resume:", err);
-      toast.error("Failed to parse resume");
+      setEditableResume({...defaultResume});
+      setParsed(false);
+      updateTask(taskId, {
+        status: "error", 
+        error: err.message,
+        completedAt: Date.now()
+      });
+      toast.error(`Failed to parse ${resumeName}`, { id: taskId });
     } finally {
-      setIsParsingResume(false);
+      setProcessing(false);
     }
   };
 
-  function setValueByPath(obj: any, path: string, value: string) {
-    const keys = path.split(".");
-    let curr = obj;
-    for (let i = 0; i < keys.length - 1; i++) {
-      if (keys[i].includes("[")) {
-        const [arrKey, idx] = keys[i].split(/[\[\]]/).filter(Boolean);
-        curr = curr[arrKey][parseInt(idx)];
-      } else if (keys[i].includes(":")) {
-        const [arrKey, idx] = keys[i].split(":");
-        curr = curr[arrKey][parseInt(idx)];
-      } else if (!isNaN(Number(keys[i]))) {
-        curr = curr[parseInt(keys[i])];
-      } else {
-        curr = curr[keys[i]];
-      }
-    }
-    if (Array.isArray(curr[keys[keys.length - 1]])) {
-      curr[keys[keys.length - 1]] = value.split("\n");
-    } else {
-      curr[keys[keys.length - 1]] = value;
-    }
-  }
+  // Similarly update handleAnalyzeResume to use tasks
+  const handleAnalyzeResume = async () => {
+    setHasAnalyzed(true);
 
-  //Dito namamap yung changes
-  const handleFieldChange = (section: string, index: number | null, field: string, value: string) => {
-    setEditableResume((prevResume: any) => {
-      const newResume = { ...prevResume };
-      
-      if (index === null) {
-        // Handle profile fields
-        if (section === 'profile') {
-          newResume.profile = {
-            ...newResume.profile,
-            [field]: value
-          };
-        } else if (section === 'skills') {
-          newResume.skills = {
-            ...newResume.skills,
-            [field]: value
-          };
-        }
-      } else {
-        // Handle array fields (educations, workExperiences, projects)
-        if (Array.isArray(newResume[section])) {
-          newResume[section] = [...newResume[section]];
-          if (!newResume[section][index]) {
-            newResume[section][index] = {};
-          }
-          newResume[section][index] = {
-            ...newResume[section][index],
-            [field]: value
-          };
-        }
-      }
-      
-      return newResume;
+    const taskId = `analyze-${Date.now()}`;
+    addTask({
+      id: taskId,
+      type: "analyze",
+      status: "started",
+      startedAt: Date.now()
     });
-  };
 
-  // Adapter: ResumeTable calls onFieldChange(fieldPath, value)
-  const handleFieldPathChange = (fieldPath: string, value: string) => {
-    setEditableResume((prev: any) => {
-      // deep clone to avoid mutating prev state
-      const newResume = JSON.parse(JSON.stringify(prev));
-      setValueByPath(newResume, fieldPath, value);
-      return newResume;
+    toast("Analyzing resume...", {
+      id: taskId,
+      description: "Analyzing resume, you can close this while it runs.",
+      dismissible: true,
+      duration: Infinity,
     });
+
+    try {
+      if (!editableResume) {
+        setAnalysisResult("No resume data to analyze.");
+        setLoadingAnalysis(false);
+        return;
+      }
+
+        // Build a trimmed payload to reduce tokens (send only needed fields)
+        const minimalResume = {
+          profile: editableResume.profile || {},
+          skills: {
+            featuredSkills: (editableResume.skills?.featuredSkills || []).slice(0, 20),
+            descriptions: (editableResume.skills?.descriptions || []).slice(0, 40),
+          },
+          educations: (editableResume.educations || []).slice(0, 5).map((e: any) => ({
+            school: e.school || "",
+            degree: e.degree || "",
+            field: e.field || "",
+            date: e.date || ""
+          })),
+          workExperiences: (editableResume.workExperiences || []).slice(0, 5).map((w: any) => ({
+            company: w.company || "",
+            position: w.position || "",
+            date: w.date || "",
+            // trim long descriptions to a reasonable length
+            description: (w.description || "").split(/\s+/).slice(0, 200).join(" ")
+          })),
+          projects: (editableResume.projects || []).slice(0, 5),
+          custom: { descriptions: (editableResume.custom?.descriptions || []).slice(0, 10) },
+        };
+
+      // Get job role description from JOB_ROLES
+      const jobRoleObj = selectedCategory && selectedJobRole
+        ? JOB_ROLES[selectedCategory][selectedJobRole]
+        : undefined;
+
+      // Prepare payload for backend
+      const payload = {
+        resume: JSON.stringify(minimalResume),
+        job_role: selectedJobRole || "",
+        job_description: jobRoleObj?.description || customJobDescription || "",
+      };
+
+      // Call FastAPI backend
+      const rawResult = await analyzeResumeWithDS(payload);
+      console.log("analyzeResumeWithDS raw result:", rawResult);
+
+      // Normalize the backend’s response shape
+      const analysisText = rawResult.analysis || rawResult.text || rawResult.result || "";
+      const resumeData = rawResult.data || rawResult.resume || editableResume;
+
+      await persistGeminiAnalysis({
+        resume: resumeData,
+        analysis: analysisText,
+      });
+
+      // Handle error response from backend
+      if (rawResult.error) {
+        throw new Error(rawResult.error);
+      }
+
+      // 🔄 Immediately sync local UI state with store
+      setAnalysisResult(useAnalysisStore.getState().analysisResult);
+
+      toast.success("Resume analyzed successfully", { id: taskId });
+
+      // If result is already a string with sections, use it directly
+      if (typeof rawResult === "string" && rawResult.includes("##")) {
+        setAnalysisResult(rawResult);
+        // Extract score if present
+        const scoreMatch = rawResult.match(/Resume Score:\s*(\d{1,3})\/100/i);
+        if (scoreMatch) {
+          setAiScore(parseInt(scoreMatch[1], 10));
+        }
+        return;
+      }
+
+      // If result has a text/analysis/result field, use that
+      if (analysisText) {
+        setAnalysisResult(analysisText);
+        const scoreMatch = analysisText.match(/Resume Score:\s*(\d{1,3})\/100/i);
+        if (scoreMatch) {
+          setAiScore(parseInt(scoreMatch[1], 10));
+        }
+        return;
+      }
+
+      // Extract AI score from result (adjust this if your backend returns the score differently)
+      const aiScoreMatch = typeof rawResult === "string"
+        ? rawResult.match(/Resume Score:\s*(\d{1,3})\/100/i)
+        : null;
+      const aiScoreValue = aiScoreMatch ? parseInt(aiScoreMatch[1], 10) : calculateCandidateScore(sectionScores, scoringWeights);
+      setAiScore(aiScoreValue);
+      } catch (err) {
+        console.error("Error analyzing resume:", err);
+        setAnalysisResult("Failed to analyze resume");
+      } finally {
+        setLoadingAnalysis(false);
+      }
   };
 
   useEffect(() => {
-    if (selectedCategory && selectedJobRole) {
-      const desc = JOB_ROLES[selectedCategory][selectedJobRole]?.description || "";
-      setCustomJobDescription(desc);
-    } else {
-      setCustomJobDescription("");
+    if (isHydrated && analysisResult) {
+      console.log("Restored analysis result after hydration:", analysisResult.slice(0, 100));
     }
-  }, [selectedCategory, selectedJobRole]);
+  }, [isHydrated, analysisResult]);
 
-  function stripMarkdown(text: string) {
-  // Remove bold, italics, and subheaders
-  return text
-    .replace(/(\*\*|__)(.*?)\1/g, "$2") // bold
-    .replace(/(\*|_)(.*?)\1/g, "$2") // italics
-    .replace(/^###\s+/gm, "") // subheaders
-    .replace(/^-\s+/gm, "• ") // bullets
-    .replace(/`/g, "") // inline code
-    .trim();
-  }
 
-  const renderAnalysisSections = (analysis: string) => {
-    if (!analysis) return null;
-    
-    // If backend returned an object, show a JSON fallback
-    if (typeof analysis !== "string") {
-      return (
-        <div className="analysis-json-fallback">
-          <pre style={{ whiteSpace: "pre-wrap", maxHeight: 400, overflow: "auto" }}>
-            {JSON.stringify(analysis, null, 2)}
-          </pre>
-        </div>
-      );
-    }
-    const sections = analysis.split(/^##\s+/gm).filter(Boolean);
-    return (
-      <div className="grid gap-4">
-        {sections.map((section, idx) => {
-          const lines = section.split("\n");
-          const header = lines[0].trim();
-          const content = lines.slice(1).join("\n").trim();
-          const scoreMatch = content.match(/Resume Score:\s*(\d{1,3})\/100/i);
-          const score = scoreMatch ? scoreMatch[1] : null;
-
-          return (
-            <div key={idx} className="analysis-card">
-              <h3>{header}</h3>
-              <div className="whitespace-pre-wrap mb-2">{content}</div>
-              {score && (
-                <div className="mt-2 text-right">
-                  <span className="inline-block px-3 py-1 rounded bg-blue-100 text-blue-800 font-bold text-xl">
-                    Score: {score}/100
-                  </span>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  //CALLS ONLY, NO TASK PROCESSING
-  const handleAnalyzeResume = async () => {
-  setLoadingAnalysis(true);
-
-  try {
-    if (!editableResume) {
-      setAnalysisResult("No resume data to analyze.");
-      setLoadingAnalysis(false);
-      return;
-    }
-
-      // Build a trimmed payload to reduce tokens (send only needed fields)
-      const minimalResume = {
-        profile: editableResume.profile || {},
-        skills: {
-          featuredSkills: (editableResume.skills?.featuredSkills || []).slice(0, 20),
-          descriptions: (editableResume.skills?.descriptions || []).slice(0, 40),
-        },
-        educations: (editableResume.educations || []).slice(0, 5).map((e: any) => ({
-          school: e.school || "",
-          degree: e.degree || "",
-          field: e.field || "",
-          date: e.date || ""
-        })),
-        workExperiences: (editableResume.workExperiences || []).slice(0, 5).map((w: any) => ({
-          company: w.company || "",
-          position: w.position || "",
-          date: w.date || "",
-          // trim long descriptions to a reasonable length
-          description: (w.description || "").split(/\s+/).slice(0, 200).join(" ")
-        })),
-        projects: (editableResume.projects || []).slice(0, 5),
-        custom: { descriptions: (editableResume.custom?.descriptions || []).slice(0, 10) },
-      };
-
-    // Get job role description from JOB_ROLES
-    const jobRoleObj = selectedCategory && selectedJobRole
-      ? JOB_ROLES[selectedCategory][selectedJobRole]
-      : undefined;
-
-    // Prepare payload for backend
-    const payload = {
-      resume: JSON.stringify(minimalResume),
-      job_role: selectedJobRole || "",
-      job_description: jobRoleObj?.description || customJobDescription || "",
-    };
-
-    // Call FastAPI backend
-    const rawResult = await analyzeResumeWithGemini(payload);
-    console.log("analyzeResumeWithGemini raw result:", rawResult);
-
-    // Handle error response from backend
-    if (rawResult.error) {
-      throw new Error(rawResult.error);
-    }
-
-    // If result is already a string with sections, use it directly
-    if (typeof rawResult === "string" && rawResult.includes("##")) {
-      setAnalysisResult(rawResult);
-      // Extract score if present
-      const scoreMatch = rawResult.match(/Resume Score:\s*(\d{1,3})\/100/i);
-      if (scoreMatch) {
-        setAiScore(parseInt(scoreMatch[1], 10));
-      }
-      return;
-    }
-
-    // If result has a text/analysis/result field, use that
-    const analysisText = rawResult.analysis || rawResult.text || rawResult.result;
-    if (analysisText) {
-      setAnalysisResult(analysisText);
-      const scoreMatch = analysisText.match(/Resume Score:\s*(\d{1,3})\/100/i);
-      if (scoreMatch) {
-        setAiScore(parseInt(scoreMatch[1], 10));
-      }
-      return;
-    }
-
-    // Extract AI score from result (adjust this if your backend returns the score differently)
-    const aiScoreMatch = typeof rawResult === "string"
-      ? rawResult.match(/Resume Score:\s*(\d{1,3})\/100/i)
-      : null;
-    const aiScoreValue = aiScoreMatch ? parseInt(aiScoreMatch[1], 10) : calculateCandidateScore(sectionScores, scoringWeights);
-    setAiScore(aiScoreValue);
-    } catch (err) {
-      console.error("Error analyzing resume:", err);
-      setAnalysisResult("Failed to analyze resume");
-    } finally {
-      setLoadingAnalysis(false);
-    }
-  };
-
-  function CandidateScoreCard({ sectionScores, scoringWeights }) {
-  const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
-
-  return (
-    <div className="candidate-score-card" style={{ marginBottom: "1.5em" }}>
-      <h3>Automated Candidate Score</h3>
-      <table style={{ width: "100%", marginBottom: "0.5em" }}>
-        <thead>
-          <tr>
-            <th>Section</th>
-            <th>Score</th>
-            <th>Weight</th>
-            <th>Weighted</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Object.keys(scoringWeights).map((section) => (
-            <tr key={section}>
-              <td>{section.charAt(0).toUpperCase() + section.slice(1)}</td>
-              <td>{sectionScores[section]}</td>
-              <td>{scoringWeights[section]}</td>
-              <td>{Math.round(sectionScores[section] * scoringWeights[section])}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div style={{ fontWeight: "bold", fontSize: "1.2em" }}>
-        Final Candidate Score: <span style={{ color: "#1976d2" }}>{finalScore} / 100</span>
-      </div>
-    </div>
-    );
-  }
+  useEffect(() => {
+    console.log("analysisResult updated:", analysisResult);
+  }, [analysisResult]);
 
 
   return (
     <>
-      {isParsingResume && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            width: "100vw",
-            height: "100vh",
-            background: "rgba(255,255,255,0.85)",
-            zIndex: 9999,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            pointerEvents: "all"
-          }}
-        >
-          <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <div className="loader" style={{
-              marginBottom: 24,
-              width: 48,
-              height: 48,
-              border: "6px solid #1976d2",
-              borderTop: "6px solid #eee",
-              borderRadius: "50%",
-              animation: "spin 1s linear infinite"
-            }} />
-            <h2 style={{ margin: 0 }}>Parsing Resume...</h2>
-            <p style={{ marginTop: 8 }}>Please wait while Gemini processes the resume.</p>
-          </div>
-          <style>
-            {`
-              @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
-            `}
-          </style>
-        </div>
-      )}
+      <Toaster
+        position="bottom-right"
+        expand={true}
+        closeButton={true}
+        richColors={true}
+        toastOptions={{
+          style: {
+            fontSize: "0.9rem",
+            background: "#1e293b", // slate-800
+            color: "#f8fafc", // text-white
+          },
+        }}
+      />
       {loadingAnalysis && (
         <div
           style={{
@@ -713,17 +818,54 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       )}
     <div className="resume-parser-container">
       <div className="pdf-preview">
-        <div className="pdf-preview">
-          {fileUrl ? (
-            <iframe
-              src={`${fileUrl}#navpanes=0`}
-              style={{ width: "100%", height: "100%", border: "none" }}
-              title="PDF Preview"
-            />
-          ) : (
-            <div className="text-gray-400 text-center py-8">No Resume loaded. Please upload one in .pdf format</div>
-          )}
-        </div>
+        {fileUrl ? (
+          // Add error boundary and fallback for PDF preview
+          <div className="pdf-container" style={{ 
+            width: "100%", 
+            height: "100%",
+            overflow: "hidden", // Prevent scrolling
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#f5f5f5" }}>
+            {(() => {
+              try {
+                return (
+                  <iframe
+                    src={fileUrl}
+                    style={{ 
+                      width: "100%", 
+                      height: "100%", 
+                      border: "none",
+                      transform: "scale(0.9)", // Slightly scale down to show full page
+                      transformOrigin: "center center",
+                    }}
+                    title="PDF Preview"
+                    onError={(e) => {
+                      console.error("PDF preview error:", e);
+                      return (
+                        <div className="text-gray-400 text-center py-8">
+                          Error loading PDF preview
+                        </div>
+                      );
+                    }}
+                  />
+                );
+              } catch (e) {
+                console.error("PDF preview render error:", e);
+                return (
+                  <div className="text-gray-400 text-center py-8">
+                    Error loading PDF preview
+                  </div>
+                );
+              }
+            })()}
+          </div>
+        ) : (
+          <div className="text-gray-400 text-center py-8">
+            No Resume loaded. Please upload one in .pdf format
+          </div>
+        )}
       </div>
 
       <div className="right-panel">
@@ -732,10 +874,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             initialFileUrl={fileUrl || undefined}
             initialFileName={resumeName}
             fallbackFileUrl={defaultFileUrl}
-            onFileUrlChange={ (fileUrl, fileName) => {
-              setFileUrl(fileUrl);
-              setResumeName(fileName);
-            }}
+            onFileUrlChange={handleFileChange}
           />
           <button
               onClick={handleParseResume}
@@ -773,10 +912,22 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
           {activeTab === "parsing" ? (
             <div className="resume-table-section">
               <h2 className="section-title">Resume Parsing Results</h2>
-              <ResumeTable 
-              resume={editableResume} 
-              onFieldChange={handleFieldPathChange} 
-              />
+              {/* {editableResume && (
+                <div style={{ marginTop: 8, marginBottom: 8 }}>
+                  <details style={{ maxHeight: 200, overflow: "auto" }}>
+                    <summary style={{ cursor: "pointer", color: "#666" }}>Debug: safeResume JSON (toggle)</summary>
+                    <pre style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{JSON.stringify(safeResume, null, 2)}</pre>
+                  </details>
+                </div>
+              )} */}
+              {editableResume && editableResume.profile ? (
+                <ResumeTable
+                  resume={editableResume}
+                  onFieldChange={handleFieldPathChange}
+                />
+              ) : (
+                <div className="empty-resume-note">No parsed resume available. Try parsing a file again.</div>
+              )}
               <button
                 onClick={async () => {
                   if (!editableResume) {
@@ -858,7 +1009,10 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
               <label className="block font-semibold mb-1 mt-2">Job Role</label>
               <select
                 value={selectedJobRole}
-                onChange={e => setSelectedJobRole(e.target.value)}
+                onChange={(e) => {
+                  setSelectedJobRole(e.target.value);
+                  // Description will be updated by the effect above
+                }}
                 className="input"
               >
                 <option value="">Select a role</option>
@@ -871,11 +1025,19 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
               <label className="block font-semibold mb-1 mt-2">Job Description</label>
               <textarea
                 value={customJobDescription}
-                onChange={e => setCustomJobDescription(e.target.value)}
+                onChange={(e) => setCustomJobDescription(e.target.value)}
+                placeholder="Enter custom job description here..."
                 rows={5}
                 className="input"
               />
-
+                {selectedCategory && selectedJobRole && JOB_ROLES[selectedCategory][selectedJobRole]?.description && (
+                  <button
+                    onClick={() => setCustomJobDescription(JOB_ROLES[selectedCategory][selectedJobRole].description)}
+                    className="text-sm text-blue-600 mt-1"
+                  >
+                    Use default description for {selectedJobRole}
+                  </button>
+                )}
               <div className="score-configurator">
                 <h3>Configure Scoring Weights</h3>
                 {Object.keys(scoringWeights).map((key) => (
@@ -944,13 +1106,19 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                 {loadingAnalysis ? "Analyzing..." : "Analyze Resume"}
               </button>
 
-              {analysisResult && (
+              {analysisResult && analysisResult.trim() !== "Failed to analyze resume" ? (
                 <>
                   <CandidateScoreCard sectionScores={sectionScores} scoringWeights={scoringWeights} />
                   <div className="analysis-cards mt-4">
                     {renderAnalysisSections(analysisResult)}
                   </div>
                 </>
+              ) : (
+                <div className="analysis-card mt-4">
+                  {analysisResult === "Failed to analyze resume"
+                    ? "Failed to analyze resume."
+                    : "No analysis yet. Click 'Analyze Resume' to start."}
+                </div>
               )}
 
               {!analysisResult && (

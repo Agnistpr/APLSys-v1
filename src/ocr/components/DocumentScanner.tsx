@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Card } from '@/ocr/components/ui/card';
 import { Button } from '@/ocr/components/ui/button';
 import { Badge } from '@/ocr/components/ui/badge';
@@ -17,13 +17,11 @@ import {
 import { ImageViewer, entityToTag } from './ImageViewer';
 import { OCRPanel } from './OCRPanel';
 import { TagsPanel } from './TagsPanel';
-import { ExportPanel } from './ExportPanel';
-import { BatchOCRPanel } from './BatchOCRPanel';
-import { GeneralDocumentParser } from "./GeneralDocumentParser";
 import { DocumentUploadOCRPanel } from "./DocumentUploadOCRPanel";
 import { MetadataExtractorPanel } from './MetadataExtractorPanel';
 import { toast } from 'sonner';
-import { parseDocumentText} from "../../api/ocr";
+import { parseDocumentText } from "../../api/ocr";
+import { useOcrStore } from '../../electron/ocrStore';
 
 export interface ExtractedText {
   id: string;
@@ -93,6 +91,31 @@ export const DocumentScanner: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- store selectors ---
+  const addFileMeta = useOcrStore(s => s.addFile);
+  const addTask = useOcrStore(s => s.addTask);
+  const addResult = useOcrStore(s => s.addResult);
+  const markFileProcessed = useOcrStore(s => s.markFileProcessed);
+  const currentStoredFile = useOcrStore(s => s.currentFile);
+  const setCurrentStoredFile = useOcrStore(s => s.setCurrentFile);
+  const storedExtractedData = useOcrStore(s => s.currentExtractedData);
+  const setStoredExtractedData = useOcrStore(s => s.setCurrentExtractedData);
+  const isOcrProcessing = useOcrStore(s => s.isProcessing);
+  const setOcrProcessing = useOcrStore(s => s.setProcessing);
+
+  // Load persisted state on mount
+  useEffect(() => {
+    if (currentStoredFile) {
+      setCurrentFile(currentStoredFile.file);
+      setCurrentFileUrl(currentStoredFile.url);
+      setCurrentFileType(currentStoredFile.type);
+    }
+    
+    if (storedExtractedData) {
+      setExtractedData(storedExtractedData);
+    }
+  }, [currentStoredFile, storedExtractedData]);
+
   //to delete
   // const handleImageUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
   //   const file = event.target.files?.[0];
@@ -109,16 +132,34 @@ export const DocumentScanner: React.FC = () => {
   // }, []);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-  const file = event.target.files?.[0];
-  if (file) {
+    const file = event.target.files?.[0];
+    if (file) {
       const url = URL.createObjectURL(file);
+      
+      // Update local state
       setCurrentFile(file);
       setCurrentFileUrl(url);
       setCurrentFileType(file.type);
       setExtractedData([]);
-      toast.success('Document loaded successfully');
+
+      // Persist to store
+      setCurrentStoredFile({
+        file,
+        url,
+        type: file.type,
+        name: file.name
+      });
+      
+      toast.success('Document loaded successfully', {
+        description: file.name,
+        duration: 4000,
+      });
+
+      // Persist file metadata and create task
+      addFileMeta({ name: file.name, type: file.type, url, addedAt: Date.now() });
+      addTask({ id: `local-${Date.now()}`, filename: file.name, status: 'pending', createdAt: Date.now() });
     }
-  }, []);
+  }, [addFileMeta, addTask, setCurrentStoredFile]);
 
   const handleDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -129,11 +170,21 @@ export const DocumentScanner: React.FC = () => {
       setCurrentFileUrl(url);
       setCurrentFileType(file.type);
       setExtractedData([]);
-      toast.success('Document loaded successfully');
+      toast.success('Document loaded successfully', {
+        description: file.name,
+        duration: 4000,
+      });
+
+      // Persist file metadata & create task
+      addFileMeta({ name: file.name, type: file.type, url, addedAt: Date.now() });
+      addTask({ id: `local-${Date.now()}`, filename: file.name, status: 'pending', createdAt: Date.now() });
     } else {
-      toast.error('Please drop a valid image file');
+      toast.error('Please drop a valid file', {
+        description: 'Only images and documents are supported',
+        duration: 4000,
+      });
     }
-  }, []);
+  }, [addFileMeta, addTask]);
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -141,41 +192,27 @@ export const DocumentScanner: React.FC = () => {
 
   const handleTextExtracted = useCallback(async (newExtraction: ExtractedText | ExtractedText[]) => {
     const blocks = Array.isArray(newExtraction) ? newExtraction : [newExtraction];
+    
+    // Update local state
     setExtractedData((prev) => [...prev, ...blocks]);
     setActivePanel("ocr");
-    toast.success("Text extracted and tagged successfully");
-    // try {
-    //   const results: ExtractedText[] = [];
 
-    //   for (const block of blocks) {
-    //     const response = await fetch("http://127.0.0.1:8000/ai/gemini-label-extracted-text", {
-    //       method: "POST",
-    //       headers: { "Content-Type": "application/json" },
-    //       body: JSON.stringify({ text: block.text }), // match backend schema
-    //     });
+    // Persist extracted data
+    setStoredExtractedData((prev) => [...prev, ...blocks]);
+    
+    // Update processing state
+    setOcrProcessing(false);
 
-    //     const data = await response.json();
+    toast.success('Text extracted successfully', {
+      description: `${blocks.length} items extracted`,
+      duration: 4000,
+    });
 
-    //     // Backend returns: { entities: [...] }
-    //     const tags = data.entities
-    //       .map((ent: any) => entityToTag(ent.entity))
-    //       .filter((tag: string | null) => tag);
-
-    //     results.push({
-    //       ...block,
-    //       tags,
-    //     });
-    //   }
-
-    //   setExtractedData((prev) => [...prev, ...results]);
-    //   setActivePanel("ocr");
-    //   toast.success("Text extracted and tagged successfully");
-    // } catch (err) {
-    //   console.error(err);
-    //   setExtractedData((prev) => [...prev, ...blocks]);
-    //   toast.error("Text extracted, but tagging failed");
-    // }
-  }, []);
+    // Persist OCR result to store
+    const filename = currentFile?.name || `unsaved-${Date.now()}`;
+    addResult(filename, { extracted: blocks, timestamp: Date.now() });
+    markFileProcessed(filename);
+  }, [currentFile, addResult, markFileProcessed, setStoredExtractedData, setOcrProcessing]);
 
   const handleUpdateExtraction = useCallback((id: string, updates: Partial<ExtractedText>) => {
     setExtractedData(prev => 
@@ -185,7 +222,9 @@ export const DocumentScanner: React.FC = () => {
 
   const handleDeleteExtraction = useCallback((id: string) => {
     setExtractedData(prev => prev.filter(item => item.id !== id));
-    toast.success('Extraction deleted');
+    toast.success('Extraction deleted', {
+      duration: 4000,
+    });
   }, []);
 
   const handleParse = async () => {
@@ -202,6 +241,10 @@ export const DocumentScanner: React.FC = () => {
     }
   };
 
+  const handleOcrStart = useCallback(() => {
+    setOcrProcessing(true);
+  }, [setOcrProcessing]);
+
   const allTags = [...DEFAULT_TAGS, ...customTags];
 
   const documentData: DocumentData = {
@@ -210,6 +253,16 @@ export const DocumentScanner: React.FC = () => {
     customTags,
     timestamp: new Date().toISOString()
   };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Clean up any object URLs to prevent memory leaks
+      if (currentFileUrl && !currentStoredFile) {
+        URL.revokeObjectURL(currentFileUrl);
+      }
+    };
+  }, [currentFileUrl, currentStoredFile]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -255,6 +308,7 @@ export const DocumentScanner: React.FC = () => {
                 <ImageViewer
                   fileUrl={currentFileUrl}
                   fileType={currentFileType || ""}
+                  fileName={currentFile?.name || "untitled"}
                   onTextExtracted={handleTextExtracted}
                   extractedData={extractedData}
                 />

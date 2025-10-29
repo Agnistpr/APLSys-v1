@@ -4,12 +4,10 @@ import { MdClear } from "react-icons/md";
 import { FaFilter, FaFolderOpen, FaCheck } from "react-icons/fa";
 import { batchProcessFolder, searchOcrResults } from '../api/ocr';
 import { toast } from "sonner";
-
-const PENDING_KEY = "batchOcr:pending";
-const INFLIGHT_KEY = "batchOcr:inflight"; // <-- added
+import {useOcrStore} from '../electron/ocrStore';
 
 const Management = ({ onTaskStart, onTaskEnd }) => {
-  const [docs, setDocs] = useState([]);
+  const { docs, setDocs, processingMap, setProcessingMap, batchId, setBatchId, ocrMatches, setOcrMatches } = useOcrStore();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState({});
@@ -19,220 +17,293 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   const [jumpPage, setJumpPage] = useState("");
   const filterRef = useRef(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingMap, setProcessingMap] = useState({}); 
   const columnLabelMap = { type: "Type" };
+  const PROCESSING_STATE_KEY = "documentProcessingState";
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, selectedFilters]);
-
-  // load pending set from localStorage after docs are loaded
-  useEffect(() => {
-    const restorePending = async () => {
-      try {
-        // Restore pending spinner state from localStorage (do not consult /ocr/status)
-        const raw = window.localStorage.getItem(PENDING_KEY);
-        if (!raw) return;
-        const pending = JSON.parse(raw || "[]");
-        if (!Array.isArray(pending) || pending.length === 0) return;
-
-        // fetch docs to consult isProcessed flags
-        const docsList = await window.fileAPI.listDocuments();
-        const ocrResults = new Set((await window.fileAPI.readDirectory('ocr_results') || []).map(f => f.replace('.json', '')));
-        const map = {};
-        let hasAnyPending = false;
-
-        for (const name of pending) {
-          const found = docsList.find(d => d.name === name);
-          if (found && !ocrResults.has(name) && !found.isProcessed) {
-            map[name] = true;
-            hasAnyPending = true;
-          } else {
-            // cleanup stale entries
-            removePending(name);
-          }
-        }
-
-        if (!hasAnyPending) {
-          // nothing pending anymore — clear inflight marker
-          window.localStorage.removeItem(INFLIGHT_KEY);
-          setProcessingMap({});
-          return;
-        }
-
-        setProcessingMap(prev => ({ ...prev, ...map }));
-      } catch (err) {
-        console.warn("Failed to restore pending OCR set:", err);
-        // don't aggressively wipe PENDING_KEY here; leave to explicit events or cleanup flows
-      }
-    };
-    restorePending();
-  }, []); // run once on mount
-
-  // helper localStorage helpers
-  const savePendingSet = (set) => {
-    try {
-      window.localStorage.setItem(PENDING_KEY, JSON.stringify(Array.from(set)));
-    } catch {}
-  };
-  const addPending = (name) => {
-    const raw = window.localStorage.getItem(PENDING_KEY);
-    const arr = raw ? JSON.parse(raw) : [];
-    if (!arr.includes(name)) {
-      arr.push(name);
-      window.localStorage.setItem(PENDING_KEY, JSON.stringify(arr));
-      // ensure inflight marker exists so restore knows there's work
-      if (!window.localStorage.getItem(INFLIGHT_KEY)) {
-        window.localStorage.setItem(INFLIGHT_KEY, "1");
-      }
+  // Shared sonner toast style used by toast.custom calls
+  const toastStyle = {
+    style: {
+      background: "white",
+      color: "#222",
+      border: "1px solid #e6e6e6",
+      borderRadius: 8,
+      padding: "10px 14px",
+      boxShadow: "0 6px 18px rgba(0,0,0,0.08)"
     }
   };
-  const removePending = (name) => {
-    const raw = window.localStorage.getItem(PENDING_KEY);
-    if (!raw) return;
-    const arr = JSON.parse(raw).filter((v) => v !== name);
-    if (arr.length === 0) {
-      window.localStorage.removeItem(PENDING_KEY);
-      window.localStorage.removeItem(INFLIGHT_KEY);
-    } else {
-      window.localStorage.setItem(PENDING_KEY, JSON.stringify(arr));
-    }
-  };
-  const clearPending = () => {
-    window.localStorage.removeItem(PENDING_KEY);
-    window.localStorage.removeItem(INFLIGHT_KEY);
-  };
+
+  // helper to call backend create-task
+  const createServerTask = async (payload) => {
+   const resp = await fetch("http://localhost:8000/ocr/create-task", {
+     method: "POST",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify(payload),
+   });
+   if (!resp.ok) {
+     const text = await resp.text().catch(() => "");
+     throw new Error(`create-task failed: ${resp.status} ${text}`);
+   }
+   return resp.json();
+};
 
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (filterRef.current && !filterRef.current.contains(e.target)) {
-        setFilterOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    // Fetch documents and restore spinner state from PENDING_KEY (do not clear pending on transient backend replies)
     const fetchDocs = async () => {
       try {
         const docsList = await window.fileAPI.listDocuments();
-        setDocs(docsList);
 
-        // Always try to restore spinner state from PENDING_KEY (safer/resilient to navigation)
-        const raw = window.localStorage.getItem(PENDING_KEY);
-        if (!raw) return;
-        const pending = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
-        if (pending.length === 0) return;
+        // preserve processing state for files that are mid-scan
+        const updated = docsList.map(d => ({
+          ...d,
+          isProcessed: d.isProcessed || false,
+         }));
+         setDocs(updated);
 
-        const ocrResults = new Set((await window.fileAPI.readDirectory('ocr_results') || []).map(f => f.replace('.json', '')));
-        const map = {};
-        let any = false;
-        for (const name of pending) {
-          const doc = docsList.find(d => d.name === name);
-          if (doc && !doc.isProcessed && !ocrResults.has(name)) {
-            map[name] = true;
-            any = true;
-          } else {
-            // cleanup stale entries
-            removePending(name);
-          }
-        }
-        if (any) {
-          setProcessingMap(prev => ({ ...prev, ...map }));
-        } else {
-          // nothing pending anymore — clear inflight
-          window.localStorage.removeItem(INFLIGHT_KEY);
+        // Log once on the initial fetch when the page mounts / when user navigates back
+        if (!fetchDocs.__loggedOnce) {
+          // use store snapshot to show current processing map
+          const storeProcessing = useOcrStore.getState().processingMap || {};
+          console.log("Docs loaded (mount):", docsList.length, "Processing map:", storeProcessing);
+          fetchDocs.__loggedOnce = true;
         }
       } catch (err) {
         console.error("Failed to fetch documents:", err);
+        toast.error("Failed to load documents");
       }
     };
+
+
     fetchDocs();
-  }, []); // Run on mount
 
-  useEffect(() => {
-    const restoreProcessingState = async () => {
-      try {
-        const batchTaskId = window.localStorage.getItem(INFLIGHT_KEY);
-        if (!batchTaskId) return;
+    // Optional: Set up polling to refresh document list periodically
+    const interval = setInterval(fetchDocs, 10000); // Refresh every 10 seconds
 
-        const response = await fetch(`http://localhost:8000/ocr/tasks/${batchTaskId}`).catch(() => null);
-        if (!response || !response.ok) {
-          // backend might not be available / task may be managed by main-process — do not clear pending on transient errors
-          return;
+    return () => clearInterval(interval);
+  }, []); 
+
+  // Restore saved spinner state immediately at mount
+  // Update the restore effect to validate against ocr_results and isProcessed flag
+useEffect(() => {
+  const restoreState = async () => {
+    try {
+      const raw = localStorage.getItem(PROCESSING_STATE_KEY);
+      if (!raw) return;
+      
+      const parsed = JSON.parse(raw);
+      const savedMap = parsed?.processingMap ?? {};
+
+      // Only show spinners if:
+      // 1. File exists in docs
+      // 2. Not already processed (no OCR result)
+      // 3. Has an active task ID in pendingMap
+      const ocrResults = new Set(
+        (await window.fileAPI.readDirectory("ocr_results") || [])
+          .map(f => f.replace(".json", ""))
+      );
+
+      const pendingMap = JSON.parse(localStorage.getItem("batchOcr:pendingMap") || "{}");
+      
+      const validatedMap = {};
+      let hasValid = false;
+
+      Object.keys(savedMap).forEach(filename => {
+        // Skip if OCR result exists or no pending task
+        if (ocrResults.has(filename) || !pendingMap[filename]) return;
+        
+        const doc = docs.find(d => normalizeName(d.name) === filename);
+        if (doc && !doc.isProcessed) {
+          validatedMap[filename] = true;
+          hasValid = true;
         }
-        const { task } = await response.json();
+      });
 
-        if (!task || task.status === "completed" || task.status === "failed") {
-          // Clean up if task is done
-          window.localStorage.removeItem(INFLIGHT_KEY);
-          window.localStorage.removeItem(PENDING_KEY);
-          setProcessingMap({});
-          return;
-        }
-
-        // Restore processing state for files from backend task.details.files if present
-        const pendingFiles = task.details?.files || [];
-        const map = {};
-        pendingFiles.forEach(filename => {
-          const doc = docs.find(d => d.name === filename);
-          if (doc && !doc.isProcessed) {
-            map[filename] = true;
-            addPending(filename); // ensure local storage includes it
-          }
-        });
-        setProcessingMap(prev => ({ ...prev, ...map }));
-      } catch (err) {
-        console.warn("Failed to restore processing state:", err);
-        // avoid wiping local pending state on errors
+      if (hasValid) {
+        setProcessingMap(validatedMap);
+      } else {
+        // No valid pending files - clean up
+        localStorage.removeItem(PROCESSING_STATE_KEY);
+        localStorage.removeItem("batchOcr:pendingMap");
+        setProcessingMap({});
       }
-    };
 
-    restoreProcessingState();
-  }, [docs]); // Re-run when docs list changes
+    } catch (err) {
+      console.warn("Failed to restore state:", err);
+    }
+  };
+
+  restoreState();
+}, [docs]); // Run when docs list changes
+
+  // small helper: normalize file keys for map/localStorage comparisons
+  const normalizeName = (n) => {
+    if (!n) return "";
+    return String(n).trim();
+  };
 
   useEffect(() => {
   // Create a stable reference to the handler function
   const handleOcrProgress = (e) => {
     const evt = e?.detail ?? e;
-    const { filename, status, task_id } = evt || {};
-    
+    const rawFilename = evt?.filename || "";
+    const rawParent = evt?.parent || "";
+    const filename = normalizeName(rawFilename);
+    const parent = normalizeName(rawParent);
+    const { status, task_id } = evt || {};
+
     if (filename) {
       if (status === "started") {
-        setProcessingMap(prev => ({ ...prev, [filename]: true }));
-        addPending(filename);
-      } else if (status === "done" || status === "error") {
-        setProcessingMap(prev => ({ ...prev, [filename]: false }));
-        removePending(filename);
-        if (status === "done") {
-          window.fileAPI.listDocuments().then(setDocs);
+        // Check if file is already in processing state to avoid duplicate "started" notifications
+        const currentProcessing = useOcrStore.getState().processingMap || {};
+        if (currentProcessing[filename]) {
+          return; // Skip if already processing
         }
+        // mark the actual event filename as started
+        setProcessingMap(prev => ({ ...prev, [filename]: true }));
+
+        // persist with normalized key
+        try {
+          const raw = localStorage.getItem(PROCESSING_STATE_KEY);
+          const stored = raw ? JSON.parse(raw) : { batchId: useOcrStore.getState().batchId, processingMap: {} };
+          stored.processingMap = { ...(stored.processingMap || {}), [filename]: true };
+          localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(stored));
+        } catch (err) { /* noop */ }
+
+        toast.custom((t) => (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', width: '100%' }}>
+            <span>{`${filename}: Started`}</span>
+            <button 
+              onClick={() => toast.dismiss(t.id)}
+              style={{ 
+                background: 'none',
+                border: 'none',
+                padding: '4px',
+                cursor: 'pointer',
+                color: '#666',
+                marginLeft: '12px'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ), {
+          id: `ocr-${filename}`,
+          ...toastStyle
+        });
+      } else if (status === "done") {
+        // Dismiss any existing toasts for this file first
+        toast.dismiss(`ocr-${filename}`);
+
+        setProcessingMap(prev => {
+          const next = { ...prev };
+          // Remove both filename and parent
+          if (filename) delete next[filename];
+          if (parent) delete next[parent];
+          return next;
+        });
+
+        // Update docs to mark as processed
+        const currentDocs = useOcrStore.getState().docs || [];
+        const updatedDocs = currentDocs.map(doc => {
+          const docName = normalizeName(doc.name);
+          if (docName === filename || docName === parent) {
+            return { ...doc, isProcessed: true };
+          }
+          return doc;
+        });
+        setDocs(updatedDocs);
+        //Notify as done
+        toast.custom((t) => (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'green', width: '100%' }}>
+            <span>{`${filename}: Done`}</span>
+            <button 
+              onClick={() => toast.dismiss(t.id)}
+              style={{ 
+                background: 'none',
+                border: 'none',
+                padding: '4px',
+                cursor: 'pointer',
+                color: '#666',
+                marginLeft: '12px'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ), {
+          id: `ocr-${filename}-done`,
+          ...toastStyle
+        });
+        
+        // Clear from localStorage
+        try {
+          const raw = localStorage.getItem(PROCESSING_STATE_KEY);
+          const stored = raw ? JSON.parse(raw) : {};
+          if (stored.processingMap) {
+            delete stored.processingMap[filename];
+            if (parent) delete stored.processingMap[parent];
+          }
+          if (Object.keys(stored.processingMap || {}).length === 0) {
+            localStorage.removeItem(PROCESSING_STATE_KEY);
+          } else {
+            localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(stored));
+          }
+        } catch (err) {
+          console.warn("Failed to update storage:", err);
+        }
+      } else if (status === "error") {
+        // clean up map for both keys
+        setProcessingMap(prev => {
+          const next = { ...prev };
+          if (filename && next[filename]) delete next[filename];
+          if (parent && next[parent]) delete next[parent];
+          return next;
+        });
+        toast.custom((t) => (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'red', width: '100%' }}>
+            <span>{`${filename}: Failed to scan`}</span>
+            <button 
+              onClick={() => toast.dismiss(t.id)}
+              style={{ 
+                background: 'none',
+                border: 'none',
+                padding: '4px',
+                cursor: 'pointer',
+                color: '#666',
+                marginLeft: '12px'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ), {
+          id: `ocr-${filename}-error`,
+          ...toastStyle
+        });
       }
     } else if (status === "all_done") {
-      window.localStorage.removeItem(INFLIGHT_KEY);
-      clearPending();
       setProcessingMap({});
+      setBatchId(null);
+      localStorage.removeItem(PROCESSING_STATE_KEY);
       window.fileAPI.listDocuments().then(setDocs);
       onTaskEnd(task_id);
+      window.toast("All files have been processed", "success");
     }
   };
 
   // Add single event listener with stable handler reference
   window.addEventListener("app:ocr-progress", handleOcrProgress);
   
-  // Remove the same handler reference on cleanup
   return () => {
     window.removeEventListener("app:ocr-progress", handleOcrProgress);
   };
-}, []); // Empty deps since handler uses only stable functions
+}, []);
 
   const uniqueValues = useMemo(() => {
     const values = { type: new Set() };
-    docs.forEach((row) => {
-      values.type.add(row.type || "");
-    });
+    if (Array.isArray(docs)) {
+      docs.forEach((row) => {
+        values.type.add(row.type || "");
+      });
+    }
     return {
       type: Array.from(values.type),
     };
@@ -266,108 +337,200 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
         query = query.slice(1, -1);
       }
 
-      if (query.length === 0) {
-        // empty query after '=' -> clear any ocrMatch flags
-        setDocs(prevDocs => prevDocs.map(doc => ({ ...doc, ocrMatch: false })));
+      if (!query) {
+        setOcrMatches({}); // Clear matches
         return;
       }
 
-      // call OCR search and annotate docs
-      const matches = await searchOcrResults(query);
-      const matchSet = new Set(matches.map(m => m.filename));
-      setDocs(prevDocs =>
-        prevDocs.map(doc => ({ ...doc, ocrMatch: matchSet.has(doc.name) }))
-      );
 
+      try{
+      // call OCR search and annotate docs
+        const matches = await searchOcrResults(query);
+        console.log("OCR search results for", { query, matches, matchedFiles: matches.map(m => m.filename) });
+
+        // Store matches in separate state
+        const matchSet = new Set(matches.map(m => normalizeName(m.filename)));
+        const newMatches = {};
+        docs.forEach(doc => {
+          const normalized = normalizeName(doc.name);
+          if (matchSet.has(normalized)) {
+            newMatches[normalized] = true;
+          }
+        });
+        setOcrMatches(newMatches);
+      } 
+      catch (err)
+      {
+        console.error("OCR search failed:", err);
+        window.toast("Word Search failed", "error");
+        setOcrMatches({});
+      }
       return;
     }
+    // Clear OCR matches for non-OCR searches
+    setOcrMatches({});
   };
 
-  // Add batch OCR processing
+  // Updated processFolderOcr: construct optimistic map with normalized names
   const processFolderOcr = async () => {
     try {
       setIsProcessing(true);
-      toast.loading("Starting background OCR...", { id: "ocr-batch" });
-
-      const allowedExts = new Set([
-        "pdf", "png", "jpg", "jpeg", "tif", "tiff", "bmp"
-      ]);
-
-      // Get documents to process
+      
       const docsList = await window.fileAPI.listDocuments();
+      setDocs(docsList);
+
+      // Check for unprocessed files BEFORE showing any toast
+      const allowedExts = new Set(["png", "jpg", "jpeg", "tif", "tiff", "bmp", "pdf"]);
       const pathsToProcess = docsList
-        .filter(doc => {
-          if (doc.isProcessed) return false;
-          const ext = (doc.type || "").toLowerCase();
-          return allowedExts.has(ext);
-        })
-        .map(doc => ({
-          path: doc.path,
-          name: doc.name
-        }));
+        .filter(doc => !doc.isProcessed && allowedExts.has((doc.type || "").toLowerCase()))
+        .map(doc => ({ path: doc.path, name: doc.name }));
 
       if (pathsToProcess.length === 0) {
-        toast("No new files to process", { id: "ocr-batch" });
+        toast.custom((t) => (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>No new files to process</span>
+            <button 
+              onClick={() => toast.dismiss(t.id)}
+              style={{ 
+                background: 'none',
+                border: 'none',
+                padding: '4px',
+                cursor: 'pointer',
+                color: '#666',
+                marginLeft: '12px'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ), { id: "ocr-batch", ...toastStyle });
+        
         setIsProcessing(false);
         return;
       }
 
-      // Create a batch task first
-      const batchResponse = await fetch("http://localhost:8000/ocr/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          task_type: "batch_ocr",
-          files: pathsToProcess.map((p) => p.name),
-          details: { total_files: pathsToProcess.length },
-        }),
+      // Only show "Scanning..." toast if we actually have files to process
+      toast.custom((t) => (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Scanning all files...</span>
+          <button 
+            onClick={() => toast.dismiss(t.id)}
+            style={{ 
+              background: 'none',
+              border: 'none',
+              padding: '4px',
+              cursor: 'pointer',
+              color: '#666',
+              marginLeft: '12px'
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      ), { id: "ocr-batch", ...toastStyle });
+
+      const filenames = pathsToProcess.map(p => normalizeName(p.name));
+
+      // Build initial processing map from freshly fetched docsList using normalized keys
+      const initialProcessingMap = {};
+      filenames.forEach(name => {
+        const doc = docsList.find(d => normalizeName(d.name) === name);
+        if (doc && !doc.isProcessed) {
+          initialProcessingMap[name] = true;
+        }
       });
 
-      const batchData = await batchResponse.json().catch(() => ({}));
-      if (!batchResponse.ok) {
-        // include backend message if available
-        throw new Error(batchData?.error || "Failed to create batch task");
-      }
+      // Merge with existing store map once (avoid duplicate declarations)
+      const storeState = useOcrStore.getState();
+      const mergedOptimistic = { ...(storeState.processingMap || {}), ...initialProcessingMap };
+      setProcessingMap(mergedOptimistic);
 
-      // backend returns { task_id: number }
-      const batchTaskId = batchData.task_id ?? batchData.task?.id;
-      if (!batchTaskId) {
-        throw new Error("No task_id returned from backend");
-      }
+      // persist optimistic state with normalized keys (no batch id yet)
+      localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify({
+        batchId: null,
+        processingMap: mergedOptimistic
+      }));
 
-      // notify app-level tracker
-      onTaskStart(batchTaskId, { type: "batch_ocr", files: pathsToProcess.map(p => p.name) });
-
-      // Start batch OCR via main process and pass backend task id so worker can update backend if desired
-      const res = await window.fileAPI.startBatchOcr({
-        files: pathsToProcess.map((p) => p.path),
-        batch_task_id: batchTaskId,
+      // Create batch task
+      const batchResp = await createServerTask({
+        task_type: "batch_ocr",
+        files: filenames,
+        details: { total_files: filenames.length }
       });
 
-       if (!res || !res.success) {
-        throw new Error(res?.error || "Failed to start batch OCR");
-       }
- 
-       // Mark files as processing
-      window.localStorage.setItem(INFLIGHT_KEY, String(batchTaskId));
-       pathsToProcess.forEach(p => {
-         setProcessingMap(prev => ({ ...prev, [p.name]: true }));
-         addPending(p.name);
-       });
+      const batchTaskId = batchResp?.task_id;
+      if (!batchTaskId) throw new Error("No batch task id returned from server");
+      setBatchId(batchTaskId);
+
+      // Create per-file tasks
+      const fileTaskMap = {};
+      for (let i = 0; i < filenames.length; i++) {
+        const name = filenames[i];
+        const fileResp = await createServerTask({
+          task_type: "ocr_file",
+          filename: name,
+          details: { batch_id: batchTaskId, index: i + 1 }
+        });
+        fileTaskMap[name] = fileResp?.task_id || null;
+      }
+
+      // Persist per-file task map and inflight batch id immediately
+      try {
+        localStorage.setItem("batchOcr:pendingMap", JSON.stringify(fileTaskMap));
+        localStorage.setItem("batchOcr:inflight", String(batchTaskId));
+      } catch (err) {
+        console.warn("Failed to persist pendingMap/inflight:", err);
+      }
+
+      // Update persisted optimistic state with real batch id
+      localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify({
+        batchId: batchTaskId,
+        processingMap: mergedOptimistic
+      }));
+
+      // Start worker
+      const workerResponse = await window.fileAPI.startBatchOcr({
+        files: pathsToProcess.map(p => p.path),
+        batch_task_id: batchTaskId
+      });
+
+      if (!workerResponse?.success) {
+        throw new Error(workerResponse?.error || "Failed to start OCR worker");
+      }
+
+      // Merge worker-confirmed processing files (if present) with optimistic map
+      const actualMap = { ...mergedOptimistic };
+      if (Array.isArray(workerResponse.processing_files) && workerResponse.processing_files.length > 0) {
+        workerResponse.processing_files.forEach(fname => {
+          actualMap[normalizeName(fname)] = true;
+        });
+      }
+
+      setProcessingMap(actualMap);
+      localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify({
+        batchId: batchTaskId,
+        processingMap: actualMap
+      }));
+
+      // log after worker confirms start (one-time)
+      console.log("Batch OCR worker running. processingMap:", actualMap);
+
+      onTaskStart(batchTaskId, { type: "batch_ocr", files: filenames });
 
     } catch (err) {
       console.error("Failed to start OCR process:", err);
-      toast.error("Failed to start OCR process");
+      window.toast(err.message || "Failed to start OCR process", "error");
       setProcessingMap({});
-      window.localStorage.removeItem(INFLIGHT_KEY);
+      localStorage.removeItem(PROCESSING_STATE_KEY);
+      setBatchId(null);
     } finally {
       setIsProcessing(false);
+      window.fileAPI.listDocuments().then(setDocs);
     }
   };
 
   // Helper function to convert base64 to Blob
   const base64ToBlob = (base64, mimeFallback = "application/octet-stream") => {
-    // Accept either "data:<mime>;base64,AAAA" or raw base64 "AAAA"
     let dataPart = base64;
     let mime = mimeFallback;
 
@@ -404,12 +567,17 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   };
 
   const filtered = useMemo(() => {
+    // Ensure docs is an array before filtering
+      if (!Array.isArray(docs)) {
+        return [];
+      }
     return docs.filter((row) => {
 
       if (searchTerm.startsWith('=')) { //OCR search query
-        const query = searchTerm.slice(2, -1);
-        // This will be populated by searchOcrResults
-        return row.ocrMatch;
+        const normalized = normalizeName(row.name);
+        const hasMatch = Boolean(ocrMatches[normalized]);
+        console.log(`Filtering "${row.name}": ocrMatch=${hasMatch}`);
+        return hasMatch;
       }
 
 
@@ -424,7 +592,7 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
 
       return matchesSearch && matchesFilters;
     });
-  }, [docs, searchTerm, selectedFilters]);
+  }, [docs, searchTerm, selectedFilters, ocrMatches]);
 
   const paginated = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -566,10 +734,10 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
                   <td>
                     {doc.name}
                     {processingMap[doc.name] && (
-                      <span className="inlineSpinner" title="Processing OCR" />
+                      <span className="inlineSpinner" title="Scanning..." />
                     )}
                     {doc.isProcessed && (
-                      <FaCheck style={{ color: "#2ea44f", marginLeft: 8 }} title="OCR processed" />
+                      <FaCheck style={{ color: "#2ea44f", marginLeft: 8 }} title="Scanned" />
                     )}
                   </td>
                   <td>.{doc.type}</td>

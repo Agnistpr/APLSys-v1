@@ -17,7 +17,6 @@ import Logs from './page/Logs.jsx';
 import { TooltipProvider } from "./ocr/components/ui/tooltip.js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocumentScanner } from "./ocr/components/DocumentScanner.tsx";
-import AnalyzerImport from './app/resume-parser/page.tsx';
 import ocrCssPath from './ocr/ocrstyles.css?url';
 
 const Analyzer = lazy(() => import('./app/resume-parser/page.tsx'));
@@ -117,8 +116,6 @@ useEffect(() => {
         <div id="ocr-root">
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
-              <Toaster />
-              <SonnerToaster />
               <DocumentScanner />
             </TooltipProvider>
           </QueryClientProvider>
@@ -215,14 +212,14 @@ useEffect(() => {
 
       // Show toast notifications
       if (status === "started") {
-        toast.loading(`${filename || 'OCR'}: Started`, { id: toastId });
+        toast.loading(`${filename || 'OCR'}: Started`, { id: toastId, duration: 2000, dismissible: true });
       } else if (status === "progress") {
         const pct = progress ? Math.round(progress * 100) : null;
-        toast.loading(`${filename}: ${pct}%`, { id: toastId });
+        toast.loading(`${filename}: ${pct}%`, { id: toastId, duration: 2000, dismissible: true });
       } else if (status === "done") {
-        toast.success(`${filename}: Completed`, { id: toastId });
+        toast.success(`${filename}: Completed`, { id: toastId, duration: 2000, dismissible: true });
       } else if (status === "error") {
-        toast.error(`${filename}: ${error || 'Failed'}`, { id: toastId });
+        toast.error(`${filename}: ${error || 'Failed'}`, { id: toastId, duration: 2000, dismissible: true });
       } else if (status === "all_done") {
         toast.success("All files processed", { id: "ocr-batch" });
       }
@@ -347,7 +344,24 @@ useEffect(() => {
       />}
       <Toasts />
       <div className={`content ${isSidebarCollapsed ? 'collapsed' : 'expanded'}`}>{renderPage()}</div>
-      <Toaster richColors position="top-right" />
+      <Toaster 
+        position="top-right"
+        expand={false}
+        richColors
+        closeButton
+        duration={4000}
+        toastOptions={{
+          dismissible: true,
+          style: {
+            background: 'white',
+            color: '#222',
+            border: '1px solid #e6e6e6', 
+            borderRadius: '8px',
+            padding: '12px 16px'
+          },
+          className: 'toast-persistent-class'
+        }}
+      />
     </div>
   );
 };
