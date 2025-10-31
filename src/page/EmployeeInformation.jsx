@@ -164,17 +164,6 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     }
   };
 
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (needsPositionUpdate) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [needsPositionUpdate]);
-
   const formatContactNumber = (value) => {
     if (!value) return "";
     const digits = value.replace(/\D/g, "");
@@ -327,7 +316,6 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
               onChange={(e) => {
                 const newDeptId = e.target.value;
                 const newDept = departments.find((d) => d.id == newDeptId);
-                const oldDept = employee.department;
 
                 if (newDeptId != employee.departmentid) {
                   setConfirmFieldChange({
@@ -364,7 +352,6 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
               onChange={(e) => {
                 const newPosId = e.target.value;
                 const newPos = positionsByDept[employee.departmentid]?.find((p) => p.id == newPosId);
-                const oldPos = employee.position;
 
                 if (newPosId != employee.positionid) {
                   setConfirmFieldChange({

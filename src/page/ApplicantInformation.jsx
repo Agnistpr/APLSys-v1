@@ -32,6 +32,16 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     return localStorage.getItem("attendanceDate") || "";
   });
 
+  const [needsPositionUpdate, setNeedsPositionUpdate] = useState(false);
+  const [autoFocusPosition, setAutoFocusPosition] = useState(false);
+
+  const [confirmFieldChange, setConfirmFieldChange] = useState({
+    open: false,
+    field: null,
+    newValue: "",
+    newId: ""
+  });
+
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedFilters, selectedDate]);
@@ -83,6 +93,19 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
   }, [applicantId]);
 
   useEffect(() => {
+    if (!applicant || deptPosList.length === 0) return;
+
+    const deptObj = deptPosList.find((d) => d.departmentname === applicant.department);
+    const posObj = deptPosList.find((d) => d.positionname === applicant.position);
+
+    setApplicant((prev) => ({
+      ...prev,
+      departmentid: deptObj?.departmentid || prev.departmentid,
+      positionid: posObj?.positionid || prev.positionid,
+    }));
+  }, [deptPosList, applicant]);
+
+  useEffect(() => {
     const fetchAttendance = async () => {
       setLoading(true);
       const data = await window.attendanceAPI.getApplicantAttendance(applicantId, selectedDate);
@@ -91,6 +114,18 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     };
     fetchAttendance();
   }, [applicantId, selectedDate]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (needsPositionUpdate) {
+        e.preventDefault();
+        e.returnValue = "";
+        window.toast("Please select a new position before leaving this page.", "error");
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [needsPositionUpdate]);
 
   const handleEditClick = (field, value) => {
     setEditingField(field);
@@ -169,6 +204,56 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     }
   };
 
+  const handleConfirmFieldChange = async () => {
+    const { field, newId, newValue } = confirmFieldChange;
+    if (!field) return;
+
+    try {
+      const dbField = field === "department" ? "departmentid" : "positionid";
+      await window.applicantAPI.updateApplicant(applicantId, dbField, newId);
+
+      setApplicant((prev) => {
+        const newState = { ...prev };
+        if (field === "department") {
+          newState.departmentid = newId;
+          newState.department = newValue;
+          newState.positionid = null;
+          newState.position = "---";
+          setNeedsPositionUpdate(true);
+          setEditingField("position");
+          setTimeout(() => setAutoFocusPosition(true), 100);
+          window.toast(`${field} changed successfully. Please select a new position.`, "success");
+        } else if (field === "position") {
+          newState.positionid = newId;
+          newState.position = newValue;
+          setNeedsPositionUpdate(false);
+          setAutoFocusPosition(false);
+          window.toast(`${field} changed successfully`, "success");
+        } else {
+          window.toast(`${field} changed successfully`, "success");
+        }
+        return newState;
+      });
+    } catch (err) {
+      console.error("Update failed:", err);
+      window.toast("Update failed.", "error");
+    } finally {
+      setConfirmFieldChange({ open: false, field: null, newValue: "", newId: "" });
+    }
+  };
+
+  const handleCancelFieldChange = () => {
+    setConfirmFieldChange((prev) => {
+      setApplicant((a) => {
+        const copy = { ...a };
+        if (prev.field === "department") copy.departmentid = a.departmentid;
+        if (prev.field === "position") copy.positionid = a.positionid;
+        return copy;
+      });
+      return { open: false, field: null, newValue: "", newId: "" };
+    });
+  };
+
   const handleFieldBlur = (field, isDate) => {
     if (fieldValue !== applicant[field]) {
       setPendingChange({ field, value: fieldValue });
@@ -192,18 +277,17 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
               onChange={(e) => {
                 const newDeptId = e.target.value;
                 const newDept = departments.find((d) => d.id == newDeptId);
-                setApplicant((prev) => ({
-                  ...prev,
-                  departmentid: newDeptId,
-                  department: newDept?.name,
-                  positionid: null,
-                  position: "---",
-                }));
-                setFieldValue(newDeptId);
+
+                if (newDeptId != applicant.departmentid) {
+                  setConfirmFieldChange({
+                    open: true,
+                    field: "department",
+                    newValue: newDept?.name,
+                    newId: newDeptId
+                  });
+                }
               }}
-              onBlur={(e) => handleFieldBlur(field, isDate)}
               autoFocus
-              onKeyDown={(e) => handleKeyDown(e, "department")}
             >
               {departments.map((dept) => (
                 <option key={dept.id} value={dept.id}>
@@ -213,22 +297,34 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
             </select>
           ) : isPosition ? (
             <select
+              ref={(el) => {
+                if (autoFocusPosition && el) {
+                  el.focus();
+                  const clickEvent = new MouseEvent("mousedown", { bubbles: true });
+                  el.dispatchEvent(clickEvent);
+                  el.classList.add("highlight-focus");
+                  setTimeout(() => {
+                    el.classList.remove("highlight-focus");
+                    setAutoFocusPosition(false);
+                  }, 1200);
+                }
+              }}
               value={applicant.positionid || ""}
               onChange={(e) => {
                 const newPosId = e.target.value;
-                const newPos =
-                  positionsByDept[applicant.departmentid]?.find((p) => p.id == newPosId);
-                setApplicant((prev) => ({
-                  ...prev,
-                  positionid: newPosId,
-                  position: newPos?.name,
-                }));
-                setFieldValue(newPosId);
+                const newPos = positionsByDept[applicant.departmentid]?.find((p) => p.id == newPosId);
+
+                if (newPosId != applicant.positionid) {
+                  setConfirmFieldChange({
+                    open: true,
+                    field: "position",
+                    newValue: newPos?.name,
+                    newId: newPosId
+                  });
+                }
               }}
-              onBlur={(e) => handleFieldBlur(field, isDate)}
               disabled={!applicant.departmentid}
               autoFocus
-              onKeyDown={(e) => handleKeyDown(e, "position")}
             >
               {(positionsByDept[applicant.departmentid] || []).map((pos) => (
                 <option key={pos.id} value={pos.id}>
@@ -373,7 +469,17 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     <div className="employeeInfoContainer">
       <div className="employeeInfoHeader">
         <h2>Applicant Profile</h2>
-        <button onClick={goBack}>x</button>
+        <button
+          onClick={() => {
+            if (needsPositionUpdate) {
+              window.toast("Please select a new position before leaving this page.", "error");
+              return;
+            }
+            goBack();
+          }}
+        >
+          ×
+        </button>
       </div>
 
       <div className="employeeInfoGrid">
@@ -594,6 +700,16 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
           setConfirmImageChange(false);
           setPendingImage(null);
         }}
+      />
+
+      <ConfirmModal
+        open={confirmFieldChange.open}
+        title={`Confirm ${confirmFieldChange.field} change`}
+        message={`Do you want to change ${confirmFieldChange.field} to "${confirmFieldChange.newValue}"?`}
+        confirmLabel="Yes"
+        cancelLabel="No"
+        onConfirm={handleConfirmFieldChange}
+        onCancel={handleCancelFieldChange}
       />
     </div>
   );
