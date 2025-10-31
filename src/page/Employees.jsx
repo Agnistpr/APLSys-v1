@@ -44,7 +44,6 @@ const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activ
     return `${formattedHour}:${minute} ${ampm}`;
   };
 
-  // 🧭 Fetch employee list
   useEffect(() => {
     const fetchEmployees = async () => {
       setLoading(true);
@@ -59,17 +58,38 @@ const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activ
     setCurrentPage(1);
   }, [searchTerm, selectedFilters]);
 
-  // 🧠 Unique values for filters
+  useEffect(() => {
+    if (!loading && employees.length > 0) {
+      const hasMissingPosition = employees.some(
+        (emp) =>
+          !emp.position ||
+          emp.position === "N/A" ||
+          emp.position === "---" ||
+          emp.position === null
+      );
+
+      if (hasMissingPosition) {
+        window.toast(
+          "Some employees have no assigned position. Please review their records.",
+          "error"
+        );
+      }
+    }
+  }, [employees, loading]);
+
   const uniqueValues = useMemo(() => {
     const values = { department: new Set(), position: new Set(), shift: new Set() };
 
     employees.forEach((row) => {
-      if (row.department) values.department.add(row.department);
-      if (row.position) values.position.add(row.position);
+      values.department.add(row.department || "N/A");
+      values.position.add(row.position || "N/A");
+
       if (row.shift) {
         const parts = row.shift.split(" - ");
         const formatted = `${formatTime(parts[0])} - ${formatTime(parts[1])}`;
         values.shift.add(formatted);
+      } else {
+        values.shift.add("N/A");
       }
     });
 
@@ -80,18 +100,18 @@ const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activ
     };
   }, [employees]);
 
-  // 🔍 Filter + search logic
   const filtered = useMemo(() => {
     return employees.filter((emp) => {
       const matchesSearch = emp.name?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesFilters = Object.entries(selectedFilters).every(([col, vals]) => {
-        return col === "__activeColumn" || !vals.length || vals.includes(emp[col]);
+        if (col === "__activeColumn" || !vals.length) return true;
+        const value = emp[col] || "N/A";
+        return vals.includes(value);
       });
       return matchesSearch && matchesFilters;
     });
   }, [employees, searchTerm, selectedFilters]);
 
-  // ↕️ Sort logic
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       let aVal = a[sortColumn] ?? "";
@@ -108,7 +128,6 @@ const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activ
     });
   }, [filtered, sortColumn, sortOrder]);
 
-  // 📄 Pagination logic
   const totalPages = Math.ceil(sorted.length / itemsPerPage) || 1;
   const paginated = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
