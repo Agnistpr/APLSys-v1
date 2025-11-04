@@ -8,7 +8,7 @@ const Auth = ({ onLogin }) => {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
-  const [keepLoggedIn, setKeepLoggedIn] = useState(false);
+  // const [keepLoggedIn, setKeepLoggedIn] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -17,10 +17,6 @@ const Auth = ({ onLogin }) => {
     if (savedEmail) {
       setEmail(savedEmail);
       setRememberMe(true);
-    }
-    const savedKeepLoggedIn = localStorage.getItem("keepLoggedIn");
-    if (savedKeepLoggedIn === "true") {
-      setKeepLoggedIn(true);
     }
     return () => document.body.classList.remove("login");
   }, []);
@@ -37,22 +33,7 @@ const Auth = ({ onLogin }) => {
         const res = await window.authAPI.login(email, password);
         if (res.error) throw new Error(res.error);
 
-        // ✅ Store session only if "Keep me logged in" is checked
-        if (keepLoggedIn && res.user?.id && res.session) {
-          await window.authAPI.setSession(res.session);
-        } else {
-          await window.authAPI.clearSession();
-        }
-
-        // ✅ Store or clear remembered email
-        if (rememberMe) {
-          localStorage.setItem("rememberedEmail", email);
-        } else {
-          localStorage.removeItem("rememberedEmail");
-        }
-
-        // ✅ Store user preference for “Keep me logged in”
-        localStorage.setItem("keepLoggedIn", keepLoggedIn ? "true" : "false");
+        await window.authAPI.setSession(res.session);
 
         if (res.user) onLogin(res.user);
 
@@ -106,15 +87,6 @@ const Auth = ({ onLogin }) => {
                   onChange={(e) => setRememberMe(e.target.checked)}
                 />
                 <label htmlFor="rememberMe">Remember my email</label>
-              </div>
-              <div className="keepMeLoggedIn">
-                <input
-                  type="checkbox"
-                  id="keepLoggedIn"
-                  checked={keepLoggedIn}
-                  onChange={(e) => setKeepLoggedIn(e.target.checked)}
-                />
-                <label htmlFor="keepLoggedIn">Keep me logged in</label>
               </div>
             </div>
 
