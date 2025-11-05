@@ -8,11 +8,9 @@ import { ResumeTable } from "./ResumeTable";
 import { analyzeResumeWithDS } from "../../../conn/genAnalysis";
 import { persistGeminiResult } from "./aiActions";
 import { JOB_ROLES } from "../data/jobRoles";
-import { BatchResumeAnalyzer } from "./BatchResumeAnalyzer";
-import { normalizeGeminiResume } from "../../../conn/genAnalysis";
 import axios from "axios";
 import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
-import { 
+import {
   exportJSON,
   mapEntitiesToResume,
   calculateCandidateScore,
@@ -77,7 +75,22 @@ const RESUME_EXAMPLES = [
 
 const defaultFileUrl = RESUME_EXAMPLES[1]["fileUrl"];
 
-export default function ResumeParser({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage, selectedResumeFile, setSelectedResumeFile }) {
+type ResumeParserProps = {
+  setActivePage?: any;
+  setSelectedApplicantId?: any;
+  setPreviousPage?: any;
+  activePage?: any;
+  selectedResumeFile?: any;
+  setSelectedResumeFile?: any;
+};
+
+export default function ResumeParser
+({ setActivePage,
+   setSelectedApplicantId,
+   setPreviousPage,
+   activePage,
+   selectedResumeFile,
+   setSelectedResumeFile }: ResumeParserProps = {}) {
   console.log("DEBUG ResumeTable:", typeof ResumeTable, ResumeTable);
   console.log("DEBUG CandidateScoreCard:", typeof CandidateScoreCard, CandidateScoreCard);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
@@ -87,29 +100,6 @@ export default function ResumeParser({ setActivePage, setSelectedApplicantId, se
   const [isParsingResume, setIsParsingResume] = useState(false);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
   //const { addTask, updateTask } = useAnalysisStore();
-
-  // const {
-  //   currentFile,
-  //   editableResume,
-  //   parseComplete,
-  //   setParsed,
-  //   isHydrated,
-  //   setHydrated,
-  //   analysisResult,
-  //   selectedCategory,
-  //   selectedJobRole,
-  //   customJobDescription,
-  //   activeTab,
-  //   isProcessing,
-  //   setCurrentFile,
-  //   setEditableResume,
-  //   setAnalysisResult,
-  //   setSelectedCategory,
-  //   setSelectedJobRole,
-  //   setCustomJobDescription,
-  //   setActiveTab,
-  //   setProcessing
-  // } = useAnalysisStore();
 
   const currentFile = useAnalysisStore(state => state.currentFile);
   const editableResume = useAnalysisStore(state => state.editableResume);
@@ -320,17 +310,36 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     });
   }
 
-  // async function fileToB64(fileObj)
-  // {
-  //   let b64String = "";
-  //   if (fileObj instanceof File) 
-  //     {
-  //       b64String = await fileToBase64(fileObj);
-  //     }
-  //   return b64String || "";
-  // }
+  async function NERResumeProfile(text: string): Promise<any> {
+    if (!text || typeof text !== "string") {
+      throw new Error("NERResumeProfile requires a text string");
+    }
+
+    // Trim and guard against accidental large non-string payloads
+    const safeText = text.trim();
+    if (safeText.length < 20) {
+      throw new Error("Extracted text is too short for resume extraction");
+    }
+
+    try {
+      const response = await axios.post(
+        "http://127.0.0.1:8000/parser/ner-extract-resume-profile",
+        { text: safeText },
+        { headers: { "Content-Type": "application/json" } }
+      );
+      return response.data;
+    } catch (err: any) {
+      console.error("Resume Parsing failed:", {
+        error: err,
+        request: err?.request,
+        response: err?.response?.data,
+      });
+      // bubble a useful message to caller
+      throw new Error(err?.response?.data?.error || err?.message || "Resume Parsing failed");
+    }
+  }
   
-  // AI FALLBACKS
+  // AI PARSING FALLBACK
   async function geminiExtractResumeProfile(text: string): Promise<any> {
     if (!text || typeof text !== "string") {
       throw new Error("geminiExtractResumeProfile requires a text string");
@@ -359,58 +368,8 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       throw new Error(err?.response?.data?.error || err?.message || "Gemini extraction failed");
     }
   }
-  
-  async function handleFileGeminiPipeline(file: File) {
-    try {
-      toast("Resume uploaded, waiting for extraction...", { 
-        id: "ai-process",
-        description: "Processing resume, you can close this while it runs.",
-        icon: "⏳",
-        dismissible: true,
-        duration: Infinity,
-      });
 
-      const extractedText = await extractResumeText(file); 
-      const resumeJson = await geminiExtractResumeProfile(extractedText);
-      console.log("geminiExtractResumeProfile raw:", resumeJson);
-
-      // Defensive parse: if string try parse JSON, otherwise wrap
-      let parsed: any = resumeJson;
-      if (typeof resumeJson === "string") {
-        try {
-          parsed = JSON.parse(resumeJson);
-        } catch (e) {
-          // leave parsed as string -> normalize will map to profile.name
-          parsed = resumeJson;
-        }
-      }
-
-      const normalized = normalizeGeminiResume(resumeJson);
-      // Merge with defaultResume to ensure all expected keys exist (and not overwrite arrays accidentally)
-      const merged = {
-        ...defaultResume,
-        ...normalized,
-        profile: {
-            ...defaultResume.profile,
-            ...(normalized?.profile || {}),
-          },
-        };
-
-      console.log("Setting editableResume ->", merged);
-
-      
-      await persistGeminiResult(merged); // Directly set the Gemini result
-      //setParsed(true);
-      console.log("DEBUG store state:", useAnalysisStore.getState());
-      toast.success("Extraction successful", {id: "ai-process"});
-    } catch (err) {
-      console.error("Gemini pipeline failed:", err);
-      alert("Failed to parse resume with Gemini.");
-    }
-  }
-
-  // --- NER Integration ---
-  // 1. Extract text from file using parsing endpoint
+  //Extract text from file using extract endpoint
   async function extractResumeText(file: File): Promise<string> {
     const formData = new FormData();
     formData.append("file", file);
@@ -435,31 +394,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       return JSON.stringify(data);
     } catch (e) {
       return "";
-    }
-  }
-
-  // 2. Label tokens using NER endpoint
-  async function labelResumeText(text: string): Promise<any[]> {
-    console.log("Awaiting labeling...")
-    const response = await axios.post("http://127.0.0.1:8000/parser/label-tokens-resume", { text });
-    console.log("Labeling completed")
-    return response.data;
-  }
-
-  // 3. Full pipeline: file -> text -> NER -> update resume
-  async function handleFileNERPipeline(file: File) {
-    try {
-      // Step 1: Extract text from file
-      const extractedText = await extractResumeText(file);
-
-      // Step 2: Label tokens with NER
-      const nerResult = await labelResumeText(extractedText);
-
-      // Step 3: Map entities to resume and update state
-      handleNERExtraction(nerResult);
-    } catch (err) {
-      console.error("NER pipeline failed:", err);
-      alert("Failed to parse resume with NER.");
     }
   }
 
@@ -577,8 +511,8 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       const extractedText = await extractResumeText(file);
       
       // Then process with Gemini
-      const resumeJson = await geminiExtractResumeProfile(extractedText);
-      console.log("DEBUG geminiExtractResumeProfile result:", resumeJson);
+      const resumeJson = await NERResumeProfile(extractedText);
+      console.log("DEBUG NERResumeProfile result:", resumeJson);
       
       // Check for Gemini error response
       if (resumeJson?.error) {
@@ -951,14 +885,14 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                   try {
                     const added = await window.fileAPI.addApplicant(applicantData);
 
-                    // ✅ Build applicant full name
+                    // Build applicant full name
                     const fullName = [
                       applicantData.profile?.firstName || "",
                       applicantData.profile?.middleName || "",
                       applicantData.profile?.lastName || ""
                     ].filter(Boolean).join(" ");
 
-                    // ✅ Log action
+                    // Log action
                     const description = `
                       Applicant ID: ${added.applicantid}
                       Name: ${fullName}
