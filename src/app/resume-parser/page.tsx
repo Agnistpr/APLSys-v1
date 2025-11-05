@@ -82,6 +82,7 @@ type ResumeParserProps = {
   activePage?: any;
   selectedResumeFile?: any;
   setSelectedResumeFile?: any;
+  goBack?: any;
 };
 
 export default function ResumeParser
@@ -90,7 +91,7 @@ export default function ResumeParser
    setPreviousPage,
    activePage,
    selectedResumeFile,
-   setSelectedResumeFile }: ResumeParserProps = {}) {
+   setSelectedResumeFile, goBack }: ResumeParserProps = {}) {
   console.log("DEBUG ResumeTable:", typeof ResumeTable, ResumeTable);
   console.log("DEBUG CandidateScoreCard:", typeof CandidateScoreCard, CandidateScoreCard);
   const [fileUrl, setFileUrl] = useState<string | null>(null);

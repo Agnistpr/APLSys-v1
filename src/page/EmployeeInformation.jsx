@@ -33,6 +33,16 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     return localStorage.getItem("attendanceDate") || "";
   });
 
+  const [needsPositionUpdate, setNeedsPositionUpdate] = useState(false);
+  const [autoFocusPosition, setAutoFocusPosition] = useState(false);
+
+  const [confirmFieldChange, setConfirmFieldChange] = useState({
+    open: false,
+    field: null,
+    newValue: "",
+    newId: ""
+  });
+
   const validationRules = {
     contact: { regex: /^\d{11}$/, message: "Contact number must be exactly 11 digits." },
     pagibig_number: { regex: /^\d{12}$/, message: "PAGIBIG number must be exactly 12 digits." },
@@ -106,6 +116,19 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     fetchAttendance();
   }, [employeeId, selectedDate]);
 
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (needsPositionUpdate) {
+        e.preventDefault();
+        e.returnValue = "";
+        window.toast("Please select a new position before leaving this page.", "error");
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [needsPositionUpdate]);
+
   const handleEditClick = (field, value) => {
     setEditingField(field);
     setFieldValue(value);
@@ -141,6 +164,15 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     }
   };
 
+  const formatContactNumber = (value) => {
+    if (!value) return "";
+    const digits = value.replace(/\D/g, "");
+
+    if (digits.length <= 4) return digits;
+    if (digits.length <= 7) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+    return `${digits.slice(0, 4)}-${digits.slice(4, 7)}-${digits.slice(7, 11)}`;
+  };
+
   const handleConfirmChange = async () => {
     if (!pendingChange) return;
     const { field, value } = pendingChange;
@@ -153,6 +185,10 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
 
     try {
       await window.employeeAPI.updateEmployee(employeeId, dbField, dbValue);
+
+      if (field === "department") {
+        await window.employeeAPI.updateEmployee(employeeId, "positionid", null);
+      }
 
       setEmployee((prev) => {
         const newState = { ...prev };
@@ -180,6 +216,56 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
       setConfirmChanges(false);
       setPendingChange(null);
     }
+  };
+
+  const handleConfirmFieldChange = async () => {
+    const { field, newId, newValue } = confirmFieldChange;
+    if (!field) return;
+
+    try {
+      const dbField = field === "department" ? "departmentid" : "positionid";
+      await window.employeeAPI.updateEmployee(employeeId, dbField, newId);
+
+      setEmployee((prev) => {
+        const newState = { ...prev };
+        if (field === "department") {
+          newState.departmentid = newId;
+          newState.department = newValue;
+          newState.positionid = null;
+          newState.position = "---";
+          setNeedsPositionUpdate(true);
+          setEditingField("position");
+          setTimeout(() => setAutoFocusPosition(true), 100);
+          window.toast(`${field} changed successfully. Please select a new position.`, "success");
+        } else if (field === "position") {
+          newState.positionid = newId;
+          newState.position = newValue;
+          setNeedsPositionUpdate(false);
+          setAutoFocusPosition(false);
+          window.toast(`${field} changed successfully`, "success");
+        } else {
+          window.toast(`${field} changed successfully`, "success");
+        }
+        return newState;
+      });
+    } catch (err) {
+      console.error("Update failed:", err);
+      window.toast("Update failed.", "error");
+    } finally {
+      setConfirmFieldChange({ open: false, field: null, newValue: "", newId: "" });
+    }
+  };
+
+  const handleCancelFieldChange = () => {
+    setConfirmFieldChange((prev) => {
+      setEmployee((e) => {
+        const copy = { ...e };
+        if (prev.field === "department") copy.departmentid = e.departmentid;
+        if (prev.field === "position") copy.positionid = e.positionid;
+        return copy;
+      });
+      return { open: false, field: null, newValue: "", newId: "" };
+    });
   };
 
   const handleConfirmImage = async () => {
@@ -230,18 +316,17 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
               onChange={(e) => {
                 const newDeptId = e.target.value;
                 const newDept = departments.find((d) => d.id == newDeptId);
-                setEmployee((prev) => ({
-                  ...prev,
-                  departmentid: newDeptId,
-                  department: newDept?.name,
-                  positionid: null,
-                  position: "---",
-                }));
-                setFieldValue(newDeptId);
+
+                if (newDeptId != employee.departmentid) {
+                  setConfirmFieldChange({
+                    open: true,
+                    field: "department",
+                    newValue: newDept?.name,
+                    newId: newDeptId
+                  });
+                }
               }}
-              onBlur={(e) => handleFieldBlur(field, isDate)}
               autoFocus
-              onKeyDown={(e) => handleKeyDown(e, "department")}
             >
               {departments.map((dept) => (
                 <option key={dept.id} value={dept.id}>
@@ -251,22 +336,34 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
             </select>
           ) : isPosition ? (
             <select
+              ref={(el) => {
+                if (autoFocusPosition && el) {
+                  el.focus();
+                  const clickEvent = new MouseEvent("mousedown", { bubbles: true });
+                  el.dispatchEvent(clickEvent);
+                  el.classList.add("highlight-focus");
+                  setTimeout(() => {
+                    el.classList.remove("highlight-focus");
+                    setAutoFocusPosition(false);
+                  }, 1200);
+                }
+              }}
               value={employee.positionid || ""}
               onChange={(e) => {
                 const newPosId = e.target.value;
-                const newPos =
-                  positionsByDept[employee.departmentid]?.find((p) => p.id == newPosId);
-                setEmployee((prev) => ({
-                  ...prev,
-                  positionid: newPosId,
-                  position: newPos?.name,
-                }));
-                setFieldValue(newPosId);
+                const newPos = positionsByDept[employee.departmentid]?.find((p) => p.id == newPosId);
+
+                if (newPosId != employee.positionid) {
+                  setConfirmFieldChange({
+                    open: true,
+                    field: "position",
+                    newValue: newPos?.name,
+                    newId: newPosId
+                  });
+                }
               }}
-              onBlur={(e) => handleFieldBlur(field, isDate)}
               disabled={!employee.departmentid}
               autoFocus
-              onKeyDown={(e) => handleKeyDown(e, "position")}
             >
               {(positionsByDept[employee.departmentid] || []).map((pos) => (
                 <option key={pos.id} value={pos.id}>
@@ -277,9 +374,19 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
           ) : (
             <input
               type={isDate ? "date" : "text"}
-              value={isDate ? new Date(fieldValue).toISOString().split("T")[0] : fieldValue}
+              value={
+                isDate
+                  ? new Date(fieldValue).toISOString().split("T")[0]
+                  : field === "contact"
+                    ? formatContactNumber(fieldValue)
+                    : fieldValue
+              }
               autoFocus
-              onChange={(e) => setFieldValue(e.target.value)}
+              onChange={(e) => {
+                let val = e.target.value;
+                if (field === "contact") val = e.target.value.replace(/\D/g, "");
+                setFieldValue(val);
+              }}
               onKeyDown={(e) => handleKeyDown(e, field, isDate)}
               onBlur={(e) => handleFieldBlur(field, isDate)}
             />
@@ -288,7 +395,9 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
           <>
             {isDate
               ? new Date(employee[field]).toISOString().split("T")[0]
-              : employee[field] || "—"}
+              : field === "contact"
+                ? formatContactNumber(employee[field])
+                : employee[field] || "—"}
             <MdEdit className="editIcon" onClick={() => handleEditClick(field, employee[field])} />
           </>
         )}
@@ -338,10 +447,14 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
       const actual = calculateTimeDiff(row.timein, row.timeout);
       const diff = actual - expected;
       const status = diff < 0 ? "Undertime" : "On time / Overtime";
-      return Object.entries(selectedFilters).every(([column, values]) => {
-        if (column === "__activeColumn") return true;
-        if (column === "status") return values.length === 0 || values.includes(status);
-        return true;
+      const filterableRow = {
+        ...row,
+        status,
+      };
+      return Object.entries(selectedFilters).every(([col, vals]) => {
+        return (
+          col === "__activeColumn" || !vals.length || vals.includes(filterableRow[col])
+        );
       });
     });
   }, [attendance, selectedFilters]);
@@ -378,7 +491,17 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     <div className="employeeInfoContainer">
       <div className="employeeInfoHeader">
         <h2>Employee Profile</h2>
-        <button onClick={goBack}>x</button>
+        <button
+          onClick={() => {
+            if (needsPositionUpdate) {
+              window.toast("Please select a new position before leaving this page.", "error");
+              return;
+            }
+            goBack();
+          }}
+        >
+          ×
+        </button>
       </div>
 
       <div className="employeeInfoGrid">
@@ -598,6 +721,16 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
           setConfirmImageChange(false);
           setPendingImage(null);
         }}
+      />
+
+      <ConfirmModal
+        open={confirmFieldChange.open}
+        title={`Confirm ${confirmFieldChange.field} change`}
+        message={`Do you want to change ${confirmFieldChange.field} to "${confirmFieldChange.newValue}"?`}
+        confirmLabel="Yes"
+        cancelLabel="No"
+        onConfirm={handleConfirmFieldChange}
+        onCancel={handleCancelFieldChange}
       />
     </div>
   );

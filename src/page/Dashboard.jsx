@@ -204,7 +204,7 @@ const Dashboard = ({
       <div className="topCards">
         {[
           ['Attendance (Yesterday)', `${totalAttendance} / ${totalEmployees}`, <FaUserClock />],
-          ['Approved On Leave', String(totalApprovedLeaves), <FaClipboardCheck />],
+          ['On Leave (Today)', String(totalApprovedLeaves), <FaClipboardCheck />],
           ['Leave Requests', String(totalLeaveRequests), <FaClipboardList />],
         ].map(([title, value, icon], idx) => (
           <div key={idx} className="dashboardCards">

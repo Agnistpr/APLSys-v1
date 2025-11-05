@@ -1310,7 +1310,11 @@ ipcMain.handle("updateEmployee", async (event, employeeId, field, value) => {
 
       updateData = { employeeimage: urlData.publicUrl };
     } else {
-      updateData = { [field]: value };
+      if (value === null || value === "NULL_FORCE" || value === "") {
+        updateData = { [field]: null };
+      } else {
+        updateData = { [field]: value };
+      }
     }
 
     const { error } = await supabase
