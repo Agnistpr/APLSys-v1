@@ -16,21 +16,39 @@ const defaultFileState = {
   fileUrl: "",
 };
 
-export const ResumeDropzone = ({
-  onFileUrlChange,
-  className,
-  playgroundView = false,
-  initialFileUrl,
-  initialFileName = "",
-  fallbackFileUrl,
-}: {
-  // allow optional File param so the parent can read the DOCX without fetching the blob URL
+
+type ResumeDropzoneProps = {
   onFileUrlChange: (fileUrl: string, fileName: string, file?: File) => void;
   className?: string;
   playgroundView?: boolean;
   initialFileUrl?: string;
   initialFileName?: string;
   fallbackFileUrl?: string;
+  currentFile?: {
+    name: string;
+    url: string;
+    type: string;
+    data?: string;
+  };
+};
+
+
+export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
+  onFileUrlChange,
+  className,
+  playgroundView = false,
+  initialFileUrl,
+  initialFileName = "",
+  fallbackFileUrl,
+  currentFile
+// }: {
+//   // allow optional File param so the parent can read the DOCX without fetching the blob URL
+//   onFileUrlChange: (fileUrl: string, fileName: string, file?: File) => void;
+//   className?: string;
+//   playgroundView?: boolean;
+//   initialFileUrl?: string;
+//   initialFileName?: string;
+//   fallbackFileUrl?: string;
 }) => {
   const [file, setFile] = useState(defaultFileState);
   const [isHoveredOnDropzone, setIsHoveredOnDropzone] = useState(false);
@@ -38,6 +56,8 @@ export const ResumeDropzone = ({
 
   const navigate = useNavigate();
   const hasFile = Boolean(file.name);
+
+  const displayFileName = currentFile?.name || initialFileName || "No file chosen";
 
   
 
@@ -52,6 +72,18 @@ export const ResumeDropzone = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep in sync when currentFile changes (e.g., from Screening upload)
+  useEffect(() => {
+    if (currentFile?.name && currentFile?.url) {
+      setFile({
+        name: currentFile.name,
+        size: 0,
+        fileUrl: currentFile.url,
+      });
+    }
+  }, [currentFile]);
+
 
   const setNewFile = (newFile: File) => {
     if (file.fileUrl) {
@@ -209,7 +241,7 @@ export const ResumeDropzone = ({
             >
               X
             </button>
-            <span className="font-semibold text-gray-900">{file.name}</span>
+            <span className="font-semibold text-gray-900">{displayFileName}</span>
           </div>
         )}
       </div>

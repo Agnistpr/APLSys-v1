@@ -1,12 +1,11 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Toaster } from "sonner";
 import type { TextItems } from "../lib/parse-resume-from-pdf/types";
 import { ResumeDropzone } from "../components/ResumeDropzone";
 import { ResumeTable } from "./ResumeTable";
 import { analyzeResumeWithDS } from "../../../conn/genAnalysis";
-import { persistGeminiResult } from "./aiActions";
+import { persistNERResult } from "./aiActions";
 import { JOB_ROLES } from "../data/jobRoles";
 import axios from "axios";
 import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
@@ -62,18 +61,6 @@ const sanitizeEditableResume = (r: any) => {
 
 /* ------------------------------ Constants ------------------------------ */
 
-const RESUME_EXAMPLES = [
-  {
-    fileUrl: "resume-example/laverne-resume.pdf",
-    description: <span>Borrowed from University of La Verne Career Center</span>,
-  },
-  {
-    fileUrl: "resume-example/openresume-resume.pdf",
-    description: <span>Created with OpenResume resume builder</span>,
-  },
-];
-
-const defaultFileUrl = RESUME_EXAMPLES[1]["fileUrl"];
 
 type ResumeParserProps = {
   setActivePage?: any;
@@ -100,6 +87,8 @@ export default function ResumeParser
   const [resumeName, setResumeName] = useState("");
   const [isParsingResume, setIsParsingResume] = useState(false);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  // Visual indicator shown when persisted file state is cleared on this session
+  const [clearedMessage, setClearedMessage] = useState<string | null>(null);
   //const { addTask, updateTask } = useAnalysisStore();
 
   const currentFile = useAnalysisStore(state => state.currentFile);
@@ -162,6 +151,10 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
     resumeName: fileName
   }));
 
+  // Update UI state
+  setFileUrl(fileUrl);
+  setResumeName(fileName);
+
   let base64String = "";
   if (fileObj instanceof File) {
     base64String = await fileToBase64(fileObj);
@@ -177,10 +170,61 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
   setEditableResume(prev => prev ?? { ...defaultResume });
 }, [setCurrentFile, setEditableResume]);
 
-  // Initialize store with default resume on mount
+  // On first mount (app startup) clear only the persisted uploaded file (currentFile) once per
+  // app session. We use sessionStorage as a guard so this runs only once per full app boot —
+  // not on subsequent navigations while the app is running.
   useEffect(() => {
+    try {
+      const flag = sessionStorage.getItem('resume-currentfile-cleared');
+      if (!flag) {
+        // 1) Clear the persisted `currentFile` key inside the zustand storage object
+        try {
+          const key = 'resume-analysis-store';
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              // Zustand persist may store the state directly or under a `state` wrapper — handle both
+              if (parsed && typeof parsed === 'object') {
+                if (parsed.currentFile !== undefined) {
+                  delete parsed.currentFile;
+                }
+                if (parsed.state && parsed.state.currentFile !== undefined) {
+                  delete parsed.state.currentFile;
+                }
+                localStorage.setItem(key, JSON.stringify(parsed));
+              }
+            } catch (e) {
+              // If parsing failed, as a fallback remove the whole key
+              console.warn('Could not parse persisted store; removing whole key as fallback');
+              localStorage.removeItem(key);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to clear persisted currentFile:', e);
+        }
+
+        // 2) Update in-memory store so UI reflects cleared file immediately
+        try {
+          if (typeof setCurrentFile === 'function') setCurrentFile(null);
+        } catch (e) {
+          console.error('Failed to setCurrentFile(null):', e);
+        }
+
+        // 3) Mark flag so we don't clear again this session
+        try { sessionStorage.setItem('resume-currentfile-cleared', '1'); } catch {}
+
+        // 4) Show a short visual indicator to help debugging / inform the user
+        setClearedMessage('Previous uploaded resume cleared for this session');
+        setTimeout(() => setClearedMessage(null), 4000);
+      }
+    } catch (e) {
+      console.error('Session-only clear effect failed:', e);
+    }
+
+    // Ensure editableResume exists as a defensive fallback
     if (!editableResume) {
-      setEditableResume({...defaultResume});
+      setEditableResume({ ...defaultResume });
     }
   }, []);
   
@@ -288,27 +332,72 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       setCustomJobDescription(defaultDesc);
     }
   }, [selectedCategory, selectedJobRole]);
-  
-  function handleNERExtraction(nerResult: any) {
-    const { profile, entities } = nerResult;
-    setEditableResume({
+
+  function mapNERToResumeFormat(nerResult: any) {
+    const { parsed_entities } = nerResult;
+    
+    // Default empty resume structure
+    const mappedResume = {
       profile: {
-        firstName: profile.first_name || "",
-        middleName: profile.middle_name || "",
-        lastName: profile.last_name || "",
-        email: profile.email || "",
-        phone: profile.phone || "",
-        location: profile.location || "",
-        age: profile.age || "",
-        gender: profile.gender || "",
-        name: [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" "),
+        firstName: "",
+        middleName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        location: "",
+        name: "",
       },
       educations: [],
       workExperiences: [],
       projects: [],
       skills: { featuredSkills: [], descriptions: [] },
-      custom: { descriptions: [] },
-    });
+      custom: { descriptions: [] }
+    };
+
+    if (!parsed_entities) return mappedResume;
+
+    // Map NER fields to resume structure
+    if (parsed_entities.PERSON_NAME) {
+      const names = parsed_entities.PERSON_NAME[0].split(" ");
+      mappedResume.profile.firstName = names[0] || "";
+      mappedResume.profile.lastName = names[names.length - 1] || "";
+      mappedResume.profile.middleName = names.slice(1, -1).join(" ");
+      mappedResume.profile.name = parsed_entities.PERSON_NAME[0];
+    }
+    
+    if (parsed_entities.EMAIL) {
+      mappedResume.profile.email = parsed_entities.EMAIL[0];
+    }
+    
+    if (parsed_entities.PHONE) {
+      mappedResume.profile.phone = parsed_entities.PHONE[0];
+    }
+    
+    if (parsed_entities.LOCATION) {
+      mappedResume.profile.location = parsed_entities.LOCATION[0];
+    }
+
+    // Map skills
+    if (parsed_entities.SKILL) {
+      mappedResume.skills.featuredSkills = parsed_entities.SKILL;
+    }
+
+    // Map education
+    if (parsed_entities.EDUCATION) {
+      mappedResume.educations = parsed_entities.EDUCATION.map((edu: string) => ({
+        school: edu,
+        degree: "",
+        field: "",
+        date: ""
+      }));
+    }
+
+    return mappedResume;
+  }
+  
+  function handleNERExtraction(nerResult: any) {
+    const mappedResume = mapNERToResumeFormat(nerResult);
+    setEditableResume(mappedResume);
   }
 
   async function NERResumeProfile(text: string): Promise<any> {
@@ -409,14 +498,28 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       }
       const blob = new Blob([ab], { type: selectedResumeFile.type });
       const url = URL.createObjectURL(blob);
+
       setFileUrl(url);
       setResumeName(selectedResumeFile.name || "uploaded_resume.pdf");
+      setFileState(prev => ({
+      ...prev,
+      fileUrl: url,
+      resumeName: selectedResumeFile.name || "uploaded_resume.pdf"
+      }));
+
+      // Update the store
+      setCurrentFile({
+        url: url,
+        name: selectedResumeFile.name || "uploaded_resume.pdf",
+        type: selectedResumeFile.type,
+        data: selectedResumeFile.data
+      });
 
       // Initialize with default resume structure
       setEditableResume({...defaultResume});
     }
   // Only run when a new file is selected
-  }, [selectedResumeFile]);
+  }, [selectedResumeFile, setCurrentFile, setEditableResume]);
 
   //Track dynamically created blob URLs and revoke only those on unmount
   useEffect(() => {
@@ -443,6 +546,9 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       toast.error("Please upload a resume first");
       return;
     }
+    
+    // Get the actual filename instead of blob URL
+    const displayName = currentFile?.name || resumeName || "resume.pdf";
 
     const taskId = `parse-${Date.now()}`;
     setProcessing(true);
@@ -450,11 +556,11 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       id: taskId,
       type: "parse",
       status: "started",
-      fileName: resumeName,
+      fileName: displayName,
       startedAt: Date.now()
     });
 
-    toast(`Parsing ${resumeName}...`, {
+    toast(`Parsing ${displayName}...`, {
       id: taskId,
       description: "Processing resume, you can close this while it runs.",
       icon: "⏳",
@@ -466,16 +572,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     try {
       // Initialize with default structure before parsing
       setEditableResume({...defaultResume});
-
-      // const fetchUrl = (currentFile && currentFile.url) ? currentFile.url : fileUrl;
-      // if (!fetchUrl) throw new Error("No file URL available to parse");
-
-
-      // const response = await fetch(fetchUrl);
-      // const blob = await response.blob();
-
-      // const filename = resumeName || "resume.pdf";
-      // const file = new File([blob], filename, { type: "application/pdf" });
 
       let file: File | null = null;
 
@@ -511,27 +607,17 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       // Extract text first
       const extractedText = await extractResumeText(file);
       
-      // Then process with Gemini
-      const resumeJson = await NERResumeProfile(extractedText);
-      console.log("DEBUG NERResumeProfile result:", resumeJson);
+      // Then process with NER
+      const nerResult = await NERResumeProfile(extractedText);
+      console.log("DEBUG NER result:", nerResult);
       
       // Check for Gemini error response
-      if (resumeJson?.error) {
-        throw new Error(resumeJson.error);
+      if (nerResult?.error) {
+        throw new Error(nerResult.error);
       }
 
-
       //Persist to store
-      await persistGeminiResult(resumeJson);
-
-      // const unsubscribe = useAnalysisStore.subscribe(
-      //   s => s.editableResume,
-      //   (newResume) => {
-      //     console.log("Store editableResume changed:", newResume);
-      //     setEditableResume(newResume);
-      //     unsubscribe(); // clean up after one trigger
-      //   }
-      // );
+      await persistNERResult(nerResult);
       
       // Immediately reflect parsed resume in local state
       setEditableResume(useAnalysisStore.getState().editableResume);
@@ -541,23 +627,18 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       // Update task and UI state
       updateTask(taskId, { 
         status: "completed",
-        result: resumeJson,
+        result: useAnalysisStore.getState().editableResume,
         completedAt: Date.now()
       });
-
-      // const normalized = normalizeGeminiResume(resumeJson);
-      // const merged = {
-      //   ...defaultResume,
-      //   ...normalized,
-      //   profile: {
-      //     ...defaultResume.profile,
-      //     ...(normalized?.profile || {})
-      //   }
-      // };
-
       console.log("DEBUG store after persist:", useAnalysisStore.getState());
       console.log("DEBUG parsed resume immediately reflected:", useAnalysisStore.getState().editableResume);
-      toast.success(`${resumeName} parsed successfully`, { id: taskId });
+      toast(`${displayName} parsed successfully.`, {
+        id: taskId,
+        description: "You may now return to the analyzer tab to see the results",
+        icon: "✅",
+        dismissible: true,
+        duration: Infinity,
+      });
 
     } catch (err) {
       console.error("Failed to parse resume:", err);
@@ -568,7 +649,13 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         error: err.message,
         completedAt: Date.now()
       });
-      toast.error(`Failed to parse ${resumeName}`, { id: taskId });
+      toast(`${displayName} was not parsed`, {
+        id: taskId,
+        description: "Something went wrong. Please try again.",
+        icon: "❌",
+        dismissible: true,
+        duration: Infinity,
+      });
     } finally {
       setProcessing(false);
     }
@@ -708,19 +795,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
   return (
     <>
-      <Toaster
-        position="bottom-right"
-        expand={true}
-        closeButton={true}
-        richColors={true}
-        toastOptions={{
-          style: {
-            fontSize: "0.9rem",
-            background: "#1e293b", // slate-800
-            color: "#f8fafc", // text-white
-          },
-        }}
-      />
       {loadingAnalysis && (
         <div
           style={{
@@ -762,18 +836,26 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: "#f5f5f5" }}>
+            background: "#f5f5f5",
+            border: "1px solid #ddd",
+            borderRadius: "4px"
+            }}>
             {(() => {
               try {
+                // Add PDF viewer parameters for better quality
+                const viewerUrl = new URL(fileUrl);
+                viewerUrl.hash = "#view=FitH&scrollbar=0";
+
                 return (
                   <iframe
-                    src={fileUrl}
+                    src={viewerUrl.toString()}
                     style={{ 
                       width: "100%", 
                       height: "100%", 
                       border: "none",
-                      transform: "scale(0.9)", // Slightly scale down to show full page
-                      transformOrigin: "center center",
+                      imageRendering: "auto",
+                      textRendering: "geometricPrecision",
+                      WebkitFontSmoothing: "antialiased",
                     }}
                     title="PDF Preview"
                     onError={(e) => {
@@ -804,12 +886,26 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       </div>
 
       <div className="right-panel">
+        {clearedMessage && (
+          <div style={{
+            background: '#e6f7ff',
+            border: '1px solid #91d5ff',
+            color: '#0c5460',
+            padding: '8px 12px',
+            borderRadius: 4,
+            marginBottom: 8,
+            fontSize: 13
+          }}>
+            {clearedMessage}
+          </div>
+        )}
         <div className="toolbar">
           <ResumeDropzone
-            initialFileUrl={fileUrl || undefined}
+            initialFileUrl={fileUrl}
             initialFileName={resumeName}
-            fallbackFileUrl={defaultFileUrl}
+            fallbackFileUrl={null}
             onFileUrlChange={handleFileChange}
+            currentFile={currentFile}
           />
           <button
               onClick={handleParseResume}
@@ -847,17 +943,9 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
           {activeTab === "parsing" ? (
             <div className="resume-table-section">
               <h2 className="section-title">Resume Parsing Results</h2>
-              {/* {editableResume && (
-                <div style={{ marginTop: 8, marginBottom: 8 }}>
-                  <details style={{ maxHeight: 200, overflow: "auto" }}>
-                    <summary style={{ cursor: "pointer", color: "#666" }}>Debug: safeResume JSON (toggle)</summary>
-                    <pre style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{JSON.stringify(safeResume, null, 2)}</pre>
-                  </details>
-                </div>
-              )} */}
-              {editableResume && editableResume.profile ? (
+              {( (fileUrl || currentFile?.data) && parseComplete && editableResume && editableResume.profile ) ? (
                 <ResumeTable
-                  resume={editableResume}
+                  resume={editableResume || defaultResume}
                   onFieldChange={handleFieldPathChange}
                 />
               ) : (

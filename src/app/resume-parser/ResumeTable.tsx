@@ -29,7 +29,7 @@ import { cx } from "../lib/cx";
  };
 
  // Simple utility function
- const cx = (...classes: (string | boolean | undefined)[]) => 
+ const cx = (...classes: (string | boolean | undefined)[]) =>
    classes.filter(Boolean).join(' ');
 
 
