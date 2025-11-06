@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { API_BASE_URL } from "../../config";
 
 export const BatchOCRPanel = () => {
   const [files, setFiles] = useState<File[]>([]);
@@ -18,7 +19,7 @@ export const BatchOCRPanel = () => {
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
     try {
-      const res = await axios.post("http://127.0.0.1:8000/ocr/batch-ocr", formData, {
+      const res = await axios.post(`${API_BASE_URL}/ocr/batch-ocr`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setResults(res.data.results);

@@ -8,7 +8,9 @@ import { analyzeResumeWithDS } from "../../../conn/genAnalysis";
 import { persistNERResult } from "./aiActions";
 import { JOB_ROLES } from "../data/jobRoles";
 import axios from "axios";
+import { API_BASE_URL } from '../../../config';
 import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
+import { Document, Page, pdfjs } from 'react-pdf';
 import {
   exportJSON,
   mapEntitiesToResume,
@@ -20,6 +22,8 @@ import {
   persistGeminiAnalysis
 } from './utils';
 import { CandidateScoreCard } from '../components/CandidateScoreCard';
+
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.js`;
 
 const sanitizeEditableResume = (r: any) => {
     if (!r || typeof r !== "object") return { ...defaultResume };
@@ -59,7 +63,6 @@ const sanitizeEditableResume = (r: any) => {
     }
   };
 
-/* ------------------------------ Constants ------------------------------ */
 
 
 type ResumeParserProps = {
@@ -116,6 +119,9 @@ export default function ResumeParser
   const addTask = useAnalysisStore(state => state.addTask);
   const updateTask = useAnalysisStore(state => state.updateTask);
 
+  //pagination thingy
+  const [numPages, setNumPages] = useState<number | null>(null);
+  const [pageNumber, setPageNumber] = useState(1);
   // Group related state
   const [fileState, setFileState] = useState({
     fileUrl: null as string | null,
@@ -156,7 +162,14 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
   setResumeName(fileName);
 
   let base64String = "";
-  if (fileObj instanceof File) {
+  if (fileObj?.path && window?.fileAPI?.readFileAsBase64) {
+    try {
+      base64String = await window.fileAPI.readFileAsBase64(fileObj.path);
+      console.log("Base64 read via preload:", base64String.slice(0, 50));
+    } catch (err) {
+      console.error("Failed to read file via preload:", err);
+    }
+  } else if (fileObj instanceof File) {
     base64String = await fileToBase64(fileObj);
   }
 
@@ -238,6 +251,7 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
     if (currfile?.data) {
       try{
         const url = reconstructBlobUrl(currfile.data, currfile.type);
+        console.log("currfile.data preview:", currfile.data.slice(0, 50));
         setFileUrl(url);
         setResumeName(currfile.name || "resume.pdf");
         console.log("Hydrated file to base64 -> new blob url:", url);
@@ -413,7 +427,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
     try {
       const response = await axios.post(
-        "http://127.0.0.1:8000/parser/ner-extract-resume-profile",
+        `${API_BASE_URL}/parser/ner-extract-resume-profile`,
         { text: safeText },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -465,7 +479,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     formData.append("file", file);
     console.log("Uploading file:", file);
 
-    const response = await axios.post("http://127.0.0.1:8000/parser/extract-resume-text", formData);
+    const response = await axios.post(`${API_BASE_URL}/parser/extract-resume-text`, formData);
     console.log("Response:", response);
 
     // Normalize response -> always return a string
@@ -487,16 +501,24 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     }
   }
 
+  function base64ToBlob(base64: string, mimeType: string): Blob {
+    const sanitized = base64.replace(/\s/g, '');
+    const byteCharacters = atob(sanitized);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType });
+  }
+
   useEffect(() => {
+    if (selectedResumeFile && selectedResumeFile.data) {
+      console.log(selectedResumeFile.data.slice(0, 10)); // Should show 'JVBERi0xLjc' for PDF
+    }
     if (selectedResumeFile && selectedResumeFile.data && selectedResumeFile.type) {
       // Convert base64 to File and then to blob URL
-      const byteString = atob(selectedResumeFile.data);
-      const ab = new ArrayBuffer(byteString.length);
-      const ia = new Uint8Array(ab);
-      for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-      }
-      const blob = new Blob([ab], { type: selectedResumeFile.type });
+      const blob = base64ToBlob(selectedResumeFile.data, selectedResumeFile.type);
       const url = URL.createObjectURL(blob);
 
       setFileUrl(url);
@@ -532,8 +554,10 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
     return () => {
       for (const url of createdUrls) {
-        console.log("Revoking blob URL on unmount:", url);
-        URL.revokeObjectURL(url);
+        if (fileUrl?.startsWith("blob:")) {
+          console.log("Revoking blob URL:", fileUrl);
+          URL.revokeObjectURL(fileUrl);
+        }
       }
     };
   }, [fileUrl]);
@@ -828,55 +852,58 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     <div className="resume-parser-container">
       <div className="pdf-preview">
         {fileUrl ? (
-          // Add error boundary and fallback for PDF preview
-          <div className="pdf-container" style={{ 
-            width: "100%", 
+          <div className="pdf-container" style={{
+            width: "100%",
             height: "100%",
-            overflow: "hidden", // Prevent scrolling
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
             background: "#f5f5f5",
             border: "1px solid #ddd",
-            borderRadius: "4px"
-            }}>
-            {(() => {
-              try {
-                // Add PDF viewer parameters for better quality
-                const viewerUrl = new URL(fileUrl);
-                viewerUrl.hash = "#view=FitH&scrollbar=0";
-
-                return (
-                  <iframe
-                    src={viewerUrl.toString()}
-                    style={{ 
-                      width: "100%", 
-                      height: "100%", 
-                      border: "none",
-                      imageRendering: "auto",
-                      textRendering: "geometricPrecision",
-                      WebkitFontSmoothing: "antialiased",
-                    }}
-                    title="PDF Preview"
-                    onError={(e) => {
-                      console.error("PDF preview error:", e);
-                      return (
-                        <div className="text-gray-400 text-center py-8">
-                          Error loading PDF preview
-                        </div>
-                      );
-                    }}
-                  />
-                );
-              } catch (e) {
-                console.error("PDF preview render error:", e);
-                return (
-                  <div className="text-gray-400 text-center py-8">
-                    Error loading PDF preview
-                  </div>
-                );
-              }
-            })()}
+            borderRadius: "4px",
+            padding: "20px"
+          }}>
+            <Document
+              file={fileUrl}
+              onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+              loading={<div className="text-gray-400 text-center py-8">Loading PDF...</div>}
+              error={<div className="text-gray-400 text-center py-8">Error loading PDF preview</div>}
+            >
+              <Page 
+                pageNumber={pageNumber} 
+                width={550}
+                renderAnnotationLayer={false}
+                renderTextLayer={false}
+                scale={1.2}
+              />
+            </Document>
+            
+            {numPages && numPages > 1 && (
+              <div style={{ 
+                marginTop: 16,
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'center'
+              }}>
+                <button
+                  onClick={() => setPageNumber(p => Math.max(1, p - 1))}
+                  disabled={pageNumber <= 1}
+                  className="btn-secondary"
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {pageNumber} of {numPages}
+                </span>
+                <button
+                  onClick={() => setPageNumber(p => Math.min(numPages, p + 1))}
+                  disabled={pageNumber >= numPages}
+                  className="btn-secondary"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="text-gray-400 text-center py-8">

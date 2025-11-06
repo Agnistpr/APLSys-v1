@@ -6,6 +6,7 @@ import contextMenu from "electron-context-menu";
 import { spawn, exec } from "child_process";
 import "dotenv/config";
 import { getSession, restoreSession } from "./sessionManager.js";
+import { cspDirectives } from "./security-config.js";
 import "./files.js";
 import "./queries.js";
 
@@ -82,9 +83,28 @@ app.on("ready", async () => {
         preload: path.join(__dirname, "preload.js"),
         contextIsolation: true,
         nodeIntegration: false,
+        enableRemoteModule: false,
         sandbox: true,
+         webSecurity: true,
+         allowRunningInsecureContent: false
       },
     });
+
+      // Build and apply CSP headers
+      const csp = Object.entries(cspDirectives)
+        .map(([key, values]) => `${key} ${values.join(' ')}`)
+        .join('; ');
+
+      // Set CSP headers for all responses
+      mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+        callback({
+          responseHeaders: {
+            ...details.responseHeaders,
+            'Content-Security-Policy': [csp]
+          }
+        });
+      });
+
     mainWindow.loadFile(path.join(app.getAppPath(), "/dist-react/index.html"));
     Menu.setApplicationMenu(null);
 

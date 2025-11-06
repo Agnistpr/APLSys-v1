@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Button } from "@/ocr/components/ui/button";
+import { API_BASE_URL } from "../../config";
 
 export const MetadataExtractorPanel = ({ file, fileUrl }) => {
   const [metadata, setMetadata] = useState<any>(null);
@@ -11,7 +12,7 @@ export const MetadataExtractorPanel = ({ file, fileUrl }) => {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("http://127.0.0.1:8000/ai/gemini-extract-metadata", {
+      const res = await fetch(`${API_BASE_URL}/ai/gemini-extract-metadata`, {
         method: "POST",
         body: formData,
       });

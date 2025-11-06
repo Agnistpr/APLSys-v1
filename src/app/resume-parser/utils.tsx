@@ -122,14 +122,41 @@ export function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export function reconstructBlobUrl(fileData: string, mimeType = "application/pdf") {
-  const byteString = atob(fileData);
-  const ab = new ArrayBuffer(byteString.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-  const blob = new Blob([ab], { type: mimeType });
-  return URL.createObjectURL(blob);
+export function reconstructBlobUrl(
+  fileData: string,
+  mimeType = "application/pdf"
+): string {
+  if (!fileData) {
+    console.warn("reconstructBlobUrl called with empty data");
+    return "";
+  }
+
+  try {
+    // 1️⃣ Remove any base64 prefix (safety across variations)
+    const cleaned = fileData.replace(/^data:.*;base64,/, "");
+
+    // 2️⃣ Convert base64 → binary
+    const byteString = atob(cleaned);
+
+    // 3️⃣ Allocate typed array buffer
+    const len = byteString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = byteString.charCodeAt(i);
+    }
+
+    // 4️⃣ Create Blob in the *renderer process* context
+    const blob = new Blob([bytes], { type: mimeType });
+
+    // 5️⃣ Create object URL (safe inside renderer)
+    const url = URL.createObjectURL(blob);
+    return url;
+  } catch (err) {
+    console.error("Failed to reconstruct blob:", err);
+    return "";
+  }
 }
+
 
 
 export function getApplicantName(resume: any): string {

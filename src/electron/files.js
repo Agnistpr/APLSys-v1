@@ -6,6 +6,9 @@ import { spawn } from "child_process";
 import os from "os";
 const FormData = (await import("form-data")).default;
 
+// Backend URL used by Electron handlers. Set BACKEND_URL in the environment for production.
+const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+
 const fileFilters = {
   pdf: [{ name: "PDF Files", extensions: ["pdf"] }],
   images: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }],
@@ -250,8 +253,8 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [] } = {}) => {
         const axios = (await import("axios")).default;
         const FormData = (await import("form-data")).default;
 
-        // Read backend URL from env if provided so dev can override port
-        const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+  // Use the module-level BACKEND_URL (reads process.env.BACKEND_URL) so it can be
+  // configured when launching the Electron app in production.
 
         // helper: sleep
         const sleep = (ms) => new Promise((res) => setTimeout(res, ms));

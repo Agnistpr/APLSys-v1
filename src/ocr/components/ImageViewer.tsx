@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ocrFullScan, ocrRegion, parseDocumentText } from '../../api/ocr';
+import { API_BASE_URL } from '../../../config';
 import type { ExtractedText } from './DocumentScanner';
 import axios from "axios";
 
@@ -49,7 +50,7 @@ const sendImageToClassifier = async (imageDataUrl: string) => {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await axios.post("http://localhost:8000/parser/parse-document", formData, {
+  const response = await axios.post(`${API_BASE_URL}/parser/parse-document`, formData, {
     headers: { "Content-Type": "multipart/form-data" }
   });
   return response.data;
@@ -72,14 +73,14 @@ interface SelectionBox {
 }
 
 export async function classifyTextWithNER(text: string) {
-  const res = await axios.post("http://localhost:8000/parser/parse-document", { text });
+  const res = await axios.post(`${API_BASE_URL}/parser/parse-document`, { text });
   return res.data.entities;
 }
 
 // Update the classification function
 export async function classifyTextWithAI(text: string) {
   try {
-    const res = await axios.post("http://localhost:8000/ai/deepseek-label-extracted-text", { 
+    const res = await axios.post(`${API_BASE_URL}/ai/deepseek-label-extracted-text`, { 
       text,
       fileName: "document.txt" // Add filename for context
     });
@@ -440,14 +441,19 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     // For PDF: use pdfjs or send to backend for extraction
     // For DOCX/TXT: send to backend for extraction
     // Here, assume you have a backend endpoint /extract-text that returns { text }
+    try{
+    const blob = await fetch(fileUrl).then(r => r.blob());
     const formData = new FormData();
-    formData.append("file", await fetch(fileUrl).then(r => r.blob()), "document");
-    const res = await fetch("http://localhost:8000/extract-text", {
-      method: "POST",
-      body: formData,
-    });
-    const data = await res.json();
-    return data.text;
+    formData.append("file", new File([blob], fileName || "document", { type: fileType || blob.type }));
+    const res = await axios.post(`${API_BASE_URL}/ocr/extract-full`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+    //const data = await res.json();
+    return res?.data?.result?.text ?? res?.data?.text ?? "";
+    } catch (err) {
+      console.error("Text extraction failed:", err);
+      throw new Error("Text extraction failed");
+    }
   };
 
   const handleParseDocument = async () => {

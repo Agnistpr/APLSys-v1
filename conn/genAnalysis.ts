@@ -2,6 +2,7 @@
 import { JOB_ROLES, JobRole } from "src/app/data/jobRoles";
 import { defaultResume } from "../src/electron/aiStore";
 import axios from "axios";
+import { API_BASE_URL } from "../src/config";
 
 export function normalizeGeminiResume(raw: any) {
   if (!raw) return { ...defaultResume };
@@ -95,7 +96,7 @@ export async function analyzeResumeWithDS(payload: {
   while (true) {
     try {
       // Call your backend endpoint that forwards to Gemini
-      const res = await axios.post("http://127.0.0.1:8000/ai/analyze-resume", payload, 
+      const res = await axios.post(`${API_BASE_URL}/ai/analyze-resume`, payload,
         { timeout: 120000,
           headers: { "Content-Type": "application/json" }
          });

@@ -3530,6 +3530,15 @@ ocr-root
   height: 100%;
 }
 
+.pdf-container {
+  min-height: 800px;
+}
+
+.react-pdf__Page {
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.1);
+  background: white;
+}
+
 /* Right Panel */
 .right-panel {
   flex: 1.5;

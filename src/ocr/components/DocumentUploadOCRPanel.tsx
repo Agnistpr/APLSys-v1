@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { API_BASE_URL } from "../../config";
 import * as XLSX from "xlsx";
 
 export const DocumentUploadOCRPanel = () => {
@@ -24,7 +25,7 @@ export const DocumentUploadOCRPanel = () => {
       formData.append("file", file);
 
       // OCR text extraction
-      const ocrRes = await axios.post("http://127.0.0.1:8000/ocr/run-ocr-on-document-upload", formData);
+  const ocrRes = await axios.post(`${API_BASE_URL}/ocr/run-ocr-on-document-upload`, formData);
       setResults(prev => [
         ...prev,
         {
@@ -34,7 +35,7 @@ export const DocumentUploadOCRPanel = () => {
       ]);
 
       // Table extraction
-      const tableRes = await axios.post("http://127.0.0.1:8000/parser/camelot_extract", formData);
+  const tableRes = await axios.post(`${API_BASE_URL}/parser/camelot_extract`, formData);
       setTables(prev => [
         ...prev,
         {

@@ -1,7 +1,8 @@
 import axios from "axios";
 import * as pdfjs from "pdfjs-dist"
+import { API_BASE_URL } from "../config";
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = API_BASE_URL;
 
 // Helper to convert base64 to Blob
 function base64ToBlob(base64: string) {
