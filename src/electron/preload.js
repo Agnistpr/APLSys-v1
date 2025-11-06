@@ -47,7 +47,7 @@ contextBridge.exposeInMainWorld('exportAPI', {
   exportInventory: () => ipcRenderer.invoke('exportInventory'),
   exportInventoryLogs: (date) => ipcRenderer.invoke('exportInventoryLogs', date),
   exportLogs: (date) => ipcRenderer.invoke('exportLogs', date),
-  exportTodayAttendance: () => ipcRenderer.invoke('exportTodayAttendance'),
+  // exportTodayAttendance: () => ipcRenderer.invoke('exportTodayAttendance'),
   exportTrainees: (status) => ipcRenderer.invoke('exportTrainees', status),
 });
 
@@ -100,13 +100,14 @@ contextBridge.exposeInMainWorld('utilityAPI', {
   getDeptPos: () => ipcRenderer.invoke("getDeptPos"),
   getLogs: (date) => ipcRenderer.invoke('getLogs', date),
   getDashboardCardData: () => ipcRenderer.invoke('getDashboardCardData'),
+  importAttendance: (rows) => ipcRenderer.invoke("importAttendance", { rows }),
 });
 
-contextBridge.exposeInMainWorld('importAPI', {
-  checkDuplicates: (data) => ipcRenderer.invoke("checkDuplicates", data),
-  resolveConflicts: (data, action) => ipcRenderer.invoke("resolveConflicts", data, action),
-  importAttendance: (data) => ipcRenderer.invoke("importAttendance", data),
-});
+// contextBridge.exposeInMainWorld('importAPI', {
+//   checkDuplicates: (data) => ipcRenderer.invoke("checkDuplicates", data),
+//   resolveConflicts: (data, action) => ipcRenderer.invoke("resolveConflicts", data, action),
+//   importAttendance: (data) => ipcRenderer.invoke("importAttendance", data),
+// });
 
 contextBridge.exposeInMainWorld('authAPI', {
   signup: (email, password) => ipcRenderer.invoke("signUp", { email, password }),
