@@ -22,7 +22,7 @@ const subNavIcons = {
   Management: <MdManageSearch />
 };
 
-const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollapsed, selectedEmployeeId, setSelectedEmployeeId, selectedApplicantId, setSelectedApplicantId, setShowAnalyzer, showAnalyzer, showApplicantInfo, setShowApplicantInfo }) => {
+const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollapsed, selectedEmployeeId, setSelectedEmployeeId, selectedApplicantId, setSelectedApplicantId, setShowAnalyzer, showAnalyzer, showApplicantInfo, setShowApplicantInfo, isParsingResume, isOcrProcessing, isProcessing, parsingFileName }) => {
   const [showEmployees, setShowEmployees] = useState(false);
   const [showApplicants, setShowApplicants] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
@@ -154,13 +154,32 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
                   className={`subNavItem ${activePage === "Analyzer" ? "activeSubTab" : ""}`}
                   onClick={() => {
                     setActivePage("Analyzer");
-                    setShowAnalyzer(true); // ✅ mark as open
+                    setShowAnalyzer(true); // mark as open
                     setShowApplicantInfo(false);
                   }}
-                  title="Analyzer"
+                  title={isParsingResume ? `Parsing ${parsingFileName || 'resume'}... Please be patient` : "Analyzer"}
+                  style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}
                 >
                   {subNavIcons["Analyzer"]}
                   <span>Analyzer</span>
+
+                  {/* Inline spinner + accessible label when parsing */}
+                  {(isParsingResume || isProcessing) && (
+                    <span
+                      role="status"
+                      aria-label={`${parsingFileName || 'resume'} is currently being processed`}
+                      style={{
+                        display: "inline-block",
+                        width: 12,
+                        height: 12,
+                        marginLeft: 6,
+                        border: "2px solid rgba(0,0,0,0.12)",
+                        borderTop: "2px solid #1976d2",
+                        borderRadius: "50%",
+                        animation: "spin 1s linear infinite"
+                      }}
+                    />
+                  )}
                 </div>
               )}
 
@@ -190,21 +209,46 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
               {showDocuments ? <FaChevronDown /> : <FaChevronRight />}
             </span>
           </div>
-          {showDocuments && (
-            <div className="subNavList">
+           {showDocuments && (
+             <div className="subNavList">
               {['Scanner', 'Management'].map((page, idx) => (
                 <div
                   key={idx}
-                  className={`subNavItem ${activePage === page ? 'activeSubTab' : ''}`}
-                  onClick={() => setActivePage(page)}
+                  className={`subNavItem ${activePage === page ? "activeSubTab" : ""}`}
+                  onClick={() => {
+                    setActivePage(page);
+                    // keep analyzer/applicant behavior unchanged
+                    setShowAnalyzer(page === "Scanner" ? false : showAnalyzer);
+                    setShowApplicantInfo(false);
+                  }}
                   title={page}
+                  style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}
                 >
                   {subNavIcons[page]}
                   <span>{page}</span>
+
+                  {/* show circular inline spinner only on the relevant subtab */}
+                  {(page === "Scanner" && isOcrProcessing) && (
+                    <span
+                      className="inlineSpinner"
+                      title="Manual scan in progress"
+                      aria-hidden="true"
+                      style={{ marginLeft: 6 }}
+                    />
+                  )}
+
+                  {(page === "Management" && isOcrProcessing) && (
+                    <span
+                      className="inlineSpinner"
+                      title="Batch OCR in progress"
+                      aria-hidden="true"
+                      style={{ marginLeft: 6 }}
+                    />
+                  )}
                 </div>
               ))}
-            </div>
-          )}
+             </div>
+           )}
         </div>
 
         <div
@@ -220,6 +264,9 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
         <img src={logoutIcon} className="logoutImg" alt="Logout" />
         <span className="logoutText">Logout</span>
       </div>
+
+      {/* Add spin keyframes if not present in global CSS */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 };

@@ -1,12 +1,12 @@
 export const cspDirectives = {
   'default-src': ["'self'"],
-  'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+  'script-src': ["'self'", "'unsafe-inline'",],
   'style-src': ["'self'", "'unsafe-inline'"],
-  'img-src': ["'self'", 'blob:', 'data:'],
+  'img-src': ["'self'", 'blob:', 'data:', 'https://*.supabase.co'],
   'media-src': ["'self'", 'blob:'],
   'font-src': ["'self'", 'data:'],
-  'frame-src': ["'self'", 'blob:'],
-  'object-src': ["'self'", 'blob:'], 
+  'frame-src': ["'self'", 'blob:', 'https://*.supabase.co'],
+  'object-src': ["'self'", 'blob:', 'data:', 'https://*.supabase.co'], 
   'connect-src': [
     "'self'",
     'blob:',

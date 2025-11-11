@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import {createClient } from "@supabase/supabase-js";
 import { toast } from "sonner";
 import type { TextItems } from "../lib/parse-resume-from-pdf/types";
 import { ResumeDropzone } from "../components/ResumeDropzone";
@@ -10,7 +11,8 @@ import { JOB_ROLES } from "../data/jobRoles";
 import axios from "axios";
 import { API_BASE_URL } from '../../../config';
 import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
-import { Document, Page, pdfjs } from 'react-pdf';
+import * as pdfjsLib from "pdfjs-dist";
+import "pdfjs-dist/web/pdf_viewer.css";
 import {
   exportJSON,
   mapEntitiesToResume,
@@ -23,7 +25,27 @@ import {
 } from './utils';
 import { CandidateScoreCard } from '../components/CandidateScoreCard';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.js`;
+//Create a local worker (no CDN, no CSP violation)
+(pdfjsLib as any).GlobalWorkerOptions.workerPort = new Worker(
+  new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url),
+  { type: "module" }
+);
+
+ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+ // supabaseclient creator for vite
+ const rendererSupabase = SUPABASE_URL && SUPABASE_ANON_KEY
+   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+    {
+      auth: 
+      {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    }
+   )
+   : null;
 
 const sanitizeEditableResume = (r: any) => {
     if (!r || typeof r !== "object") return { ...defaultResume };
@@ -63,7 +85,95 @@ const sanitizeEditableResume = (r: any) => {
     }
   };
 
+type PdfPreviewProps = {
+  fileUrl: string | null;
+  scale?: number; // optional scale for rendering
+  maxPages?: number; // optional limit for pages to render
+  currentPage: number;
+  setCurrentPage: (page: number) => void;
+  totalPages: number;
+  setTotalPages: (pages: number) => void;
+  isLoading: boolean;
+  setIsLoading: (loading: boolean) => void;
+};
 
+function PdfPreview({ 
+  fileUrl, 
+  scale = 1, 
+  maxPages,
+  currentPage,
+  setCurrentPage,
+  totalPages,
+  setTotalPages,
+  isLoading,
+  setIsLoading
+ }: PdfPreviewProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+  if (!fileUrl || !canvasRef.current) return;
+
+  let cancelled = false;
+
+  const loadAndRender = async () => {
+    try {
+      setIsLoading(true);
+      const loadingTask = pdfjsLib.getDocument({ url: fileUrl });
+      const pdf = await loadingTask.promise;
+      const pages = maxPages ? Math.min(pdf.numPages, maxPages) : pdf.numPages;
+      setTotalPages(pages);
+
+      const page = await pdf.getPage(currentPage || 1);
+      if (cancelled) return;
+
+      const viewport = page.getViewport({ scale });
+      const canvas = canvasRef.current!;
+      const ctx = canvas.getContext("2d")!;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const renderTask = page.render({ canvasContext: ctx, canvas, viewport });
+      await renderTask.promise;
+    } catch (err) {
+      console.error("PDF load/render error:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  loadAndRender();
+  return () => {
+    cancelled = true;
+    const ctx = canvasRef.current?.getContext("2d");
+    if (ctx && canvasRef.current) {
+      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+  };
+}, [fileUrl, currentPage, scale]);
+
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", height: "100%" }}>
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: "100%",
+          height: "auto",
+          display: "block",
+          borderRadius: "6px",
+          background: "#fff",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+          flex: 1,
+        }}
+      />
+
+      {isLoading && (
+        <div style={{ textAlign: "center", color: "#999", fontSize: "14px" }}>
+          Loading...
+        </div>
+      )}
+    </div>
+  );
+}
 
 type ResumeParserProps = {
   setActivePage?: any;
@@ -73,6 +183,7 @@ type ResumeParserProps = {
   selectedResumeFile?: any;
   setSelectedResumeFile?: any;
   goBack?: any;
+  onParsingStateChange?: (isParsingResume: boolean, fileName: string) => void;
 };
 
 export default function ResumeParser
@@ -81,7 +192,9 @@ export default function ResumeParser
    setPreviousPage,
    activePage,
    selectedResumeFile,
-   setSelectedResumeFile, goBack }: ResumeParserProps = {}) {
+   setSelectedResumeFile, 
+   goBack,
+   onParsingStateChange }: ResumeParserProps = {}) {
   console.log("DEBUG ResumeTable:", typeof ResumeTable, ResumeTable);
   console.log("DEBUG CandidateScoreCard:", typeof CandidateScoreCard, CandidateScoreCard);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
@@ -93,6 +206,15 @@ export default function ResumeParser
   // Visual indicator shown when persisted file state is cleared on this session
   const [clearedMessage, setClearedMessage] = useState<string | null>(null);
   //const { addTask, updateTask } = useAnalysisStore();
+  const [hydrationAttempted, setHydrationAttempted] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  // for applicant adding:
+
+  const [showAddApplicantModal, setShowAddApplicantModal] = useState(false);
+  const [modalCategory, setModalCategory] = useState("");
+  const [modalJobRole, setModalJobRole] = useState("");
+  const [isAddingApplicant, setIsAddingApplicant] = useState(false);
 
   const currentFile = useAnalysisStore(state => state.currentFile);
   const editableResume = useAnalysisStore(state => state.editableResume);
@@ -119,9 +241,12 @@ export default function ResumeParser
   const addTask = useAnalysisStore(state => state.addTask);
   const updateTask = useAnalysisStore(state => state.updateTask);
 
-  //pagination thingy
-  const [numPages, setNumPages] = useState<number | null>(null);
-  const [pageNumber, setPageNumber] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const lastBlobUrlRef = useRef<string | null>(null);
+
   // Group related state
   const [fileState, setFileState] = useState({
     fileUrl: null as string | null,
@@ -138,50 +263,175 @@ export default function ResumeParser
   const safeResume = editableResume || defaultResume;
 
   // Add handleFieldPathChange function before the return statement
+  // IMPORTANT: call setEditableResume(next) with the fully built resume object.
+  // Previously we passed an updater function to the store setter which stored a function instead of the object.
   const handleFieldPathChange = useCallback((fieldPath: string, value: any) => {
-    setEditableResume(prev => {
+    try {
+      // read current resume from store (fallback to default)
+      const prev = useAnalysisStore.getState().editableResume || defaultResume;
       const next = JSON.parse(JSON.stringify(prev || defaultResume));
-      try {
-        setByPath(next, fieldPath, value);
-      } catch (e) {
-        console.error("handleFieldPathChange failed for", fieldPath, e);
-      }
-      return next;
-    });
+      setByPath(next, fieldPath, value);
+      setEditableResume(next);
+    } catch (e) {
+      console.error("handleFieldPathChange failed for", fieldPath, e);
+    }
   }, [setEditableResume]);
 
-const handleFileChange = useCallback(async (fileUrl: string, fileName: string, fileObj?: File) => {
-  setFileState(prev => ({
-    ...prev,
-    fileUrl,
-    resumeName: fileName
-  }));
+  const handleAddApplicantClick = () => {
+    setShowAddApplicantModal(true);
+    setModalCategory("");
+    setModalJobRole("");
+  };
 
-  // Update UI state
+  const handleConfirmAddApplicant = async () => {
+    if (!editableResume) {
+      alert("No resume data to add.");
+      return;
+    }
+
+    if (!modalCategory || !modalJobRole) {
+      alert("Please select both a Department (Category) and a Job Role.");
+      return;
+    }
+
+    setIsAddingApplicant(true);
+
+    const applicantData = {
+      ...editableResume,
+      departmentName: modalCategory,
+      positionName: modalJobRole,
+    };
+
+    console.log("Adding applicant:", applicantData);
+
+    try {
+      const added = await window.fileAPI.addApplicant(applicantData);
+
+      // Build applicant full name
+      const fullName = [
+        applicantData.profile?.firstName || "",
+        applicantData.profile?.middleName || "",
+        applicantData.profile?.lastName || ""
+      ].filter(Boolean).join(" ");
+
+      // Log action
+      const description = `
+        Applicant ID: ${added.applicantid}
+        Name: ${fullName}
+        Email: ${applicantData.profile?.email || ""}
+        Department: ${applicantData.departmentName}
+        Position: ${applicantData.positionName}
+      `.trim();
+
+      await window.fileAPI.logAction(
+        1, // replace with actual userid later
+        `added applicant "${fullName}"`,
+        description
+      );
+
+      toast.success(`Applicant added! ID: ${added.applicantid}`, {
+        duration: 3000,
+      });
+      setShowAddApplicantModal(false);
+      goBack();
+    } catch (err) {
+      console.error("Failed to add applicant:", err);
+      toast.error("Error adding applicant.", {
+        description: err instanceof Error ? err.message : "Unknown error",
+        duration: 3000,
+      });
+    } finally {
+      setIsAddingApplicant(false);
+    }
+  };
+
+
+  useEffect(() => {
+    if (fileUrl && fileUrl.startsWith("http")) {
+      console.log("PDF preview should be visible:", fileUrl);
+    }
+  }, [fileUrl]);
+
+  const handleNextPage = () => {
+      if (currentPage < totalPages) {
+        setCurrentPage(currentPage + 1);
+      }
+    };
+
+  const handlePrevPage = () => {
+      if (currentPage > 1) {
+        setCurrentPage(currentPage - 1);
+      }
+  };
+
+const handleFileChange = useCallback(async (fileUrl: string, fileName: string, fileObj?: File) => {
+  // Always preview the local blob immediately
   setFileUrl(fileUrl);
   setResumeName(fileName);
 
-  let base64String = "";
-  if (fileObj?.path && window?.fileAPI?.readFileAsBase64) {
-    try {
-      base64String = await window.fileAPI.readFileAsBase64(fileObj.path);
-      console.log("Base64 read via preload:", base64String.slice(0, 50));
-    } catch (err) {
-      console.error("Failed to read file via preload:", err);
+  if (!fileObj) return;
+
+  try {
+    // Upload to Supabase for persistence
+    const publicUrl = rendererSupabase ? await uploadFileToSupabase(fileObj) : null;
+
+    if (publicUrl) {
+      console.log("Uploaded to Supabase ->", publicUrl);
+      // Persist a stable HTTP(S) URL and no base64 blob
+      setCurrentFile({
+        url: publicUrl,
+        name: fileObj.name,
+        type: fileObj.type,
+        data: undefined,
+      });
+      setFileUrl(publicUrl); // Switch preview to Supabase URL once ready
+      setResumeName(fileObj.name);
+      setEditableResume({ ...defaultResume });
+    } else {
+      console.warn("Supabase upload failed or disabled, persisting base64 (not blob:) and using blob preview only.");
+      // Persist base64 data instead of storing the transient blob: URL
+      try {
+        const base64 = await fileToBase64(fileObj); // returns data:<mime>;base64,...
+        setCurrentFile({
+          url: undefined,
+          name: fileObj.name,
+          type: fileObj.type || "application/pdf",
+          data: base64,
+        });
+      } catch (e) {
+        // Fallback: persist metadata only, do NOT persist blob URL
+        console.warn("Failed to convert file to base64 for persistence:", e);
+        setCurrentFile({
+          url: undefined,
+          name: fileObj.name,
+          type: fileObj.type || "application/pdf",
+          data: undefined,
+        });
+      }
     }
-  } else if (fileObj instanceof File) {
-    base64String = await fileToBase64(fileObj);
+
+    // Note: we intentionally DO NOT persist or set a blob: URL in currentFile.url.
+    // Keep the immediate preview as a blob URL in component state (fileUrl) only.
+  } catch (err) {
+    console.error("Upload to Supabase failed:", err);
+    // Persist metadata only; do not persist blob: url
+    setCurrentFile({
+      url: undefined,
+      name: fileName,
+      type: fileObj.type || "application/pdf",
+      data: undefined,
+    });
   }
 
-  setCurrentFile({
-    url: fileUrl,
-    name: fileName || "uploaded_file.pdf",
-    type: 'application/pdf',
-    data: base64String, //now actually filled
-  });
+  // Only reset parse state when a NEW file is actually being processed
+  // (i.e., a File object was provided). This preserves previously parsed results
+  // when just previewing an already-uploaded file.
+  if (fileObj) {
+    setParsed(false);
+    setEditableResume({ ...defaultResume });
+  }
+}, [setCurrentFile, setEditableResume, setParsed]);
 
-  setEditableResume(prev => prev ?? { ...defaultResume });
-}, [setCurrentFile, setEditableResume]);
 
   // On first mount (app startup) clear only the persisted uploaded file (currentFile) once per
   // app session. We use sessionStorage as a guard so this runs only once per full app boot —
@@ -240,54 +490,105 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
       setEditableResume({ ...defaultResume });
     }
   }, []);
-  
+
   // Initialize from persisted state
   useEffect(() => {
     if (!isHydrated) return;
     const currfile = useAnalysisStore.getState().currentFile;
 
+      // Only run once per hydration
+    if (hydrationAttempted) return;
+    setHydrationAttempted(true);
+
 
     // Restore file preview if we have a currentFile
-    if (currfile?.data) {
-      try{
-        const url = reconstructBlobUrl(currfile.data, currfile.type);
-        console.log("currfile.data preview:", currfile.data.slice(0, 50));
-        setFileUrl(url);
-        setResumeName(currfile.name || "resume.pdf");
-        console.log("Hydrated file to base64 -> new blob url:", url);
-      }
-      catch (e)
-      {
-        console.error("Failed to reconstruct blob file:", e);
-      }
-    } else if (currfile?.url && !currfile?.url.startsWith("blob:")) {
-      setFileUrl(currfile.url);
-      setResumeName(currfile.name || "resume.pdf");
-      console.log("Hydrated file to existing URL");
-    }
-
-    // Defensive hydrate of editableResume: only write if sanitized differs
+    (async () => {
     try {
-      if (parseComplete && editableResume) {
-        const sanitized = sanitizeEditableResume(editableResume);
-        if (!sanitized || typeof sanitized !== "object" || !sanitized.profile) {
-          throw new Error("sanitization produced invalid resume");
-        }
-        // Avoid write-if-equal to prevent infinite loop
-        const curJson = JSON.stringify(editableResume);
-        const sanJson = JSON.stringify(sanitized);
-        if (curJson !== sanJson) {
-          setEditableResume(sanitized);
-        }
-      }
+        if (!currfile) return;
 
-    } catch (e) {
-      console.error("Failed to hydrate editableResume — clearing persisted store:", e);
-      try { localStorage.removeItem("resume-analysis-store"); } catch {}
-      setEditableResume({ ...defaultResume });
-      setParsed(false);
+        // 1) If we already have a non-blob URL (likely Supabase), use it
+        if (currfile?.url && !String(currfile.url).startsWith("blob:")) {
+          console.log("Hydrated file to existing URL:", currfile.url);
+          setFileUrl(currfile.url);
+          setResumeName(currfile.name || "resume.pdf");
+          return;
+        }
+
+        // 2) If we have an original filename, try to find it in Supabase storage
+        if (currfile?.name && rendererSupabase) {
+          try {
+          console.log("Searching Supabase for:", currfile.name);
+          const publicUrl = await findSupabasePublicUrl(currfile.name, "PDFs");
+          if (publicUrl) 
+            {
+            console.log("Found in Supabase:", publicUrl);
+            setCurrentFile({ ...currfile, url: publicUrl });
+            setFileUrl(publicUrl);
+            setResumeName(currfile.name || "resume.pdf");
+            return;
+            }
+          } catch (err) {
+            console.warn("Supabase lookup failed:", err);
+          }
+        }
+
+        // 3) If we persisted base64 `data`, reconstruct a blob URL for preview (do not persist the blob URL)
+        if (currfile?.data) {
+          try {
+            console.log("Reconstructing from persisted base64 data...");
+            const blobUrl = reconstructBlobUrl(currfile.data, currfile.type || "application/pdf");
+            if (blobUrl) {
+              lastBlobUrlRef.current = blobUrl;
+              setFileUrl(blobUrl);
+              setResumeName(currfile.name || "resume.pdf");
+              // keep currentFile.url undefined so we don't persist blob: URLs
+              console.log("Hydrated file to reconstructed blob URL from base64");
+            }
+          } catch (e) {
+            console.warn("Failed to reconstruct blob URL from persisted data:", e);
+          }
+        }
+      } catch (e) {
+        console.error("Hydration (Supabase-first) failed:", e);
+      }
+    })();
+  }, [isHydrated]); //currentFile,
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    
+    // Only run once per hydration
+    if (hydrationAttempted) return;
+    
+    // Explicitly restore editableResume from persisted store
+    const persistedResume = useAnalysisStore.getState().editableResume;
+    const persistedParseComplete = useAnalysisStore.getState().parseComplete;
+    
+    if (persistedResume && persistedParseComplete) {
+      console.log("Hydrating editableResume from persisted store:", persistedResume);
+      setEditableResume(persistedResume);
     }
-  }, [isHydrated, currentFile, parseComplete]);
+  }, [isHydrated, hydrationAttempted]);
+
+  useEffect(() => {
+    if (!fileUrl && currentFile?.url) {
+      console.log("Syncing fileUrl from currentFile:", currentFile.url);
+      setFileUrl(currentFile.url);
+      setResumeName(currentFile.name || "resume.pdf");
+    }
+  }, [activePage]);
+
+  useEffect(() => {
+    if (!fileUrl && currentFile?.url) {
+      console.log("Hydrating PDF from currentFile.url:", currentFile.url);
+      setFileUrl(currentFile.url);
+      setResumeName(currentFile.name || "resume.pdf");
+
+      // Kickstart first render immediately
+      setTotalPages(1);
+      setCurrentPage(1);
+    }
+  }, [fileUrl, currentFile]);
 
   useEffect(() => {
     if (isHydrated && useAnalysisStore.getState().analysisResult) {
@@ -320,7 +621,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
   const requiredSkills = selectedCategory && selectedJobRole ? JOB_ROLES[selectedCategory][selectedJobRole]?.required_skills : [];
 
   useEffect(() => {
-    if (fileUrl) {
+    if (typeof fileUrl === "string" && fileUrl.length > 0) {
       const name = fileUrl.split(/[\\/]/).pop() || "";
       setResumeName(name);
     } else {
@@ -332,12 +633,19 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     if (activePage === "Analyzer" && !selectedResumeFile) {
       const storeResume = useAnalysisStore.getState().editableResume;
       const hasProfile = !!(storeResume && storeResume.profile && Object.keys(storeResume.profile).length > 0);
+      
+      // Only reset if we truly have no data
       if (!hasProfile) {
+        console.log("No profile found, resetting to default");
         setEditableResume({ ...defaultResume });
         setAnalysisResult("");
+      } else {
+        // Keep the persisted resume data
+        console.log("Keeping persisted resume data");
+        setEditableResume(storeResume);
       }
     }
-  }, [activePage, selectedResumeFile]);
+  }, [activePage, selectedResumeFile, setEditableResume]);
 
   // Add effect to update description when role changes
   useEffect(() => {
@@ -501,6 +809,50 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     }
   }
 
+  async function findSupabasePublicUrl(originalName: string, bucket = "PDFs") {
+    if (!rendererSupabase || !originalName) return null;
+    try {
+      const user = (await rendererSupabase.auth.getUser()).data.user;
+      const userId = user?.id || "anonymous";
+      const prefixes = [
+        `users/${userId}/previews`,
+        `users/anonymous/previews`,
+        `previews`,
+      ];
+
+      for (const prefix of prefixes) {
+        try {
+          const { data: list, error } = await rendererSupabase.storage.from(bucket).list(prefix, { limit: 1000 });
+          if (error) {
+            // ignore this prefix and try the next
+            console.warn("Supabase list error for", prefix, error);
+            continue;
+          }
+          if (!Array.isArray(list)) continue;
+          // find file entry whose name contains the original filename (sanitized)
+          const sanitized = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
+          const match = list.find((f: any) => {
+            const n = String(f.name || "");
+            return n.includes(originalName) || n.includes(sanitized) || n.endsWith(originalName);
+          });
+          if (match) {
+            const path = `${prefix}/${match.name}`;
+            const { data: urlData } = rendererSupabase.storage.from(bucket).getPublicUrl(path);
+            if (urlData?.publicUrl) return urlData.publicUrl;
+          }
+        } catch (err) {
+          console.warn("findSupabasePublicUrl prefix scan failed:", prefix, err);
+          continue;
+        }
+      }
+
+      return null;
+    } catch (err) {
+      console.warn("findSupabasePublicUrl failed:", err);
+      return null;
+    }
+  }
+
   function base64ToBlob(base64: string, mimeType: string): Blob {
     const sanitized = base64.replace(/\s/g, '');
     const byteCharacters = atob(sanitized);
@@ -511,58 +863,118 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     const byteArray = new Uint8Array(byteNumbers);
     return new Blob([byteArray], { type: mimeType });
   }
+  // Upload helper: upload a File/Blob to Supabase storage and return a public URL (bucket must allow public access)
+  async function uploadFileToSupabase(file: File | File, bucket = "PDFs") {
+    if (!rendererSupabase) return null;
+
+    try {
+      // Get current user ID for ownership tagging
+      const user = (await rendererSupabase.auth.getUser()).data.user;
+      const userId = user?.id || "anonymous";
+      
+    // Get original filename from File object or generate timestamp-based name
+    const originalName = file instanceof File ? file.name : `resume_${Date.now()}.pdf`;
+    // Sanitize filename to remove special chars
+    const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    
+    // Construct path with timestamp to prevent collisions but keep original name
+    const fileName = `users/${userId}/previews/${Date.now()}_${safeFileName}`;
+
+      const { error } = await rendererSupabase.storage
+        .from(bucket)
+        .upload(fileName, file, { upsert: false });
+
+      if (error) {
+        console.warn("Supabase upload error:", error);
+        return null;
+      }
+
+      // ✅ PUBLIC bucket
+      const { data: urlData } = rendererSupabase.storage.from(bucket).getPublicUrl(fileName);
+      if (urlData?.publicUrl) return urlData.publicUrl;
+
+      // 🔒 PRIVATE bucket — fallback to signed URL
+      const { data: signed } = await rendererSupabase.storage.from(bucket).createSignedUrl(fileName, 3600);
+      return signed?.signedUrl || null;
+    } catch (err) {
+      console.error("uploadFileToSupabase failed:", err);
+      return null;
+    }
+  }
 
   useEffect(() => {
     if (selectedResumeFile && selectedResumeFile.data) {
-      console.log(selectedResumeFile.data.slice(0, 10)); // Should show 'JVBERi0xLjc' for PDF
-    }
-    if (selectedResumeFile && selectedResumeFile.data && selectedResumeFile.type) {
-      // Convert base64 to File and then to blob URL
-      const blob = base64ToBlob(selectedResumeFile.data, selectedResumeFile.type);
-      const url = URL.createObjectURL(blob);
-
-      setFileUrl(url);
-      setResumeName(selectedResumeFile.name || "uploaded_resume.pdf");
-      setFileState(prev => ({
-      ...prev,
-      fileUrl: url,
-      resumeName: selectedResumeFile.name || "uploaded_resume.pdf"
-      }));
-
-      // Update the store
-      setCurrentFile({
-        url: url,
-        name: selectedResumeFile.name || "uploaded_resume.pdf",
-        type: selectedResumeFile.type,
-        data: selectedResumeFile.data
-      });
-
-      // Initialize with default resume structure
-      setEditableResume({...defaultResume});
-    }
-  // Only run when a new file is selected
-  }, [selectedResumeFile, setCurrentFile, setEditableResume]);
-
-  //Track dynamically created blob URLs and revoke only those on unmount
-  useEffect(() => {
-    const createdUrls = new Set<string>();
-
-    // When you set a blob URL, remember it
-    if (fileUrl && fileUrl.startsWith("blob:")) {
-      createdUrls.add(fileUrl);
+      console.log('selectedResumeFile preview:', selectedResumeFile.data.slice(0, 50));
     }
 
-    return () => {
-      for (const url of createdUrls) {
-        if (fileUrl?.startsWith("blob:")) {
-          console.log("Revoking blob URL:", fileUrl);
-          URL.revokeObjectURL(fileUrl);
+    if (!(selectedResumeFile && selectedResumeFile.data && selectedResumeFile.type)) return;
+
+    let didCancel = false;
+
+    (async () => {
+      try {
+        // Prefer Supabase public URL if client configured
+        let previewUrl: string | null = null;
+        if (rendererSupabase && selectedResumeFile.name) {
+          try {
+            const uploaded = await findSupabasePublicUrl(selectedResumeFile.name, "PDFs");
+            if (uploaded) {
+              previewUrl = uploaded;
+              console.log("Found existing Supabase file for selectedResumeFile ->", previewUrl);
+            }
+            else {
+              console.log('Supabase upload returned null, falling back to blob URL');
+            }
+            } catch (e) {
+            console.warn('Supabase upload attempt failed, falling back to blob URL', e);
+          }
         }
+
+        // 2) If not found on Supabase, attempt to upload only if a File object was passed from UI
+        if (!previewUrl && selectedResumeFile.file instanceof File && rendererSupabase) {
+          try {
+            previewUrl = await uploadFileToSupabase(selectedResumeFile.file, "PDFs");
+            if (previewUrl) console.log("Uploaded File object to Supabase ->", previewUrl);
+          } catch (e) {
+            console.warn("Uploading File object to Supabase failed, will fallback to blob:", e);
+            previewUrl = null;
+          }
+        }
+
+        // fallback to blob URL
+        // let createdBlobUrl: string | null = null;
+        // if (!previewUrl) {
+        //   createdBlobUrl = URL.createObjectURL(blob);
+        //   previewUrl = createdBlobUrl;
+        //   console.log('Hydrated file to base64 -> new blob url:', previewUrl);
+        // }
+
+        // if (didCancel) {
+        //   if (createdBlobUrl) URL.revokeObjectURL(createdBlobUrl);
+        //   return;
+        // }
+
+        if (previewUrl) {
+        setFileUrl(previewUrl);
+        setResumeName(selectedResumeFile.name || 'uploaded_resume.pdf');
+        setFileState(prev => ({ ...prev, fileUrl: previewUrl, resumeName: selectedResumeFile.name || 'uploaded_resume.pdf' }));
+
+        setCurrentFile({ 
+          url: previewUrl, 
+          name: selectedResumeFile.name || 'uploaded_resume.pdf', 
+          type: selectedResumeFile.type, 
+          data: selectedResumeFile.data });
+
+        // Ensure editable resume exists
+        setEditableResume({ ...defaultResume });
+        }
+      } catch (e) {
+        console.error('Failed to process selectedResumeFile:', e);
       }
-    };
-  }, [fileUrl]);
+    })();
 
-
+    return () => { didCancel = true; };
+  }, [selectedResumeFile, setCurrentFile, setEditableResume]);
 
   // New function to handle manual parsing
   const handleParseResume = async () => {
@@ -576,6 +988,11 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
     const taskId = `parse-${Date.now()}`;
     setProcessing(true);
+    setIsParsingResume(true);
+
+    // Notify parent App (sidebar spinner) that parsing started
+    try { onParsingStateChange?.(true, displayName); } catch (e) { console.warn("onParsingStateChange start failed", e); }
+
     addTask({
       id: taskId,
       type: "parse",
@@ -599,30 +1016,52 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
       let file: File | null = null;
 
-      // Prefer the persisted base64 if available
-      if (currentFile?.data) {
+      // 1) Prefer a persisted HTTP(S) URL (e.g. Supabase public URL)
+      const persistedUrl = currentFile?.url || fileUrl;
+      if (persistedUrl && /^https?:\/\//i.test(String(persistedUrl))) {
+        try {
+          const resp = await fetch(String(persistedUrl));
+          if (!resp.ok) throw new Error(`Failed to fetch file from ${persistedUrl}`);
+          const fetchedBlob = await resp.blob();
+          file = new File([fetchedBlob], currentFile?.name || resumeName || "resume.pdf", {
+            type: fetchedBlob.type || "application/pdf",
+          });
+          console.log("Using HTTP(S) URL to build File for parsing:", persistedUrl);
+        } catch (e) {
+          console.warn("Fetching persisted URL failed, will fallback to other methods:", e);
+          file = null;
+        }
+      }
+
+      // Fallback to fetching blob URL if base64 not available
+      if (!file && currentFile?.data) {
         try {
           console.log("DEBUG reconstructing File from persisted base64 data...");
-          const byteString = atob(currentFile.data);
+          const cleaned = currentFile.data.replace(/^data:.*;base64,/, "");
+          const byteString = atob(cleaned);
           const ab = new ArrayBuffer(byteString.length);
           const ia = new Uint8Array(ab);
           for (let i = 0; i < byteString.length; i++) {
             ia[i] = byteString.charCodeAt(i);
           }
           const blob = new Blob([ab], { type: currentFile.type || "application/pdf" });
-          file = new File([blob], currentFile.name || "resume.pdf", { type: currentFile.type });
+          file = new File([blob], currentFile.name || "resume.pdf", { type: currentFile.type || "application/pdf" });
+          console.log("Reconstructed File from base64 fallback");
         } catch (e) {
           console.error("Failed to reconstruct File from base64:", e);
+          file = null;
         }
       }
 
-      // Fallback to fetching blob URL if base64 not available
+      // 3) Fallback: if file still not set, attempt to fetch blob from fileUrl (could be a blob: url created this session)
       if (!file) {
         const fetchUrl = currentFile?.url || fileUrl;
         if (!fetchUrl) throw new Error("No file URL available to parse");
         const response = await fetch(fetchUrl);
         const blob = await response.blob();
-        file = new File([blob], resumeName || "resume.pdf", { type: "application/pdf" });
+        file = new File([blob], currentFile?.name || resumeName || "resume.pdf", {
+          type: blob.type || "application/pdf",
+        });
       }
 
       if (!file) throw new Error("Could not prepare file for parsing");
@@ -642,11 +1081,38 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
       //Persist to store
       await persistNERResult(nerResult);
-      
-      // Immediately reflect parsed resume in local state
-      setEditableResume(useAnalysisStore.getState().editableResume);
-      setParsed(true);
 
+      // Wait for zustand persistence to reflect in memory/localStorage.
+      // Poll store until parseComplete is true and editableResume has profile data.
+      const waitForPersist = async (timeoutMs = 3000, intervalMs = 50) => {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          const st = useAnalysisStore.getState();
+          if (st.parseComplete && st.editableResume && st.editableResume.profile && Object.keys(st.editableResume.profile).length > 0) {
+            return st;
+          }
+          // allow browser work to flush writes
+          await new Promise((r) => setTimeout(r, intervalMs));
+        }
+        throw new Error("Timed out waiting for persisted parsed resume");
+      };
+
+      try {
+        const persistedState = await waitForPersist(3000, 50);
+        // Sync UI with persisted store
+        setEditableResume(persistedState.editableResume);
+        setParsed(true);
+
+        // Notify parent App that parsing finished successfully -> spinner can despawn
+        try { onParsingStateChange?.(false, displayName); } catch (e) { console.warn("onParsingStateChange success failed", e); }
+      } catch (waitErr) {
+        // If waiting failed, still attempt to use what's in the store and notify parent
+        console.warn("Waiting for persisted state timed out, falling back to immediate sync:", waitErr);
+        const st = useAnalysisStore.getState();
+        setEditableResume(st.editableResume || { ...defaultResume });
+        setParsed(Boolean(st.parseComplete));
+        try { onParsingStateChange?.(false, displayName); } catch (e) { console.warn("onParsingStateChange fallback failed", e); }
+      }
       
       // Update task and UI state
       updateTask(taskId, { 
@@ -668,6 +1134,11 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       console.error("Failed to parse resume:", err);
       setEditableResume({...defaultResume});
       setParsed(false);
+
+      // Notify parent App that parsing stopped (error) to avoid permanent spinner;
+      // UI still indicates parse failure via toast / analysis state.
+      try { onParsingStateChange?.(false, displayName); } catch (e) { console.warn("onParsingStateChange error failed", e); }
+
       updateTask(taskId, {
         status: "error", 
         error: err.message,
@@ -682,14 +1153,32 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       });
     } finally {
       setProcessing(false);
+      setIsParsingResume(false);
     }
   };
+
+  // REMOVE the old effect that synced onParsingStateChange to local isParsingResume.
+  // Replace this:
+  // useEffect(() => {
+  //   try {
+  //     onParsingStateChange?.(Boolean(isParsingResume), resumeName || "");
+  //   } catch (e) {
+  //     console.warn("onParsingStateChange callback failed:", e);
+  //   }
+  // }, [isParsingResume, resumeName, onParsingStateChange]);
+  //
+  // With: (no-op) — parent is updated explicitly above.
 
   // Similarly update handleAnalyzeResume to use tasks
   const handleAnalyzeResume = async () => {
     setHasAnalyzed(true);
 
+    const displayName = currentFile?.name || resumeName || "resume.pdf";
     const taskId = `analyze-${Date.now()}`;
+    // Signal global processing (DeepSeek) and notify parent UI
+    setProcessing(true);
+    try { onParsingStateChange?.(true, displayName); } catch (e) { console.warn("onParsingStateChange start failed", e); }
+
     addTask({
       id: taskId,
       type: "analyze",
@@ -711,38 +1200,107 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         return;
       }
 
-        // Build a trimmed payload to reduce tokens (send only needed fields)
-        const minimalResume = {
-          profile: editableResume.profile || {},
-          skills: {
-            featuredSkills: (editableResume.skills?.featuredSkills || []).slice(0, 20),
-            descriptions: (editableResume.skills?.descriptions || []).slice(0, 40),
-          },
-          educations: (editableResume.educations || []).slice(0, 5).map((e: any) => ({
-            school: e.school || "",
-            degree: e.degree || "",
-            field: e.field || "",
-            date: e.date || ""
-          })),
-          workExperiences: (editableResume.workExperiences || []).slice(0, 5).map((w: any) => ({
-            company: w.company || "",
-            position: w.position || "",
-            date: w.date || "",
-            // trim long descriptions to a reasonable length
-            description: (w.description || "").split(/\s+/).slice(0, 200).join(" ")
-          })),
-          projects: (editableResume.projects || []).slice(0, 5),
-          custom: { descriptions: (editableResume.custom?.descriptions || []).slice(0, 10) },
-        };
+      // Attempt to extract raw text from the file (preferred) using extractResumeText.
+      // If extraction fails or returns too little, fall back to the minimal JSON payload.
+      let extractedText: string | null = null;
+      try {
+        let file: File | null = null;
 
-      // Get job role description from JOB_ROLES
+        // 1) Try using an HTTP(S) persisted URL
+        const persistedUrl = currentFile?.url || fileUrl;
+        if (persistedUrl && /^https?:\/\//i.test(String(persistedUrl))) {
+          try {
+            const resp = await fetch(String(persistedUrl));
+            if (resp.ok) {
+              const fetchedBlob = await resp.blob();
+              file = new File([fetchedBlob], currentFile?.name || resumeName || "resume.pdf", {
+                type: fetchedBlob.type || "application/pdf",
+              });
+              console.log("Using HTTP(S) URL to build File for analysis:", persistedUrl);
+            }
+          } catch (e) {
+            console.warn("Fetching persisted URL for analysis failed, will fallback:", e);
+            file = null;
+          }
+        }
+
+        // 2) Reconstruct from persisted base64 if present
+        if (!file && currentFile?.data) {
+          try {
+            const cleaned = currentFile.data.replace(/^data:.*;base64,/, "");
+            const byteString = atob(cleaned);
+            const ab = new ArrayBuffer(byteString.length);
+            const ia = new Uint8Array(ab);
+            for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+            const blob = new Blob([ab], { type: currentFile.type || "application/pdf" });
+            file = new File([blob], currentFile.name || "resume.pdf", { type: currentFile.type || "application/pdf" });
+            console.log("Reconstructed File from base64 for analysis");
+          } catch (e) {
+            console.warn("Reconstruct from base64 failed for analysis:", e);
+            file = null;
+          }
+        }
+
+        // 3) Fallback: fetch from blob: URL or fileUrl
+        if (!file) {
+          const fetchUrl = currentFile?.url || fileUrl;
+          if (fetchUrl) {
+            const response = await fetch(fetchUrl);
+            const blob = await response.blob();
+            file = new File([blob], currentFile?.name || resumeName || "resume.pdf", {
+              type: blob.type || "application/pdf",
+            });
+          }
+        }
+
+        if (file) {
+          const text = await extractResumeText(file); // <--- uses existing helper
+          if (text && typeof text === "string" && text.trim().length > 20) {
+            extractedText = text;
+            console.log("Extracted raw text length:", extractedText.length);
+          } else {
+            console.warn("extractResumeText returned empty or too-short text; will fall back to JSON payload");
+            extractedText = null;
+          }
+        } else {
+          console.warn("Could not prepare File for extractResumeText; falling back to JSON payload");
+        }
+      } catch (e) {
+        console.warn("Raw text extraction failed, falling back to JSON payload:", e);
+        extractedText = null;
+      }
+
+      // Build a trimmed JSON payload as fallback
+      const minimalResume = {
+        profile: editableResume.profile || {},
+        skills: {
+          featuredSkills: (editableResume.skills?.featuredSkills || []).slice(0, 20),
+          descriptions: (editableResume.skills?.descriptions || []).slice(0, 40),
+        },
+        educations: (editableResume.educations || []).slice(0, 5).map((e: any) => ({
+          school: e.school || "",
+          degree: e.degree || "",
+          field: e.field || "",
+          date: e.date || ""
+        })),
+        workExperiences: (editableResume.workExperiences || []).slice(0, 5).map((w: any) => ({
+          company: w.company || "",
+          position: w.position || "",
+          date: w.date || "",
+          description: (w.description || "").split(/\s+/).slice(0, 200).join(" ")
+        })),
+        projects: (editableResume.projects || []).slice(0, 5),
+        custom: { descriptions: (editableResume.custom?.descriptions || []).slice(0, 10) },
+      };
+
       const jobRoleObj = selectedCategory && selectedJobRole
         ? JOB_ROLES[selectedCategory][selectedJobRole]
         : undefined;
 
-      // Prepare payload for backend
+      // If we have extracted raw text, send that as the `resume` payload to DeepSeek.
+      // Otherwise send the JSON stringified minimalResume as before.
       const payload = {
-        resume: JSON.stringify(minimalResume),
+        resume: extractedText ? extractedText : JSON.stringify(minimalResume),
         job_role: selectedJobRole || "",
         job_description: jobRoleObj?.description || customJobDescription || "",
       };
@@ -765,7 +1323,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         throw new Error(rawResult.error);
       }
 
-      // 🔄 Immediately sync local UI state with store
+      // Immediately sync local UI state with store
       setAnalysisResult(useAnalysisStore.getState().analysisResult);
 
       toast.success("Resume analyzed successfully", { id: taskId });
@@ -801,7 +1359,12 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         console.error("Error analyzing resume:", err);
         setAnalysisResult("Failed to analyze resume");
       } finally {
+        // Clear global processing and notify parent
         setLoadingAnalysis(false);
+        setProcessing(false);
+        try { onParsingStateChange?.(false, displayName); } catch (e) { console.warn("onParsingStateChange end failed", e); }
+        // update task status if needed
+        updateTask(taskId, { status: "completed", completedAt: Date.now() });
       }
   };
 
@@ -849,67 +1412,138 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
           </div>
         </div>
       )}
+
+      {/* PDF LOADING OVERLAY */}
+      {pdfLoading && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.3)",
+            zIndex: 9997,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none"
+          }}
+        >
+          <div style={{
+            background: "white",
+            padding: "16px 24px",
+            borderRadius: "8px",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            textAlign: "center"
+          }}>
+            <div style={{
+              width: 32,
+              height: 32,
+              border: "4px solid #1976d2",
+              borderTop: "4px solid #eee",
+              borderRadius: "50%",
+              animation: "spin 1s linear infinite",
+              margin: "0 auto 8px"
+            }} />
+            <p style={{ margin: 0, fontSize: "14px", color: "#666" }}>Loading PDF...</p>
+          </div>
+        </div>
+      )}
     <div className="resume-parser-container">
       <div className="pdf-preview">
-        {fileUrl ? (
-          <div className="pdf-container" style={{
-            width: "100%",
-            height: "100%",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            background: "#f5f5f5",
-            border: "1px solid #ddd",
-            borderRadius: "4px",
-            padding: "20px"
-          }}>
-            <Document
-              file={fileUrl}
-              onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-              loading={<div className="text-gray-400 text-center py-8">Loading PDF...</div>}
-              error={<div className="text-gray-400 text-center py-8">Error loading PDF preview</div>}
-            >
-              <Page 
-                pageNumber={pageNumber} 
-                width={550}
-                renderAnnotationLayer={false}
-                renderTextLayer={false}
-                scale={1.2}
-              />
-            </Document>
-            
-            {numPages && numPages > 1 && (
-              <div style={{ 
-                marginTop: 16,
-                display: 'flex',
-                gap: '12px',
-                alignItems: 'center'
+        <section className="w-1/2 p-2" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          {fileUrl ? (
+            <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 0 }}>
+              {/* Scrollable PDF area */}
+              <div style={{ flex: 1, overflow: "auto", border: "1px solid #ddd", borderRadius: "6px" }}>
+                <PdfPreview 
+                fileUrl={fileUrl}
+                currentPage={currentPage}
+                setCurrentPage={setCurrentPage}
+                totalPages={totalPages}
+                setTotalPages={setTotalPages}
+                isLoading={isLoading}
+                setIsLoading={setIsLoading}
+                />
+              </div>
+              
+              <div style={{
+                display: totalPages > 0 ? "flex" : "none",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "8px 12px",
+                background: "#f5f5f5",
+                borderRadius: "6px",
+                gap: "12px",
+                borderTop: "1px solid #ddd",
+                flexShrink: 0,
+                position: "sticky",
+                bottom: 0,
+                zIndex: 10
               }}>
                 <button
-                  onClick={() => setPageNumber(p => Math.max(1, p - 1))}
-                  disabled={pageNumber <= 1}
-                  className="btn-secondary"
+                  onClick={handlePrevPage}
+                  disabled={currentPage === 1 || isLoading}
+                  style={{
+                    padding: "6px 12px",
+                    backgroundColor: currentPage === 1 ? "#ccc" : "#1976d2",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                    fontSize: "14px"
+                  }}
                 >
-                  Previous
+                  ← Previous
                 </button>
-                <span>
-                  Page {pageNumber} of {numPages}
-                </span>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "14px", fontWeight: "500" }}>
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    max={totalPages}
+                    value={currentPage}
+                    onChange={(e) => {
+                      const page = parseInt(e.target.value, 10);
+                      if (page >= 1 && page <= totalPages) {
+                        setCurrentPage(page);
+                      }
+                    }}
+                    style={{
+                      width: "50px",
+                      padding: "4px 8px",
+                      borderRadius: "4px",
+                      border: "1px solid #ddd",
+                      textAlign: "center"
+                    }}
+                    disabled={isLoading}
+                  />
+                </div>
+
                 <button
-                  onClick={() => setPageNumber(p => Math.min(numPages, p + 1))}
-                  disabled={pageNumber >= numPages}
-                  className="btn-secondary"
+                  onClick={handleNextPage}
+                  disabled={currentPage === totalPages || isLoading}
+                  style={{
+                    padding: "6px 12px",
+                    backgroundColor: currentPage === totalPages ? "#ccc" : "#1976d2",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: currentPage === totalPages ? "not-allowed" : "pointer",
+                    fontSize: "14px"
+                  }}
                 >
-                  Next
+                  Next →
                 </button>
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="text-gray-400 text-center py-8">
-            No Resume loaded. Please upload one in .pdf format
-          </div>
-        )}
+            </div>
+          ) : (
+            <div className="text-gray-400 text-center py-8">
+              No Resume loaded. Please upload one in .pdf format
+            </div>
+          )}
+        </section>
       </div>
 
       <div className="right-panel">
@@ -936,8 +1570,13 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
           />
           <button
               onClick={handleParseResume}
-              disabled={!fileUrl || isParsingResume}
+              disabled={!fileUrl || isParsingResume || isProcessing}
               className="parse-res-btn"
+              title={isParsingResume ? `Parsing ${resumeName || 'resume'}...` : "Click to parse the uploaded resume"}
+              style={{
+                opacity: (!fileUrl || isParsingResume || isProcessing) ? 0.6 : 1,
+                cursor: (!fileUrl || isParsingResume || isProcessing) ? 'not-allowed' : 'pointer',
+              }}
             >
               {isParsingResume ? "Parsing..." : "Parse Resume"}
             </button>
@@ -979,67 +1618,18 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                 <div className="empty-resume-note">No parsed resume available. Try parsing a file again.</div>
               )}
               <button
-                onClick={async () => {
-                  if (!editableResume) {
-                    alert("No resume data to add.");
-                    return;
-                  }
-
-                  if (!selectedCategory || !selectedJobRole) {
-                    alert("Please select both a Department (Category) and a Job Role before adding applicant.");
-                    return;
-                  }
-
-                  const applicantData = {
-                    ...editableResume,
-                    departmentName: selectedCategory,
-                    positionName: selectedJobRole,
-                  };
-
-                  console.log("Adding applicant:", applicantData);
-
-                  try {
-                    const added = await window.fileAPI.addApplicant(applicantData);
-
-                    // Build applicant full name
-                    const fullName = [
-                      applicantData.profile?.firstName || "",
-                      applicantData.profile?.middleName || "",
-                      applicantData.profile?.lastName || ""
-                    ].filter(Boolean).join(" ");
-
-                    // Log action
-                    const description = `
-                      Applicant ID: ${added.applicantid}
-                      Name: ${fullName}
-                      Email: ${applicantData.profile?.email || ""}
-                      Department: ${applicantData.departmentName}
-                      Position: ${applicantData.positionName}
-                    `.trim();
-
-                    await window.fileAPI.logAction(
-                      1, // replace with actual userid later
-                      `added applicant "${fullName}"`,
-                      description
-                    );
-
-                    alert(`Applicant added! ID: ${added.applicantid}`);
-                    goBack();
-                  } catch (err) {
-                    console.error("Failed to add applicant:", err);
-                    alert("Error adding applicant.");
-                  }
-                }}
+                onClick={handleAddApplicantClick}
                 className="btn-secondary mt-2"
+                disabled={!editableResume}
               >
                 ➕ Add Applicant
               </button>
-              <button
+              {/* <button
                 onClick={() => editableResume && exportJSON(editableResume, `${getApplicantName(editableResume)}_resume.json`)}
                 className="btn-primary mt-4"
               >
                 Export Resume JSON
-              </button>
+              </button> */}
             </div>
           ) : (
             <div className="resume-analysis-section">
@@ -1151,9 +1741,9 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
               <button
                 onClick={handleAnalyzeResume}
                 className="btn-primary mt-4"
-                disabled={loadingAnalysis}
+                disabled={loadingAnalysis || isProcessing}
               >
-                {loadingAnalysis ? "Analyzing..." : "Analyze Resume"}
+                {loadingAnalysis || isProcessing ? "Analyzing..." : "Analyze Resume"}
               </button>
 
               {analysisResult && analysisResult.trim() !== "Failed to analyze resume" ? (
@@ -1184,6 +1774,136 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         </div>
       </div>
     </div>
+          {/* ADD APPLICANT MODAL */}
+      {showAddApplicantModal && (
+    <div
+      className="modalOverlay"
+      onClick={(e) => {
+        if (e.target.classList.contains("modalOverlay")) {
+          setShowAddApplicantModal(false);
+        }
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 9999,
+      }}
+    >
+      <div
+        style={{
+          background: "white",
+          borderRadius: "8px",
+          padding: "24px",
+          width: "90%",
+          maxWidth: "400px",
+          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+        }}
+      >
+        <h3 style={{ marginTop: 0, marginBottom: "16px", fontSize: "18px", fontWeight: "600" }}>
+          Add Applicant
+        </h3>
+
+        <div style={{ marginBottom: "16px" }}>
+          <label style={{ display: "block", marginBottom: "8px", fontWeight: "500" }}>
+            Job Category <span style={{ color: "red" }}>*</span>
+          </label>
+          <select
+            value={modalCategory}
+            onChange={(e) => {
+              setModalCategory(e.target.value);
+              setModalJobRole(""); // Reset job role when category changes
+            }}
+            style={{
+              width: "100%",
+              padding: "8px",
+              borderRadius: "4px",
+              border: "1px solid #ddd",
+              fontSize: "14px",
+            }}
+          >
+            <option value="">Select a category</option>
+            {Object.keys(JOB_ROLES).map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: "20px" }}>
+          <label style={{ display: "block", marginBottom: "8px", fontWeight: "500" }}>
+            Job Role <span style={{ color: "red" }}>*</span>
+          </label>
+          <select
+            value={modalJobRole}
+            onChange={(e) => setModalJobRole(e.target.value)}
+            disabled={!modalCategory}
+            style={{
+              width: "100%",
+              padding: "8px",
+              borderRadius: "4px",
+              border: "1px solid #ddd",
+              fontSize: "14px",
+              opacity: !modalCategory ? 0.5 : 1,
+              cursor: !modalCategory ? "not-allowed" : "pointer",
+            }}
+          >
+            <option value="">Select a role</option>
+            {modalCategory &&
+              Object.keys(JOB_ROLES[modalCategory] || {}).map((role) => (
+                <option key={role} value={role}>
+                  {role}
+                </option>
+              ))}
+          </select>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: "12px",
+          }}
+        >
+          <button
+            onClick={() => setShowAddApplicantModal(false)}
+            style={{
+              padding: "8px 16px",
+              borderRadius: "4px",
+              border: "1px solid #ddd",
+              background: "white",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "500",
+            }}
+            disabled={isAddingApplicant}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirmAddApplicant}
+            disabled={!modalCategory || !modalJobRole || isAddingApplicant}
+            style={{
+              padding: "8px 16px",
+              borderRadius: "4px",
+              border: "none",
+              background: !modalCategory || !modalJobRole ? "#ccc" : "#1976d2",
+              color: "white",
+              cursor: !modalCategory || !modalJobRole || isAddingApplicant ? "not-allowed" : "pointer",
+              fontSize: "14px",
+              fontWeight: "500",
+            }}
+          >
+            {isAddingApplicant ? "Adding..." : "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
     </>
   );
 }

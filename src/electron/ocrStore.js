@@ -58,5 +58,19 @@ export const useOcrStore = create(persist((set, get) => ({
   }),
 }), {
   name: "ocr-store", // localStorage key
-  getStorage: () => localStorage
+  getStorage: () => localStorage,
+  // don't persist transient UI flags like processingMap, batchId, or isProcessing
+  partialize: (state) => {
+    const { isProcessing, processingMap, batchId, ocrMatches, ...rest } = state;
+    return rest;
+  },
+  onRehydrateStorage: () => (state) => {
+    // ensure transient flags reset on rehydrate
+    if (state) {
+      state.setProcessing(false);
+      state.setProcessingMap({});
+      state.setBatchId(null);
+      state.setOcrMatches({});
+    }
+  }
 }));

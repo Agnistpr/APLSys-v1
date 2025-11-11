@@ -14,6 +14,7 @@ import { ocrFullScan, ocrRegion, parseDocumentText } from '../../api/ocr';
 import { API_BASE_URL } from '../../../config';
 import type { ExtractedText } from './DocumentScanner';
 import axios from "axios";
+import { useOcrStore } from '../../electron/ocrStore';
 
 //Mapping function for NER entity to tag
 export function entityToTag(entity: string): string | null {
@@ -120,6 +121,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+  const isGlobalProcessing = useOcrStore(s => s.isProcessing);
+  const setGlobalProcessing = useOcrStore(s => s.setProcessing);
 
   // store selection start in displayed (client) pixels relative to image top-left
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -156,6 +159,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
     const toastId = `ocr-${fileName || 'unsaved'}`;
     setIsProcessingOCR(true);
+    setGlobalProcessing(true);
     toast.loading(`${fileName || 'OCR'}: Processing region...`, { 
       id: toastId,
       duration: 2000,
@@ -223,10 +227,11 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       toast.error(`${fileName}: Failed to process region`, { id: toastId });
     } finally {
       setIsProcessingOCR(false);
+      setGlobalProcessing(false);
       setCurrentSelection(null);
       toast.dismiss(toastId);
     }
-  }, [fileName, onTextExtracted]);
+  }, [fileName, onTextExtracted, setGlobalProcessing]);
 
   //Mouse mapping helper
   const getImageCoords = useCallback((e: React.MouseEvent) => {
@@ -320,13 +325,14 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
     const toastId = `ocr-${fileName || 'unsaved'}`;
     setIsProcessingOCR(true);
+    setGlobalProcessing(true);
     toast.loading(`${fileName || 'OCR'}: Processing...`, {
       id: toastId,
       duration: 2000,
       dismissible: true,
       className: 'ocr-toast',
       style: { pointerEvents: 'auto' }
-  });
+    });
 
     try {
       const img = imageRef.current;
@@ -393,10 +399,11 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       });
     } finally {
       setIsProcessingOCR(false);
+      setGlobalProcessing(false);
       setCurrentSelection(null);
       toast.dismiss(toastId);
     }
-  }, [fileName, onTextExtracted]);
+  }, [fileName, onTextExtracted, setGlobalProcessing]);
 
   useEffect(() => {
     const handleGlobalMouseUp = () => {
@@ -544,10 +551,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
             size="sm" 
             variant={!isRegionMode ? 'default' : 'outline'}
             onClick={handleFullScanOCR} 
-            disabled={isProcessingOCR} 
-            title="Full Scan OCR"
+            disabled={isProcessingOCR || isGlobalProcessing} 
+            title={isProcessingOCR || isGlobalProcessing ? "Processing..." : "Full Scan OCR"}
           >
-            Full Scan OCR
+            { (isProcessingOCR || isGlobalProcessing) ? "Processing..." : "Full Scan OCR" }
           </Button>
           <Button
             variant={mode === 'select' ? 'default' : 'outline'}

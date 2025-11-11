@@ -18,6 +18,8 @@ import { TooltipProvider } from "./ocr/components/ui/tooltip.js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocumentScanner } from "./ocr/components/DocumentScanner.tsx";
 import ocrCssPath from './ocr/ocrstyles.css?url';
+import { useOcrStore } from './electron/ocrStore';
+import { useAnalysisStore } from './electron/aiStore'; 
 
 const Analyzer = lazy(() => import('./app/resume-parser/page.tsx'));
 const Screening = lazy(() => import('./page/Screening.jsx'));
@@ -40,9 +42,76 @@ const App = () => {
   const [selectedApplicantId, setSelectedApplicantId] = useState(null);
   const [selectedResumeFile, setSelectedResumeFile] = useState(null);
   const [activeTasks, setActiveTasks] = useState(new Map());
+  const [isParsingResume, setIsParsingResume] = useState(false);
+  const [parsingFileName, setParsingFileName] = useState("");
 
   const [showAnalyzer, setShowAnalyzer] = useState(false);
   const [showApplicantInfo, setShowApplicantInfo] = useState(false);
+
+  // raw store selectors (keep for background logic)
+  const processingMap = useOcrStore(s => s.processingMap);
+  const batchId = useOcrStore(s => s.batchId);
+
+  // validated flag that only becomes true when there is a *real* unresolved OCR task
+  const [validatedOcrProcessing, setValidatedOcrProcessing] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const validate = async () => {
+      const pm = processingMap || {};
+      const hasPm = Object.keys(pm).length > 0;
+      if (!hasPm && !batchId) {
+        if (!cancelled) setValidatedOcrProcessing(false);
+        return;
+      }
+
+      try {
+        // get file list and ocr results to validate persisted map
+        const docsList = await window.fileAPI.listDocuments().catch(() => []);
+        const ocrFiles = await window.fileAPI.readDirectory('ocr_results').catch(() => []);
+        const existingResults = new Set((ocrFiles || []).map(f => f.replace(/\.json$/i, '').trim()));
+
+        // if an inflight batch id exists -> treat as active
+        if (batchId) {
+          if (!cancelled) setValidatedOcrProcessing(true);
+          return;
+        }
+
+        // check if any processingMap key is actually unresolved:
+        const unresolved = Object.keys(pm).some((key) => {
+          const normalizedKey = String(key).trim();
+          // check docs list for a matching doc that is not marked processed
+          const doc = (docsList || []).find(d => String(d.name || '').trim() === normalizedKey);
+          if (doc) {
+            // show spinner only if doc is not processed and no saved result exists
+            if (doc.isProcessed) return false;
+            if (existingResults.has(normalizedKey)) return false;
+            return true;
+          }
+          // if doc not found, treat as unresolved only if we don't have an ocr result file
+          return !existingResults.has(normalizedKey);
+        });
+
+        if (!cancelled) setValidatedOcrProcessing(Boolean(unresolved));
+      } catch (err) {
+        // on error be conservative: only show spinner if there are map entries
+        if (!cancelled) setValidatedOcrProcessing(Boolean(Object.keys(processingMap || {}).length > 0 || batchId));
+      }
+    };
+
+    validate();
+    return () => { cancelled = true; };
+  }, [processingMap, batchId]);
+
+  const globalOcrProcessing = useOcrStore(s => {
+    const pm = s.processingMap || {};
+    return Boolean((Object.keys(pm).length > 0) || s.batchId);
+  });
+  const globalAnalysisProcessing = useAnalysisStore(s => s.isProcessing);
+
+  const handleParsingStateChange = (parsing, fileName) => {
+    setIsParsingResume(parsing);
+    setParsingFileName(fileName);
+  };
 
 useEffect(() => {
   const restoreSession = async () => {
@@ -68,6 +137,29 @@ useEffect(() => {
   };
   restoreSession();
 }, []);
+
+  useEffect(() => {
+    // Clear OCR processing state on app init (session-based, not persisted across restarts)
+    const clearOcrState = async () => {
+      try {
+        // Clear the processing map and batch ID on cold start
+        useOcrStore.setState({ 
+          processingMap: {}, 
+          batchId: null,
+          ocrMatches: {}
+        });
+        
+        // Clear localStorage keys used for OCR state persistence
+        localStorage.removeItem("documentProcessingState");
+        localStorage.removeItem("batchOcr:pendingMap");
+        localStorage.removeItem("batchOcr:inflight");
+      } catch (err) {
+        console.warn("Failed to clear OCR state on init:", err);
+      }
+    };
+    
+    clearOcrState();
+  }, []); // Run once on app mount
 
   useEffect(() => {
     const unsubscribe = window.authAPI.onAuthStateChange((session) => {
@@ -148,7 +240,8 @@ useEffect(() => {
               showAnalyzer
               setShowAnalyzer
               selectedResumeFile={selectedResumeFile} 
-              setSelectedResumeFile={setSelectedResumeFile} 
+              setSelectedResumeFile={setSelectedResumeFile}
+              onParsingStateChange={handleParsingStateChange}
               goBack={() => {
                 setShowAnalyzer(false); 
                 setActivePage(previousPage || "Dashboard");
@@ -341,6 +434,11 @@ useEffect(() => {
         setShowAnalyzer={setShowAnalyzer}
         showApplicantInfo={showApplicantInfo}
         setShowApplicantInfo={setShowApplicantInfo}
+        isParsingResume={isParsingResume}
+        parsingFileName={parsingFileName}
+        // pass the validated boolean instead of raw store value
+        isOcrProcessing={validatedOcrProcessing}
+        isProcessing={globalAnalysisProcessing}
       />}
       <Toasts />
       <div className={`content ${isSidebarCollapsed ? 'collapsed' : 'expanded'}`}>{renderPage()}</div>

@@ -8,6 +8,8 @@ import {useOcrStore} from '../electron/ocrStore';
 
 const Management = ({ onTaskStart, onTaskEnd }) => {
   const { docs, setDocs, processingMap, setProcessingMap, batchId, setBatchId, ocrMatches, setOcrMatches } = useOcrStore();
+  const globalProcessing = useOcrStore(s => s.isProcessing);
+  const setGlobalProcessing = useOcrStore(s => s.setProcessing);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState({});
@@ -374,8 +376,10 @@ useEffect(() => {
   // Updated processFolderOcr: construct optimistic map with normalized names
   const processFolderOcr = async () => {
     try {
+      // set both local and global flags
       setIsProcessing(true);
-      
+      setGlobalProcessing(true);
+
       const docsList = await window.fileAPI.listDocuments();
       setDocs(docsList);
 
@@ -406,6 +410,7 @@ useEffect(() => {
         ), { id: "ocr-batch", ...toastStyle });
         
         setIsProcessing(false);
+        setGlobalProcessing(false);
         return;
       }
 
@@ -525,6 +530,7 @@ useEffect(() => {
       setBatchId(null);
     } finally {
       setIsProcessing(false);
+      setGlobalProcessing(false);
       window.fileAPI.listDocuments().then(setDocs);
     }
   };
@@ -620,9 +626,9 @@ useEffect(() => {
             <button
             className="ocrProcessBtn"
             onClick={processFolderOcr}
-            disabled={isProcessing}
+            disabled={isProcessing || globalProcessing}
             >
-              {isProcessing ? 'Processing...' : 'Scan all files'}
+              {(isProcessing || globalProcessing) ? 'Processing...' : 'Scan all files'}
             </button>
         </div>
 

@@ -3517,18 +3517,16 @@ ocr-root
 
 /* Left PDF Viewer */
 .pdf-preview {
-  flex: 1.2;
-  min-width: 420px;
-  max-width: 600px;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 0.5rem;
-  overflow: hidden;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  background: #f8f8f8;
+  border-radius: 8px;
+  overflow: auto;
+  max-height: calc(100vh - 160px);
 }
+.pdf-preview canvas {
+  max-width: 100%;
+  height: auto;
+}
+
 
 .pdf-container {
   min-height: 800px;
