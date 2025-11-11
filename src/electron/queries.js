@@ -91,131 +91,30 @@ ipcMain.handle("getAttendanceColumns", async () => {
   }
 });
 
-ipcMain.handle("checkDuplicates", async (event, csvData) => {
+ipcMain.handle("importAttendance", async (event, { rows }) => {
+  if (!Array.isArray(rows)) return { error: "Invalid rows payload" };
+
   try {
-    const normalizeDate = (d) => {
-      if (!d) return "";
-      const str = String(d).trim();
-      if (str.includes("T")) return str.split("T")[0];
-      if (str.includes("/")) {
-        const [m, day, y] = str.split(/[/-]/);
-        if (y && m && day && y.length === 4)
-          return `${y}-${m.padStart(2, "0")}-${day.padStart(2, "0")}`;
-      }
-      return str;
-    };
+    // Clean / validate before insert (optional)
+    const cleaned = rows.map((r) => ({
+      date: r.date,
+      profileid: Number(r.profileid) || null,
+      timein: r.timein,
+      timeout: r.timeout,
+      role: r.role,
+    }));
 
-    const normalize = (r) => ({
-      date: normalizeDate(r.date),
-      employeeid: String(r.employeeid ?? "").trim(),
-      timein: String(r.timein || "").trim().slice(0, 5),
-      timeout: String(r.timeout || "").trim().slice(0, 5),
-    });
-
-    const { data: existing, error } = await supabase
+    // Bulk insert into attendance table
+    const { data, error } = await supabase
       .from("attendance")
-      .select("date, employeeid");
+      .insert(cleaned);
+
     if (error) throw error;
 
-    const existingSet = new Set(
-      existing.map((e) => {
-        const n = normalize(e);
-        return `${n.date}|${n.employeeid}`;
-      })
-    );
-
-    const duplicates = csvData.filter((r) => {
-      const n = normalize(r);
-      const key = `${n.date}|${n.employeeid}`;
-      return existingSet.has(key);
-    });
-
-    return { duplicates };
+    return { success: true, inserted: data?.length ?? 0 };
   } catch (err) {
-    logMessage(`checkDuplicates error: ${err.message}`);
-    return { duplicates: [], error: err.message };
-  }
-});
-
-ipcMain.handle("importAttendance", async (event, rows) => {
-  try {
-    logMessage(`Starting import of ${rows.length} attendance rows`);
-
-    const normalizeDate = (d) => {
-      if (!d) return "";
-      const str = String(d).trim();
-      if (str.includes("T")) return str.split("T")[0];
-      if (str.includes("/")) {
-        const [m, day, y] = str.split(/[/-]/);
-        if (y && m && day && y.length === 4)
-          return `${y}-${m.padStart(2, "0")}-${day.padStart(2, "0")}`;
-      }
-      return str;
-    };
-
-    const normalize = (r) => ({
-      date: normalizeDate(r.date),
-      employeeid: String(r.employeeid ?? "").trim(),
-      timein: String(r.timein || "").trim().slice(0, 5),
-      timeout: String(r.timeout || "").trim().slice(0, 5),
-    });
-
-    const cleanedRows = rows.map(({ attendanceid, firstname, lastname, fullname, ...rest }) => {
-      const n = normalize(rest);
-      return { ...rest, ...n };
-    });
-
-    const uniqueMap = new Map();
-    for (const r of cleanedRows) {
-      const n = normalize(r);
-      const key = `${n.date}|${n.employeeid}`;
-      if (!uniqueMap.has(key)) uniqueMap.set(key, r);
-    }
-    const uniqueRows = Array.from(uniqueMap.values());
-    logMessage(`Filtered CSV duplicates: kept ${uniqueRows.length} of ${cleanedRows.length}`);
-
-    const { data: existing, error: fetchError } = await supabase
-      .from("attendance")
-      .select("date, employeeid");
-    if (fetchError) throw fetchError;
-
-    const existingSet = new Set(
-      existing.map((e) => {
-        const n = normalize(e);
-        return `${n.date}|${n.employeeid}`;
-      })
-    );
-
-    const newRows = uniqueRows.filter((r) => {
-      const n = normalize(r);
-      const key = `${n.date}|${n.employeeid}`;
-      return !existingSet.has(key);
-    });
-
-    logMessage(`Filtered ${newRows.length} new rows (duplicates removed: ${uniqueRows.length - newRows.length})`);
-
-    if (newRows.length === 0) {
-      logMessage("No new attendance records to insert (all duplicates).");
-      return {
-        success: true,
-        inserted: 0,
-        message: "All rows were duplicates.",
-        type: "attendance",
-      };
-    }
-
-    const cleanedForInsert = newRows.map(({ firstname, lastname, fullname, ...rest }) => rest);
-
-    const { error: insertError } = await supabase
-      .from("attendance")
-      .insert(cleanedForInsert);
-    if (insertError) throw insertError;
-
-    logMessage(`Inserted ${newRows.length} new attendance records`);
-    return { success: true, inserted: newRows.length, type: "attendance" };
-  } catch (err) {
-    logMessage(`DB importAttendanceData error: ${err.message}`);
-    return { success: false, error: err.message || "Unknown error" };
+    console.error("❌ importAttendance error:", err);
+    return { error: err.message };
   }
 });
 
@@ -343,93 +242,112 @@ ipcMain.handle("exportEmployees", async () => {
   }
 });
 
-ipcMain.handle("exportAttendance", async () => {
+ipcMain.handle("exportAttendance", async (event, date = null) => {
   try {
-    const { data: attendance, error: attErr } = await supabase
+    logMessage("Starting exportAttendance...");
+
+    const targetDate = date ? formatDateToISO(date) : null;
+
+    const query = supabase
       .from("attendance")
-      .select(
-        `attendanceid, date, timein, timeout, employee:employeeid (
-          employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid
-        )`
-      )
-      .order("date", { ascending: false });
+      .select("attendanceid, date, timein, timeout, profileid, role");
 
-    if (attErr) throw attErr;
+    if (targetDate) {
+      query.eq("date", targetDate).order("timein", { ascending: true });
+    } else {
+      query.order("date", { ascending: false });
+    }
 
-    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
+    const { data: attendanceBase, error } = await query;
+    if (error) throw error;
+
+    // Fetch profiles like getAttendance
+    const attendance = await Promise.all(
+      (attendanceBase || []).map(async (a) => {
+        const role = (a.role || "Employee").toLowerCase();
+        let profile = null;
+
+        if (role === "employee") {
+          const { data } = await supabase
+            .from("employee")
+            .select(
+              "employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid"
+            )
+            .eq("employeeid", a.profileid)
+            .single();
+          profile = data;
+        } else if (role === "applicant") {
+          const { data } = await supabase
+            .from("applicant")
+            .select(
+              "applicantid, lastname, firstname, middlename, positionid, shiftid, departmentid"
+            )
+            .eq("applicantid", a.profileid)
+            .single();
+          profile = data;
+        }
+
+        return { ...a, employee: profile };
+      })
+    );
+
     const positionIds = [...new Set((attendance || []).map(a => a.employee?.positionid).filter(Boolean))];
+    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
     const departmentIds = [...new Set((attendance || []).map(a => a.employee?.departmentid).filter(Boolean))];
-
-    const { data: shifts } = await supabase
-      .from("shift")
-      .select("shiftid, timestart, timeend")
-      .in("shiftid", shiftIds);
 
     const { data: positions } = await supabase
       .from("position")
       .select("positionid, positionname")
-      .in("positionid", positionIds);
+      .in("positionid", positionIds.length ? positionIds : [-1]);
+    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+
+    const { data: shifts } = await supabase
+      .from("shift")
+      .select("shiftid, timestart, timeend")
+      .in("shiftid", shiftIds.length ? shiftIds : [-1]);
+    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
 
     const { data: departments } = await supabase
       .from("department")
       .select("departmentid, departmentname")
-      .in("departmentid", departmentIds);
-
-    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
-    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+      .in("departmentid", departmentIds.length ? departmentIds : [-1]);
     const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
 
-    const parseTimeToMinutes = (t) => {
-      if (!t && t !== 0) return null;
-      const s = String(t).trim();
-      const ampmMatch = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)$/i);
-      if (ampmMatch) {
-        let hh = parseInt(ampmMatch[1], 10);
-        const mm = parseInt(ampmMatch[2], 10);
-        const ampm = ampmMatch[3].toUpperCase();
-        if (ampm === "PM" && hh !== 12) hh += 12;
-        if (ampm === "AM" && hh === 12) hh = 0;
-        return hh * 60 + mm;
-      }
-      const hmsMatch = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-      if (hmsMatch) {
-        const hh = parseInt(hmsMatch[1], 10);
-        const mm = parseInt(hmsMatch[2], 10);
-        return hh * 60 + mm;
-      }
-      return null;
-    };
-
-    const format12 = (t) => {
-      const mins = parseTimeToMinutes(t);
-      if (mins == null) return "";
-      const hh = Math.floor(mins / 60);
-      const mm = mins % 60;
-      const ampm = hh >= 12 ? "PM" : "AM";
-      const hr12 = hh % 12 || 12;
-      return `${hr12}:${String(mm).padStart(2, "0")} ${ampm}`;
+    const parseDurationLabel = (mins) => {
+      if (mins == null || isNaN(mins)) return "";
+      const abs = Math.abs(mins);
+      const hh = Math.floor(abs / 60);
+      const mm = abs % 60;
+      return `${hh}h ${mm}m`;
     };
 
     const ARRIVAL_TOLERANCE = 15;
-    const WORK_TOLERANCE = 0;
+    const WORK_TOLERANCE = 15;
 
+    // Build CSV rows like getAttendance
     const rows = (attendance || []).map((a) => {
       const emp = a.employee ?? {};
-      const shift = shiftMap.get(emp?.shiftid) || {};
-      const position = posMap.get(emp?.positionid) || "";
-      const department = deptMap.get(emp?.departmentid) || "";
+      const pos = posMap.get(emp.positionid) || "";
+      const sh = shiftMap.get(emp.shiftid) || {};
+      const department = deptMap.get(emp.departmentid) || "";
 
-      const timeInMin = parseTimeToMinutes(a.timein);
-      const timeOutMin = parseTimeToMinutes(a.timeout);
-      const shiftStartMin = parseTimeToMinutes(shift?.timestart);
-      const shiftEndMin = parseTimeToMinutes(shift?.timeend);
+      const timeInMin = timeToMinutes(a.timein);
+      const timeOutMin = timeToMinutes(a.timeout);
+      const shiftStartMin = timeToMinutes(sh.timestart);
+      const shiftEndMin = timeToMinutes(sh.timeend);
 
       let arrivalDiff = 0;
       let arrivalStatus = "On Time";
-      let hoursWorked = 0;
-      let workStatus = "On Time";
+      let workStatus = "Exact Time";
+      let hoursWorked = "0h 0m";
+      let workDiff = 0;
 
-      if (timeInMin != null && timeOutMin != null && shiftStartMin != null && shiftEndMin != null) {
+      if (
+        timeInMin != null &&
+        timeOutMin != null &&
+        shiftStartMin != null &&
+        shiftEndMin != null
+      ) {
         arrivalDiff = timeInMin - shiftStartMin;
         if (Math.abs(arrivalDiff) <= ARRIVAL_TOLERANCE) {
           arrivalDiff = 0;
@@ -440,132 +358,58 @@ ipcMain.handle("exportAttendance", async () => {
 
         const actualDur = timeOutMin - timeInMin;
         const shiftDur = shiftEndMin - shiftStartMin;
-        hoursWorked = actualDur - shiftDur;
+        workDiff = actualDur - shiftDur;
+        hoursWorked = parseDurationLabel(actualDur);
 
-        if (Math.abs(hoursWorked) <= WORK_TOLERANCE) {
-          hoursWorked = 0;
-          workStatus = "On Time";
+        if (Math.abs(workDiff) <= WORK_TOLERANCE) {
+          workStatus = "Exact Time";
         } else {
-          workStatus = hoursWorked > 0 ? "Overtime" : "Undertime";
+          workStatus = workDiff > 0 ? "Overtime" : "Undertime";
         }
       }
 
       return {
         AttendanceID: a.attendanceid,
-        Date: a.date,
-        EmployeeID: emp.employeeid ?? "",
+        Date: formatDateToISO(a.date),
+        Role: a.role,
+        ProfileID: emp.employeeid ?? emp.applicantid ?? "",
         FullName: `${emp.lastname ?? ""}, ${emp.firstname ?? ""}${emp.middlename ? " " + emp.middlename.charAt(0) + "." : ""}`,
-        Position: position,
         Department: department,
-        Shift: `${format12(shift?.timestart)} - ${format12(shift?.timeend)}`,
-        TimeIn: format12(a.timein),
-        TimeOut: format12(a.timeout),
-        ArrivalDifference: arrivalDiff,
+        Position: pos,
+        Shift: sh.timestart && sh.timeend
+          ? `${formatTime12(sh.timestart)} - ${formatTime12(sh.timeend)}`
+          : "",
+        TimeIn: formatTime12(a.timein),
+        TimeOut: formatTime12(a.timeout),
+        ArrivalDifference: parseDurationLabel(arrivalDiff),
         ArrivalStatus: arrivalStatus,
-        WorkDifference: hoursWorked,
-        WorkStatus: workStatus,
-        "UT/OT (Minutes)": `${Math.abs(hoursWorked)} ${hoursWorked > 0 ? "Overtime" : hoursWorked < 0 ? "Undertime" : "-"}`,
+        HoursWorked: hoursWorked,
+        WorkDifference: parseDurationLabel(workDiff),
+        WorkStatus: workStatus
       };
     });
 
-    if (rows.length === 0)
-      return { success: false, message: "No attendance records to export" };
+    if (!rows.length) {
+      return { success: false, message: "No attendance records found to export." };
+    }
 
     const csv = buildCSV(rows);
 
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Attendance Export",
-      defaultPath: "attendance.csv",
-      filters: [{ name: "CSV Files", extensions: ["csv"] }],
-    });
-
-    if (!filePath)
-      return { success: false, message: "Export cancelled" };
-
-    fs.writeFileSync(filePath, csv, "utf8");
-    logMessage(`Attendance exported to ${filePath}`);
-
-    return { success: true, filePath };
-  } catch (err) {
-    logMessage("Attendance export failed: " + err.message);
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle("exportTodayAttendance", async () => {
-  try {
-    const today = formatDateToISO(new Date());
-
-    const { data: attendance, error: attErr } = await supabase
-      .from("attendance")
-      .select("attendanceid, date, timein, timeout, employee:employeeid ( employeeid, lastname, firstname, middlename, shiftid )")
-      .eq("date", today)
-      .order("timein", { ascending: true });
-
-    if (attErr) throw attErr;
-
-    const { data: shifts } = await supabase.from("shift").select("shiftid, timestart, timeend");
-    const shiftMap = new Map((shifts || []).map((s) => [s.shiftid, s]));
-
-    const rows = (attendance || []).map((a) => {
-      const emp = a.employee ?? (Array.isArray(a.employee) ? a.employee[0] : {});
-      const shift = shiftMap.get(emp?.shiftid) || {};
-
-      const timeInRaw = a.timein;
-      const timeOutRaw = a.timeout;
-
-      const timeIn = formatTime12(timeInRaw);
-      const timeOut = formatTime12(timeOutRaw);
-      const shiftStart = formatTime12(shift?.timestart);
-      const shiftEnd = formatTime12(shift?.timeend);
-
-      const timeInMin = timeToMinutes(timeInRaw);
-      const timeOutMin = timeToMinutes(timeOutRaw);
-      const shiftDurMin = (timeToMinutes(shift?.timeend) ?? 0) - (timeToMinutes(shift?.timestart) ?? 0);
-
-      let utot = "";
-      let status = "";
-      if (timeInMin != null && timeOutMin != null) {
-        const worked = timeOutMin - timeInMin;
-        const diff = Math.round(worked - shiftDurMin);
-        utot = String(diff);
-        if (Math.abs(diff) <= 10) status = "On Time";
-        else if (worked > shiftDurMin) status = "Overtime";
-        else status = "Undertime";
-      }
-
-      return {
-        attendanceid: a.attendanceid,
-        date: formatDateToISO(a.date),
-        lastname: emp?.lastname ?? "",
-        firstname: emp?.firstname ?? "",
-        middlename: emp?.middlename ?? "",
-        timeIn,
-        timeOut,
-        shiftStart,
-        shiftEnd,
-        "UT/OT (Minutes)": utot,
-        Status: status,
-      };
-    });
-
-    if (rows.length === 0) return { success: false, message: "No attendance records for today" };
-
-    const csv = buildCSV(rows);
-    const { filePath } = await dialog.showSaveDialog({
-      title: "Save Attendance Export",
-      defaultPath: `attendance_${today}.csv`,
+      defaultPath: `attendance_export_${targetDate || "all"}.csv`,
       filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
 
-    fs.writeFileSync(filePath, csv, "utf8");
-    logMessage(`Attendance exported to ${filePath}`);
+    await fs.promises.writeFile(filePath, csv, "utf8");
 
-    return { success: true, filePath };
+    logMessage(`Attendance exported to ${filePath} (${rows.length} rows)`);
+
+    return { success: true, filePath, count: rows.length };
   } catch (err) {
-    logMessage("Attendance export failed: " + err.message);
+    logMessage("exportAttendance error: " + err.message);
     return { success: false, error: err.message };
   }
 });

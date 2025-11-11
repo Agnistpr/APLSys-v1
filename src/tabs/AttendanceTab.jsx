@@ -277,10 +277,17 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId, setSelected
       <ImportModal
         show={showImportModal}
         onClose={() => setShowImportModal(false)}
-        onImportComplete={async () => {
-          setShowImportModal(false);
-          const data = await window.attendanceAPI.getAttendance();
-          setAttendance(data || []);
+        onImportComplete={async (rows) => {
+          try {
+            const result = await window.utilityAPI.importAttendance(rows);
+            // window.toast("Attendance imported successfully!", "success");
+            setSelectedDate(selectedDate);
+          } catch (err) {
+            console.error("Import failed:", err);
+            window.toast("❌ Import failed", "error");
+          } finally {
+            setShowImportModal(false);
+          }
         }}
       />
     </div>
