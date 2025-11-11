@@ -10,6 +10,7 @@ import {
   FaClock,
   FaCalendarAlt
 } from 'react-icons/fa';
+import { useOcrStore } from '../electron/ocrStore';
 
 const subNavIcons = {
   Employee: <FaUserTie />,
@@ -30,9 +31,14 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
   const [userName, setUserName] = useState(null);
   const [userRole, setUserRole] = useState(null);
 
+  const processingMap = useOcrStore(state => state.processingMap);
+  // derive context-aware flags from the shared processingMap
+  const scannerProcessing = Boolean(Object.keys(processingMap || {}).find(k => String(k).startsWith('scanner:')));
+  const batchProcessing = Boolean(Object.keys(processingMap || {}).find(k => String(k).startsWith('batch:')));
+
   useEffect(() => {
-    console.log("Sidebar states:", { activePage, showAnalyzer, showApplicantInfo });
-  }, [activePage, showAnalyzer, showApplicantInfo]);
+    console.log("Sidebar states:", { activePage, showAnalyzer, showApplicantInfo, scannerProcessing, batchProcessing });
+  }, [activePage, showAnalyzer, showApplicantInfo, scannerProcessing, batchProcessing]);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -61,6 +67,8 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Spinner flags are derived above; do not redeclare scannerProcessing here.
 
   return (
     <div className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
@@ -227,8 +235,8 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
                   {subNavIcons[page]}
                   <span>{page}</span>
 
-                  {/* show circular inline spinner only on the relevant subtab */}
-                  {(page === "Scanner" && isOcrProcessing) && (
+                  {/* show circular inline spinner only when corresponding context has active keys */}
+                  {page === "Scanner" && scannerProcessing && (
                     <span
                       className="inlineSpinner"
                       title="Manual scan in progress"
@@ -237,7 +245,7 @@ const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollap
                     />
                   )}
 
-                  {(page === "Management" && isOcrProcessing) && (
+                  {page === "Management" && batchProcessing && (
                     <span
                       className="inlineSpinner"
                       title="Batch OCR in progress"

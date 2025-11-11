@@ -123,6 +123,9 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const imageRef = useRef<HTMLImageElement>(null);
   const isGlobalProcessing = useOcrStore(s => s.isProcessing);
   const setGlobalProcessing = useOcrStore(s => s.setProcessing);
+  const processingMap = useOcrStore(s => s.processingMap);
+  const setProcessingMap = useOcrStore(s => s.setProcessingMap);
+
 
   // store selection start in displayed (client) pixels relative to image top-left
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -160,6 +163,12 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     const toastId = `ocr-${fileName || 'unsaved'}`;
     setIsProcessingOCR(true);
     setGlobalProcessing(true);
+
+    //Update processingMap to mark this file as processing
+    const processingKey = `scanner:${fileName}`;
+    setProcessingMap({ ...processingMap, [processingKey]: true });
+
+
     toast.loading(`${fileName || 'OCR'}: Processing region...`, { 
       id: toastId,
       duration: 2000,
@@ -167,6 +176,9 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       className: 'ocr-toast',
       style: { pointerEvents: 'auto' }
     });
+
+    // After starting OCR task
+    console.log("DEBUG processingMap after task start:", useOcrStore.getState().processingMap);
 
     try {
       const img = imageRef.current;
@@ -228,10 +240,18 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     } finally {
       setIsProcessingOCR(false);
       setGlobalProcessing(false);
+
+      // ADD THIS: Remove file from processingMap when done
+      setProcessingMap(prev => {
+        const updated = { ...prev };
+        delete updated[processingKey];
+        return updated;
+      });
+
       setCurrentSelection(null);
       toast.dismiss(toastId);
     }
-  }, [fileName, onTextExtracted, setGlobalProcessing]);
+  }, [fileName, onTextExtracted, setGlobalProcessing, processingMap, setProcessingMap]);
 
   //Mouse mapping helper
   const getImageCoords = useCallback((e: React.MouseEvent) => {
@@ -326,6 +346,11 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     const toastId = `ocr-${fileName || 'unsaved'}`;
     setIsProcessingOCR(true);
     setGlobalProcessing(true);
+    
+    // ADD THIS: Update processingMap to mark this file as processing
+    const processingKey = `scanner:${fileName}`;
+    setProcessingMap({ ...processingMap, [processingKey]: true });
+    
     toast.loading(`${fileName || 'OCR'}: Processing...`, {
       id: toastId,
       duration: 2000,
@@ -400,10 +425,18 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     } finally {
       setIsProcessingOCR(false);
       setGlobalProcessing(false);
+      
+      // ADD THIS: Remove file from processingMap when done
+      setProcessingMap(prev => {
+        const updated = { ...prev };
+        delete updated[processingKey];
+        return updated;
+      });
+      
       setCurrentSelection(null);
       toast.dismiss(toastId);
     }
-  }, [fileName, onTextExtracted, setGlobalProcessing]);
+  }, [fileName, onTextExtracted, setGlobalProcessing, processingMap, setProcessingMap]);
 
   useEffect(() => {
     const handleGlobalMouseUp = () => {

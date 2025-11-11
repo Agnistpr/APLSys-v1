@@ -107,13 +107,16 @@ useEffect(() => {
       const validatedMap = {};
       let hasValid = false;
 
-      Object.keys(savedMap).forEach(filename => {
+      Object.keys(savedMap).forEach(key => {
+        // Keys may be prefixed (e.g. "batch:foo.pdf"); normalize to bare filename
+        const filename = key && String(key).startsWith("batch:") ? String(key).replace(/^batch:/, "") : String(key);
         // Skip if OCR result exists or no pending task
         if (ocrResults.has(filename) || !pendingMap[filename]) return;
         
         const doc = docs.find(d => normalizeName(d.name) === filename);
         if (doc && !doc.isProcessed) {
-          validatedMap[filename] = true;
+          // store validated map with batch: prefix to indicate this is a batch job
+          validatedMap[`batch:${filename}`] = true;
           hasValid = true;
         }
       });
@@ -153,19 +156,21 @@ useEffect(() => {
 
     if (filename) {
       if (status === "started") {
+        // Use a batch-prefixed key so scanner and batch tasks don't collide
+        const batchKey = `batch:${filename}`;
         // Check if file is already in processing state to avoid duplicate "started" notifications
         const currentProcessing = useOcrStore.getState().processingMap || {};
-        if (currentProcessing[filename]) {
+        if (currentProcessing[batchKey]) {
           return; // Skip if already processing
         }
-        // mark the actual event filename as started
-        setProcessingMap(prev => ({ ...prev, [filename]: true }));
+        // mark the actual event filename as started (namespaced)
+        setProcessingMap(prev => ({ ...prev, [batchKey]: true }));
 
-        // persist with normalized key
+        // persist with normalized, namespaced key
         try {
           const raw = localStorage.getItem(PROCESSING_STATE_KEY);
           const stored = raw ? JSON.parse(raw) : { batchId: useOcrStore.getState().batchId, processingMap: {} };
-          stored.processingMap = { ...(stored.processingMap || {}), [filename]: true };
+          stored.processingMap = { ...(stored.processingMap || {}), [batchKey]: true };
           localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(stored));
         } catch (err) { /* noop */ }
 
@@ -196,9 +201,13 @@ useEffect(() => {
 
         setProcessingMap(prev => {
           const next = { ...prev };
-          // Remove both filename and parent
-          if (filename) delete next[filename];
-          if (parent) delete next[parent];
+          // Remove namespaced batch keys (and fall back to bare keys for backward compatibility)
+          const batchKey = `batch:${filename}`;
+          const parentBatchKey = parent ? `batch:${parent}` : null;
+          if (batchKey && next[batchKey]) delete next[batchKey];
+          if (parentBatchKey && next[parentBatchKey]) delete next[parentBatchKey];
+          if (filename && next[filename]) delete next[filename];
+          if (parent && next[parent]) delete next[parent];
           return next;
         });
 
@@ -240,6 +249,10 @@ useEffect(() => {
           const raw = localStorage.getItem(PROCESSING_STATE_KEY);
           const stored = raw ? JSON.parse(raw) : {};
           if (stored.processingMap) {
+            // Remove namespaced keys from persisted map
+            delete stored.processingMap[`batch:${filename}`];
+            if (parent) delete stored.processingMap[`batch:${parent}`];
+            // Also remove legacy bare keys if present
             delete stored.processingMap[filename];
             if (parent) delete stored.processingMap[parent];
           }
@@ -255,6 +268,10 @@ useEffect(() => {
         // clean up map for both keys
         setProcessingMap(prev => {
           const next = { ...prev };
+          const batchKey = `batch:${filename}`;
+          const parentBatchKey = parent ? `batch:${parent}` : null;
+          if (batchKey && next[batchKey]) delete next[batchKey];
+          if (parentBatchKey && next[parentBatchKey]) delete next[parentBatchKey];
           if (filename && next[filename]) delete next[filename];
           if (parent && next[parent]) delete next[parent];
           return next;
@@ -436,12 +453,12 @@ useEffect(() => {
 
       const filenames = pathsToProcess.map(p => normalizeName(p.name));
 
-      // Build initial processing map from freshly fetched docsList using normalized keys
+      // Build initial processing map from freshly fetched docsList using namespaced batch keys
       const initialProcessingMap = {};
       filenames.forEach(name => {
         const doc = docsList.find(d => normalizeName(d.name) === name);
         if (doc && !doc.isProcessed) {
-          initialProcessingMap[name] = true;
+          initialProcessingMap[`batch:${name}`] = true;
         }
       });
 
@@ -507,7 +524,7 @@ useEffect(() => {
       const actualMap = { ...mergedOptimistic };
       if (Array.isArray(workerResponse.processing_files) && workerResponse.processing_files.length > 0) {
         workerResponse.processing_files.forEach(fname => {
-          actualMap[normalizeName(fname)] = true;
+          actualMap[`batch:${normalizeName(fname)}`] = true;
         });
       }
 
@@ -739,7 +756,7 @@ useEffect(() => {
                 >
                   <td>
                     {doc.name}
-                    {processingMap[doc.name] && (
+                    {(processingMap[`batch:${normalizeName(doc.name)}`] || processingMap[normalizeName(doc.name)]) && (
                       <span className="inlineSpinner" title="Scanning..." />
                     )}
                     {doc.isProcessed && (

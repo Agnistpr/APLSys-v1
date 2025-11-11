@@ -1254,7 +1254,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         }
 
         if (file) {
-          const text = await extractResumeText(file); // <--- uses existing helper
+          const text = await extractResumeText(file);
           if (text && typeof text === "string" && text.trim().length > 20) {
             extractedText = text;
             console.log("Extracted raw text length:", extractedText.length);
