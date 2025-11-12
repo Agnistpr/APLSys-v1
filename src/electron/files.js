@@ -34,7 +34,12 @@ const fileFilters = {
   all: [{ name: "All Files", extensions: ["*"] }],
 };
 
+let selectedFolderPath = null;
+
 function getDocumentsFolder() {
+  if (selectedFolderPath && fs.existsSync(selectedFolderPath)) {
+    return selectedFolderPath; // user-chosen folder
+  }
   const isDev = !app.isPackaged;
   return isDev
     ? path.resolve(process.cwd(), "documents")
@@ -77,7 +82,6 @@ ipcMain.handle("file:saveToFolder", async (event, { sourcePath, customDir }) => 
 ipcMain.handle("file:listDocuments", async () => {
   const baseDir = getDocumentsFolder();
   const ocrDir = path.join(baseDir, "ocr_results"); // Directory for OCR results
-  
   
   fs.mkdirSync(baseDir, { recursive: true }); // ensure folder exists
   fs.mkdirSync(ocrDir, { recursive: true }); // ensure OCR results folder exists
@@ -155,21 +159,25 @@ ipcMain.handle("file:openDocument", async (_, filePath) => {
   }
 });
 
-ipcMain.handle("open-folder", async (event, filePath) => {
+ipcMain.handle("open-folder", async () => {
   try {
-    if (fs.existsSync(filePath)) {
-      // Reveal the file in its folder
-      shell.showItemInFolder(filePath);
-      return { success: true };
-    } else {
-      return { success: false, error: "File does not exist" };
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory"],
+      title: "Select a Folder",
+      message: "Choose a folder path",
+    });
+
+    if (result.canceled || !result.filePaths.length) {
+      return { success: false, canceled: true, error: "No folder selected" };
     }
+
+    selectedFolderPath = result.filePaths[0]; // save user selection
+    return { success: true, path: selectedFolderPath };
   } catch (err) {
     console.error("Error opening folder:", err);
     return { success: false, error: err.message };
   }
 });
-
 
 ipcMain.handle('file:createDirectory', async (event, dirPath) => {
   try {
@@ -256,11 +264,7 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [] } = {}) => {
     // run in background
     (async () => {
       try {
-        // compute documents / ocr_results path (same logic as files.js)
-        const isDev = !app.isPackaged;
-        const baseDir = isDev
-          ? path.resolve(process.cwd(), "documents")
-          : path.join(path.dirname(app.getPath("exe")), "documents");
+        const baseDir = getDocumentsFolder();
         const ocrDir = path.join(baseDir, "ocr_results");
         fs.mkdirSync(ocrDir, { recursive: true });
 

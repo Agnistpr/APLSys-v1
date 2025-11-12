@@ -831,23 +831,23 @@ useEffect(() => {
             </button>
             </div>
             <button
-                className="uploadBtn"
-                onClick={async () => {
-                    try {
-                    const files = await window.fileAPI.selectFile({ type: "documents", multi: true });
-                    if (!files) return;
+              className="uploadBtn"
+              onClick={async () => {
+                try {
+                  const files = await window.fileAPI.selectFile({ type: "all", multi: true });
+                  if (!files) return;
 
-                    for (const file of files) {
-                        await window.fileAPI.saveFileToFolder({ sourcePath: file });
-                    }
+                  for (const file of files) {
+                    await window.fileAPI.saveFileToFolder({ sourcePath: file });
+                  }
 
-                    const docs = await window.fileAPI.listDocuments();
-                    setDocs(docs);
-                    } catch (err) {
-                    console.error("Upload failed:", err);
-                    }
-                }}
-                >
+                  const docs = await window.fileAPI.listDocuments();
+                  setDocs(docs);
+                } catch (err) {
+                  console.error("Upload failed:", err);
+                }
+              }}
+            >
                 +
             </button>
         </div>
