@@ -1,4 +1,3 @@
-// ImportModal.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -15,7 +14,7 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
   const [kioskRows, setKioskRows] = useState([]);
   const [flaggedRows, setFlaggedRows] = useState([]);
   const [nativePreviewRows, setNativePreviewRows] = useState([]);
-  const [editingCell, setEditingCell] = useState(null); // { index, field } or null
+  const [editingCell, setEditingCell] = useState(null);
 
   useEffect(() => {
     if (show) {
@@ -32,7 +31,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
     }
   }, [show]);
 
-  // ---------------- Helpers ----------------
   const normalize = (s) =>
     (s || "").toString().toLowerCase().replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
 
@@ -73,7 +71,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
     return `${hh}:${mm} ${period}`;
   };
 
-  // Excel serial -> ISO YYYY-MM-DD (no timezone shift)
   const excelSerialToISO = (serial) => {
     const utc_days = Math.floor(serial - 25569);
     const utc_value = utc_days * 86400;
@@ -84,7 +81,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
     return `${yyyy}-${mm}-${dd}`;
   };
 
-  // Normalize date-like values to YYYY-MM-DD WITHOUT timezone shift
   const normalizeDateToISO = (val) => {
     if (val === null || val === undefined || String(val).trim() === "") return null;
     if (typeof val === "number") {
@@ -95,7 +91,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
       }
     }
     const s = String(val).trim();
-    // mm/dd/yyyy or m/d/yyyy
     const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if (m) {
       let mmn = parseInt(m[1], 10);
@@ -104,11 +99,9 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
       if (y < 100) y += 2000;
       return `${String(y).padStart(4, "0")}-${String(mmn).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
     }
-    // yyyy-mm-dd
     const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
 
-    // Try Date and read local components to avoid timezone shift
     const dt = new Date(s);
     if (!isNaN(dt)) {
       const y = dt.getFullYear();
@@ -119,10 +112,8 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
     return null;
   };
 
-  // Display-friendly date: prefer MM/DD/YYYY UI format for kiosk rows
   const formatDateForDisplay = (val) => {
     if (!val && val !== 0) return "";
-    // if already ISO yyyy-mm-dd
     if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
       try {
         const d = new Date(val + "T00:00:00");
@@ -131,7 +122,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
         }
       } catch {}
     }
-    // if excel serial number
     if (typeof val === "number") {
       try {
         const iso = excelSerialToISO(val);
@@ -139,7 +129,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
         return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
       } catch {}
     }
-    // fallback to parsing
     const dt = new Date(String(val));
     if (!isNaN(dt)) return dt.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
     return String(val);
@@ -147,7 +136,7 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
 
   const looksLikeDate = (v) => {
     if (v === null || v === undefined) return false;
-    if (typeof v === "number") return true; // excel serial
+    if (typeof v === "number") return true;
     const s = String(v).trim();
     if (!s) return false;
     if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(s)) return true;
@@ -158,18 +147,25 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
   };
 
   const parseName = (raw) => {
-    let s = String(raw || "").trim();
-    if (!s) return { fullname: "" };
-    // stop at parentheses content
-    s = s.replace(/\(.*?\)/g, "").trim();
-    if (s.includes(",")) {
-      const [l, f] = s.split(",", 2);
-      return { fullname: titleCase(`${f.trim()} ${l.trim()}`) };
-    }
-    return { fullname: titleCase(s) };
+    if (!raw) return { fullname: "" };
+
+    let s = String(raw).replace(/\(.*?\)/g, "").trim();
+
+    const fullname = s
+      .split(/\s+/)
+      .map(word => {
+        if (word.endsWith(",")) {
+          const clean = word.slice(0, -1);
+          return clean[0]?.toUpperCase() + clean.slice(1).toLowerCase() + ",";
+        } else {
+          return word[0]?.toUpperCase() + word.slice(1).toLowerCase();
+        }
+      })
+      .join(" ");
+
+    return { fullname };
   };
 
-  // ------------------ File upload handling ------------------
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -185,7 +181,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
           const headers = Object.keys(res.data[0] || {});
           setCsvHeaders(headers);
           setCsvData(res.data);
-          // auto map where possible to common headers
           const auto = {};
           ["date", "timein", "timeout", "profileid", "role", "firstname", "lastname", "fullname"].forEach((k) => {
             const match = headers.find((h) => h.toLowerCase().trim() === k.toLowerCase().trim());
@@ -203,7 +198,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
       return;
     }
 
-    // fallback: try CSV parse
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
@@ -215,7 +209,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
     });
   };
 
-  // ------------------ Kiosk parser (XLS/XLSX) ------------------
   const parseKioskFile = async (file) => {
     setLoading(true);
     try {
@@ -244,28 +237,24 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
 
       const displayFrom24 = (hhmm) => (hhmm ? format24ToAmPm(hhmm) : "");
 
-      // Step 1: build a list of date-rows (preserve order) grouped by currentName
-      const entries = []; // { idx, dateRaw, dateISO, ins: [{val, hour, used}], outs: [{val, hour, used}], name, rawRow }
+      const entries = [];
       for (let r = 0; r < raw.length; r++) {
         const row = raw[r] || [];
         const a = row[0] ?? "";
         if (String(a).trim() === "") continue;
 
-        // Detect new name header
         if (/[A-Z]/.test(String(a)) && String(a).includes(",") && String(a) === String(a).toUpperCase()) {
-          currentName = parseName(a).fullname || "";
+          currentName = parseName(a).fullname || currentName;
           continue;
         }
 
         if (!looksLikeDate(a)) {
-          // maybe a stray text name line; update name if it contains letters
           if (/[A-Za-z]/.test(String(a))) {
             currentName = parseName(a).fullname || currentName;
           }
           continue;
         }
 
-        // normalize date
         let isoDate = normalizeDateToISO(a);
         if (!isoDate && typeof a === "number") {
           try { isoDate = excelSerialToISO(a); } catch { isoDate = null; }
@@ -296,50 +285,42 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
         });
       }
 
-      // Step 2: iterate entries in order; for each entry with INs pick appropriate OUT
       for (let i = 0; i < entries.length; i++) {
         const ent = entries[i];
         const earliestInObj = ent.ins.length
           ? ent.ins.reduce((acc, cur) => (cur.val < acc.val ? cur : acc), ent.ins[0])
           : null;
 
-        // If there is no IN, skip this row (we don't create rows from outs-only)
         if (!earliestInObj) continue;
 
-        // Try same-day latest unconsumed OUT (prefer latest same-day out)
         let chosenOut = null;
         if (ent.outs.length) {
-          // pick the latest out that is not used
           const availableOuts = ent.outs.filter(o => !o.used);
           if (availableOuts.length) {
             chosenOut = availableOuts.reduce((a, b) => (a.val > b.val ? a : b));
             chosenOut.used = true;
-            // push as same-day
             parsed.push({
               fullname: ent.name,
               date: ent.dateISO,
               timein: displayFrom24(earliestInObj.val),
               timeout: displayFrom24(chosenOut.val),
             });
-            continue; // done for this entry
+            continue;
           }
         }
 
-        // No same-day out available -> search forward for first unconsumed OUT (within same name)
         let found = false;
         for (let j = i + 1; j < entries.length; j++) {
           const nxt = entries[j];
-          if (nxt.name !== ent.name) break; // stop if next person
+          if (nxt.name !== ent.name) break;
 
           const availableNextOuts = nxt.outs.filter(o => !o.used);
           if (availableNextOuts.length) {
             const nextOutObj = availableNextOuts.reduce((a, b) => (a.val < b.val ? a : b));
 
-            // check if it qualifies as night-shift pairing
             const inHour = earliestInObj.hour;
             const outHour = nextOutObj.hour;
 
-            // ONLY treat as overnight if IN was evening (>= 15) and OUT is early (<= 11)
             const isOvernight = inHour >= 15 && outHour <= 11;
 
             if (isOvernight) {
@@ -352,23 +333,21 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
               });
               found = true;
             }
-            break; // stop whether used or not — do not chain to non-overnight outs
+            break;
           }
         }
 
         if (!found) {
-          // No valid out found (same-day or overnight) → incomplete
           parsed.push({
             fullname: ent.name,
             date: ent.dateISO,
             timein: displayFrom24(earliestInObj.val),
             timeout: "",
-            _incomplete: true, // mark for UI highlighting
+            _incomplete: true,
           });
         }
       }
 
-      // Remove last entry of each person if incomplete (no timeout)
       const byName = {};
       for (let r of parsed) {
         if (!r.fullname) continue;
@@ -397,7 +376,6 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
     }
   };
 
-  // ------------------ Native (CSV) preview builder ------------------
   useEffect(() => {
     if (!csvData || !csvData.length) {
       setNativePreviewRows([]);
@@ -423,13 +401,11 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
 
   const handleMappingChange = (dbCol, csvCol) => setMapping((prev) => ({ ...prev, [dbCol]: csvCol }));
 
-  // ------------------ Derived rows for unified preview ------------------
   const previewRows = useMemo(
     () => (mode === "kiosk" ? kioskRows : nativePreviewRows),
     [mode, kioskRows, nativePreviewRows]
   );
 
-  // ------------------ Problem row fix/removal helpers ------------------
   const handleRemoveFlagged = () => {
     if (mode !== "kiosk") return;
     const cleaned = kioskRows.filter(r => !r._incomplete);
@@ -438,47 +414,52 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
     try { window.toast("Problematic rows removed"); } catch {}
   };
 
-  const handleApplyFix = async () => {
-    if (mode !== "kiosk") return;
+const handleApplyFix = async () => {
+  if (mode !== "kiosk") return;
 
-    const valid = kioskRows.filter(r => !r._incomplete);
+  const valid = kioskRows.filter(r => !r._incomplete);
 
-    const rows = valid.map(r => {
-      const isNextDay = /\(Next Day\)/i.test(r.timeout || "");
-      const cleanTimeout = (r.timeout || "").replace(/\s*\(Next Day\)/i, "").trim();
+  const rows = valid.map(r => {
+    const isNextDay = /\(Next Day\)/i.test(r.timeout || "");
+    const cleanTimeout = (r.timeout || "").replace(/\s*\(Next Day\)/i, "").trim();
 
-      return {
-        fullname: r.fullname,
-        date: r.date,
-        timein: parseAmPmTo24(r.timein),
-        timeout: parseAmPmTo24(cleanTimeout),
-        nextday: isNextDay,
-      };
-    });
+    return {
+      fullname: r.fullname?.trim(),
+      date: r.date,
+      timein: parseAmPmTo24(r.timein),
+      timeout: parseAmPmTo24(cleanTimeout),
+      nextday: isNextDay,
+    };
+  });
 
-    try {
-      const result = await window.utilityAPI.importAttendance(rows);
-      console.log("Import result:", result);
+  if (rows.length === 0) {
+    window.toast("No valid rows to import", "error");
+    return;
+  }
 
-      if (result.error) {
-        window.toast(`Import failed: ${result.error}`, "error");
+  try {
+    const result = await window.utilityAPI.importAttendance(rows);
+
+    if (result.error) {
+      window.toast(`Import failed: ${result.error}`, "error");
+    } else {
+      const { inserted = 0, skipped = 0 } = result;
+      if (inserted === 0 && skipped > 0) {
+        window.toast(`All ${skipped} rows skipped (duplicates)`, "error");
+      } else if (skipped > 0) {
+        window.toast(`Imported ${inserted} rows (${skipped} duplicates skipped)`, "success");
       } else {
-        const { inserted = 0, skipped = 0 } = result;
-        if (inserted === 0 && skipped > 0) {
-          window.toast(`All ${skipped} rows skipped (duplicates)`, "error");
-        } else if (skipped > 0) {
-          window.toast(`Imported ${inserted} rows (${skipped} duplicates skipped)`, "success");
-        } else {
-          window.toast(`Successfully imported ${inserted} rows`, "success");
-        }
+        window.toast(`Successfully imported ${inserted} rows`, "success");
       }
-    } catch (err) {
-      console.error(err);
-      window.toast("Failed to import attendance", "error");
     }
-  };
 
-  // ------------------ Render ------------------
+    if (onImportComplete) await onImportComplete(rows);
+  } catch (err) {
+    console.error(err);
+    window.toast("Failed to import attendance", "error");
+  }
+};
+
   if (!show) return null;
 
   return (
@@ -839,7 +820,7 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
                             }
                           }
                         } catch (err) {
-                          console.error(err);
+                          logMessage.error(err);
                           window.toast("❌ Failed to import attendance", "error");
                         }
 
