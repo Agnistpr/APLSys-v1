@@ -12,7 +12,6 @@ export const useOcrStore = create(
       currentFile: null,
       currentExtractedData: [],
       ocrMatches: {},
-      // ... other state fields ...
 
       // ✅ Action methods to update state
       setProcessingMap: (mapOrFn) => {
