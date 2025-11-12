@@ -126,6 +126,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const processingMap = useOcrStore(s => s.processingMap);
   const setProcessingMap = useOcrStore(s => s.setProcessingMap);
 
+  // persistence actions
+  const addResult = useOcrStore(s => s.addResult);
+  const setCurrentExtractedData = useOcrStore(s => s.setCurrentExtractedData);
+  const markFileProcessed = useOcrStore(s => s.markFileProcessed);
 
   // store selection start in displayed (client) pixels relative to image top-left
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -166,7 +170,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
     //Update processingMap to mark this file as processing
     const processingKey = `scanner:${fileName}`;
-    setProcessingMap({ ...processingMap, [processingKey]: true });
+    setProcessingMap(prev => ({ ...(prev || {}), [processingKey]: true }));
 
 
     toast.loading(`${fileName || 'OCR'}: Processing region...`, { 
@@ -209,27 +213,55 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         let tags: string[] = [];
         try {
           const geminiResult = await classifyTextWithAI(text.trim());
-          if (geminiResult && geminiResult.tags) {
-            tags = (geminiResult.entities || []);
-          } else if (Array.isArray(geminiResult)) {
-            tags = geminiResult.map((item: any) => item.tag || item.key || "").filter(Boolean);
-          } else if (typeof geminiResult === "object") {
-            tags = Object.entries(geminiResult)
-              .filter(([_, value]) => typeof value === "string" && value.trim() !== "")
-              .map(([key]) => key);
+          // normalize into array of strings
+          if (Array.isArray(geminiResult)) {
+            tags = geminiResult
+              .map((it: any) => {
+                if (typeof it === "string") return it;
+                if (it && typeof it === "object") return it.tag || it.label || it.key || "";
+                return "";
+              })
+              .filter(Boolean);
+          } else if (geminiResult && typeof geminiResult === "object") {
+            // object -> prefer keys with truthy value or string values
+            tags = Object.keys(geminiResult).filter(k => {
+              const v = (geminiResult as any)[k];
+              return (typeof v === "string" && v.trim() !== "") || Boolean(v);
+            });
+          } else {
+            tags = [];
           }
-        } catch {
+        } catch (e) {
+          console.warn("AI classification failed:", e);
           tags = [];
         }
 
-        onTextExtracted({
-          id: Date.now().toString(),
-          text: text.trim(),
-          // store bbox in natural image pixels so downstream can persist or re-render correctly
-          bbox: { x: sx, y: sy, width: sw, height: sh },
-          tags,
-          confidence: Math.round(confidence),
-        });
+        // build items array from OCR result (items was undefined)
+        const extractedItems = [
+          {
+            id: Date.now().toString(),
+            text: String(text || "").trim(),
+            bbox: selection,
+            tags: tags || [],
+            confidence: typeof confidence === "number" ? confidence : undefined
+          }
+        ];
+        // persist the result so Management / Docs can restore after navigation/restart
+        const resultPayload = {
+          filename: fileName || `unnamed-${Date.now()}`,
+          extractedData: extractedItems,
+          customTags: [],
+          timestamp: new Date().toISOString()
+        };
+        try {
+          if (typeof setCurrentExtractedData === "function") setCurrentExtractedData(resultPayload.extractedData);
+          if (typeof addResult === "function") addResult(resultPayload);
+          if (typeof markFileProcessed === "function") markFileProcessed(resultPayload.filename);
+        } catch (persistErr) {
+          console.warn("Failed to persist OCR result:", persistErr);
+        }
+
+        onTextExtracted(resultPayload.extractedData);
         toast.success(`${fileName}: Region extracted`, { id: toastId });
       } else {
         toast.error("No text found in selected area", { id: toastId });
@@ -238,20 +270,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       console.error(err);
       toast.error(`${fileName}: Failed to process region`, { id: toastId });
     } finally {
-      setIsProcessingOCR(false);
-      setGlobalProcessing(false);
-
-      // ADD THIS: Remove file from processingMap when done
       setProcessingMap(prev => {
-        const updated = { ...prev };
+        const updated = { ...(prev || {}) };
         delete updated[processingKey];
         return updated;
       });
-
-      setCurrentSelection(null);
-      toast.dismiss(toastId);
     }
-  }, [fileName, onTextExtracted, setGlobalProcessing, processingMap, setProcessingMap]);
+  }, [fileName, onTextExtracted, setGlobalProcessing, processingMap, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
 
   //Mouse mapping helper
   const getImageCoords = useCallback((e: React.MouseEvent) => {
@@ -414,6 +439,21 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         });
       }
 
+      // persist the result so Management / Docs can restore after navigation/restart
+      const resultPayload = {
+        filename: fileName || `unnamed-${Date.now()}`,
+        extractedData: items,
+        customTags: [],
+        timestamp: new Date().toISOString()
+      };
+      try {
+        if (typeof setCurrentExtractedData === "function") setCurrentExtractedData(resultPayload.extractedData);
+        if (typeof addResult === "function") addResult(resultPayload);
+        if (typeof markFileProcessed === "function") markFileProcessed(resultPayload.filename);
+      } catch (persistErr) {
+        console.warn("Failed to persist OCR result:", persistErr);
+      }
+
       onTextExtracted(items);
       toast.success(`${fileName}: OCR completed`, { id: toastId });
     } catch (error) {
@@ -428,7 +468,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       
       // ADD THIS: Remove file from processingMap when done
       setProcessingMap(prev => {
-        const updated = { ...prev };
+        const updated = { ...(prev || {}) };
         delete updated[processingKey];
         return updated;
       });
@@ -436,7 +476,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       setCurrentSelection(null);
       toast.dismiss(toastId);
     }
-  }, [fileName, onTextExtracted, setGlobalProcessing, processingMap, setProcessingMap]);
+  }, [fileName, onTextExtracted, setGlobalProcessing, processingMap, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
 
   useEffect(() => {
     const handleGlobalMouseUp = () => {

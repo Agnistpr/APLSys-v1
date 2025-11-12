@@ -1779,7 +1779,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     <div
       className="modalOverlay"
       onClick={(e) => {
-        if (e.target.classList.contains("modalOverlay")) {
+        if (e.target instanceof Element && e.target.classList.contains("modalOverlay")) {
           setShowAddApplicantModal(false);
         }
       }}
