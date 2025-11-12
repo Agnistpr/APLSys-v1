@@ -12,7 +12,6 @@ import axios from "axios";
 import { API_BASE_URL } from '../../../config';
 import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
 import * as pdfjsLib from "pdfjs-dist";
-import "pdfjs-dist/web/pdf_viewer.css";
 import {
   exportJSON,
   mapEntitiesToResume,

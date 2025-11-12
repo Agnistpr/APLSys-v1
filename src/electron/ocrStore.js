@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 export const useOcrStore = create(
   persist(
     (set, get) => ({
-      // ✅ State fields (not setters)
+      // State fields (not setters)
       processingMap: {}, // <-- THIS should be the actual map object
       batchId: null,
       isProcessing: false,
@@ -13,7 +13,7 @@ export const useOcrStore = create(
       currentExtractedData: [],
       ocrMatches: {},
 
-      // ✅ Action methods to update state
+      // Action methods to update state
       setProcessingMap: (mapOrFn) => {
         set(state => {
           const newMap = typeof mapOrFn === 'function' ? mapOrFn(state.processingMap) : mapOrFn;
@@ -54,7 +54,6 @@ export const useOcrStore = create(
           currentFile: persistable.currentFile || null,
           currentExtractedData: persistable.currentExtractedData || [],
           ocrMatches: persistable.ocrMatches || {},
-          // do NOT include processingMap, batchId, isProcessing
         };
       },
       onRehydrateStorage: () => (state) => {

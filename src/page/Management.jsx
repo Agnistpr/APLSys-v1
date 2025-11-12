@@ -4,13 +4,17 @@ import { MdClear } from "react-icons/md";
 import { FaFilter, FaFolderOpen, FaCheck } from "react-icons/fa";
 import { batchProcessFolder, searchOcrResults } from '../api/ocr';
 import { toast } from "sonner";
-import {useOcrStore} from '../electron/ocrStore';
+import { useOcrStore } from '../electron/ocrStore';
 import { API_BASE_URL } from '../../config';
 
 const Management = ({ onTaskStart, onTaskEnd }) => {
-  const { docs, setDocs, processingMap, setProcessingMap, batchId, setBatchId, ocrMatches, setOcrMatches } = useOcrStore();
+  const { docs, setDocs, setProcessingMap, batchId, setBatchId, ocrMatches, setOcrMatches } = useOcrStore();
+  // subscribe to processingMap and derive context flags
+  const processingMap = useOcrStore(s => s.processingMap || {});
+  const batchProcessing = Boolean(Object.keys(processingMap).some(k => String(k).startsWith('batch:')));
+  const scannerProcessing = Boolean(Object.keys(processingMap).some(k => String(k).startsWith('scanner:')));
+  // keep any global overlay separate if you still use it
   const globalProcessing = useOcrStore(s => s.isProcessing);
-  const setGlobalProcessing = useOcrStore(s => s.setProcessing);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState({});
@@ -529,6 +533,7 @@ useEffect(() => {
         });
       }
 
+      // set the confirmed batch keys; Sidebar and Management will derive batchProcessing from these
       setProcessingMap(actualMap);
       localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify({
         batchId: batchTaskId,
@@ -538,7 +543,7 @@ useEffect(() => {
       // log after worker confirms start (one-time)
       console.log("Batch OCR worker running. processingMap:", actualMap);
 
-      onTaskStart(batchTaskId, { type: "batch_ocr", files: filenames });
+      if (typeof onTaskStart === "function") onTaskStart(batchTaskId, { type: "batch_ocr", files: filenames });
 
     } catch (err) {
       console.error("Failed to start OCR process:", err);
@@ -548,7 +553,8 @@ useEffect(() => {
       setBatchId(null);
     } finally {
       setIsProcessing(false);
-      setGlobalProcessing(false);
+      // don't clear globalProcessing here because scanner may still be running;
+      // global overlay should be computed from store or cleared only when appropriate
       window.fileAPI.listDocuments().then(setDocs);
     }
   };
