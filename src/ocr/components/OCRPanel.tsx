@@ -20,6 +20,8 @@ import Select from 'react-select';
 interface OCRPanelProps {
   extractedData: ExtractedText[];
   availableTags: string[];
+  currentFileName?: string;
+  currentFileData?: string;
   onUpdateExtraction: (id: string, updates: Partial<ExtractedText>) => void;
   onDeleteExtraction: (id: string) => void;
 }
@@ -27,6 +29,8 @@ interface OCRPanelProps {
 export const OCRPanel: React.FC<OCRPanelProps> = ({
   extractedData,
   availableTags,
+  currentFileName = "document",
+  currentFileData,
   onUpdateExtraction,
   onDeleteExtraction
 }) => {
@@ -36,37 +40,74 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
     new Set(extractedData.map(item => item.id))
   );
 
-  // Helper to download metadata
-  const handleDownloadMetadata = (format: "json" | "txt" = "json") => {
+  // Helper to convert base64 to Blob
+  const base64ToBlob = (base64: string) => {
+    const arr = base64.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1] || 'application/octet-stream';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new Blob([u8arr], { type: mime });
+  };
+
+  // Helper to download metadata AND copy original file
+  const handleDownloadMetadata = async (format: "json" | "txt" = "json") => {
     if (extractedData.length === 0) {
       toast.error("No metadata to export");
       return;
     }
-    const metadata = {
-      extractedData,
-      exported_at: new Date().toISOString(),
-    };
-    const filename = `scanned_photo__metadata.${format}`;
-    let content;
-    if (format === "json") {
-      content = JSON.stringify(metadata, null, 2);
-    } else {
-      // TXT: tag: extracted text (for each highlighted tag)
-      content = extractedData
-        .map(item =>
-          item.tags.map(tag => `${tag}: ${item.text}`).join("\n")
-        )
-        .filter(Boolean)
-        .join("\n\n");
+
+    try {
+      // Prepare metadata
+      const metadata = {
+        extractedData,
+        exported_at: new Date().toISOString(),
+      };
+
+      // Generate filename from current file (e.g., "samp2.jpg.json")
+      const metadataFileName = `${currentFileName}.json`;
+
+      // 1. Save metadata to ocr_results folder
+      if (window.fileAPI?.writeFile) {
+        const jsonContent = JSON.stringify(metadata, null, 2);
+        await window.fileAPI.writeFile(
+          `ocr_results/${metadataFileName}`,
+          jsonContent
+        );
+        console.log("✅ Metadata saved to ocr_results:", metadataFileName);
+      } else {
+        throw new Error("File API not available for metadata");
+      }
+
+      // 2. Copy original file to documents folder (if data is available)
+      if (currentFileData && window.fileAPI?.writeFile) {
+        try {
+          // Extract base64 part only (remove data:mime;base64, prefix)
+          const base64Part = currentFileData.includes(',') 
+            ? currentFileData.split(',')[1] 
+            : currentFileData;
+          
+          await window.fileAPI.writeFile(
+            `${currentFileName}`,
+            base64Part,
+            //{ encoding: 'base64' }
+          );
+          console.log("✅ Original file copied to documents:", currentFileName);
+        } catch (fileErr) {
+          console.warn("⚠️ Failed to copy original file:", fileErr);
+          // Don't fail the entire operation if file copy fails
+        }
+      }
+
+      toast.success("Moved to Documents", {
+        description: `${metadataFileName} + ${currentFileName}`,
+        duration: 4000,
+      });
+    } catch (err) {
+      console.error("Failed to move to documents:", err);
+      toast.error("Failed to move to Documents");
     }
-    const blob = new Blob([content], { type: format === "json" ? "application/json" : "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Metadata downloaded");
   };
 
   const handleStartEdit = (item: ExtractedText) => {
@@ -136,19 +177,21 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
             </Badge>
           </div>
 
-          {/* metadata buttons: allow wrapping / shrink so they don't overflow */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button size="sm" variant="outline" onClick={() => handleDownloadMetadata("json")}>
-              <Download className="w-4 h-4 mr-1" /> Download Metadata
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => handleDownloadMetadata("txt")}>
-              <Download className="w-4 h-4 mr-1" /> Download TXT
+          {/* Single button for moving to documents */}
+          <div className="flex items-center gap-2">
+            <Button 
+              size="sm" 
+              variant="outline" 
+              onClick={() => handleDownloadMetadata("json")}
+              disabled={extractedData.length === 0}
+            >
+              <Download className="w-4 h-4 mr-1" /> Move to Documents
             </Button>
           </div>
         </div>
       </div>
 
-      {/* scrollable content remains unchanged */}
+      {/* scrollable content */}
       <div className="flex-1 overflow-y-auto p-4 min-h-0">
         <div className="space-y-4">
           {extractedData.map((item, index) => (
@@ -166,20 +209,6 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
                   <Badge variant="outline" className="text-xs">
                     #{index + 1}
                   </Badge>
-                  {item.confidence && (
-                    <Badge 
-                      variant="secondary" 
-                      className={`text-xs ${
-                        item.confidence > 80 
-                          ? 'bg-success-soft text-success' 
-                          : item.confidence > 60 
-                          ? 'bg-warning-soft text-warning' 
-                          : 'bg-destructive/10 text-destructive'
-                      }`}
-                    >
-                      {item.confidence}%
-                    </Badge>
-                  )}
                 </div>
                 <div className="flex items-center gap-1">
                   <Button
@@ -292,8 +321,7 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
               {/* Bounding Box Info */}
               <div className="mt-3 pt-3 border-t border-border">
                 <p className="text-xs text-muted-foreground">
-                  Position: {Math.round(item.bbox.x)}, {Math.round(item.bbox.y)} • 
-                  Size: {Math.round(item.bbox.width)} × {Math.round(item.bbox.height)}
+                  Position: {Math.round(item.bbox.x)}, {Math.round(item.bbox.y)} • Size: {Math.round(item.bbox.width)} × {Math.round(item.bbox.height)}
                 </p>
               </div>
             </Card>

@@ -9,6 +9,8 @@ import { API_BASE_URL } from '../../config';
 
 const Management = ({ onTaskStart, onTaskEnd }) => {
   const { docs, setDocs, setProcessingMap, batchId, setBatchId, ocrMatches, setOcrMatches } = useOcrStore();
+  // global flag setter used to show/hide global OCR processing state
+  const setGlobalProcessing = useOcrStore(s => s.setProcessing);
   // subscribe to processingMap and derive context flags
   const processingMap = useOcrStore(s => s.processingMap || {});
   const batchProcessing = Boolean(Object.keys(processingMap).some(k => String(k).startsWith('batch:')));
@@ -26,18 +28,6 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const columnLabelMap = { type: "Type" };
   const PROCESSING_STATE_KEY = "documentProcessingState";
-
-  // Shared sonner toast style used by toast.custom calls
-  const toastStyle = {
-    style: {
-      background: "white",
-      color: "#222",
-      border: "1px solid #e6e6e6",
-      borderRadius: 8,
-      padding: "10px 14px",
-      boxShadow: "0 6px 18px rgba(0,0,0,0.08)"
-    }
-  };
 
   // helper to call backend create-task
   const createServerTask = async (payload) => {
@@ -178,27 +168,13 @@ useEffect(() => {
           stored.processingMap = { ...(stored.processingMap || {}), [batchKey]: true };
           localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(stored));
         } catch (err) { /* noop */ }
-
-        toast.custom((t) => (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', width: '100%' }}>
-            <span>{`${filename}: Started`}</span>
-            <button 
-              onClick={() => toast.dismiss(t.id)}
-              style={{ 
-                background: 'none',
-                border: 'none',
-                padding: '4px',
-                cursor: 'pointer',
-                color: '#666',
-                marginLeft: '12px'
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        ), {
-          id: `ocr-${filename}`,
-          ...toastStyle
+        
+        toast(`${filename}: Started`, {
+          id: taskId,
+          description: "Scanning has started, you can close this while it runs.",
+          icon: "⏳",
+          dismissible: true,
+          duration: Infinity,
         });
       } else if (status === "done") {
         // Dismiss any existing toasts for this file first
@@ -227,27 +203,13 @@ useEffect(() => {
         });
         setDocs(updatedDocs);
         //Notify as done
-        toast.custom((t) => (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'green', width: '100%' }}>
-            <span>{`${filename}: Done`}</span>
-            <button 
-              onClick={() => toast.dismiss(t.id)}
-              style={{ 
-                background: 'none',
-                border: 'none',
-                padding: '4px',
-                cursor: 'pointer',
-                color: '#666',
-                marginLeft: '12px'
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        ), {
-          id: `ocr-${filename}-done`,
-          ...toastStyle
-        });
+        toast.success(`${fileName} parsed successfully.`, {
+            id: taskId,
+            description: `${fileName} has been scanned successfully.`,
+            icon: "✅",
+            dismissible: true,
+            duration: Infinity,
+          });
         
         // Clear from localStorage
         try {
@@ -281,27 +243,13 @@ useEffect(() => {
           if (parent && next[parent]) delete next[parent];
           return next;
         });
-        toast.custom((t) => (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'red', width: '100%' }}>
-            <span>{`${filename}: Failed to scan`}</span>
-            <button 
-              onClick={() => toast.dismiss(t.id)}
-              style={{ 
-                background: 'none',
-                border: 'none',
-                padding: '4px',
-                cursor: 'pointer',
-                color: '#666',
-                marginLeft: '12px'
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        ), {
-          id: `ocr-${filename}-error`,
-          ...toastStyle
-        });
+        toast(`${fileName} failed to extract.`, {
+            id: taskId,
+            description: `${fileName} was not scanned correctly. Please try again later.`,
+            icon: "❌",
+            dismissible: true,
+            duration: Infinity,
+          });
       }
     } else if (status === "all_done") {
       setProcessingMap({});
@@ -412,24 +360,12 @@ useEffect(() => {
         .map(doc => ({ path: doc.path, name: doc.name }));
 
       if (pathsToProcess.length === 0) {
-        toast.custom((t) => (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>No new files to process</span>
-            <button 
-              onClick={() => toast.dismiss(t.id)}
-              style={{ 
-                background: 'none',
-                border: 'none',
-                padding: '4px',
-                cursor: 'pointer',
-                color: '#666',
-                marginLeft: '12px'
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        ), { id: "ocr-batch", ...toastStyle });
+        toast("No new files to process", {
+          id: taskId,
+          description: "All files in this page have been scanned.",
+          dismissible: true,
+          duration: Infinity,
+        });
         
         setIsProcessing(false);
         setGlobalProcessing(false);
@@ -437,24 +373,13 @@ useEffect(() => {
       }
 
       // Only show "Scanning..." toast if we actually have files to process
-      toast.custom((t) => (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span>Scanning all files...</span>
-          <button 
-            onClick={() => toast.dismiss(t.id)}
-            style={{ 
-              background: 'none',
-              border: 'none',
-              padding: '4px',
-              cursor: 'pointer',
-              color: '#666',
-              marginLeft: '12px'
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      ), { id: "ocr-batch", ...toastStyle });
+      toast("Scanning all files...", {
+        id: taskId,
+        description: "Scanning all files, you can close this while it runs.",
+        icon: "⏳",
+        dismissible: true,
+        duration: Infinity,
+      });
 
       const filenames = pathsToProcess.map(p => normalizeName(p.name));
 
@@ -648,11 +573,13 @@ useEffect(() => {
                 {/* Open Folder */}
             </button>
             <button
-            className="ocrProcessBtn"
-            onClick={processFolderOcr}
-            disabled={isProcessing || globalProcessing}
+              className="ocrProcessBtn"
+              onClick={processFolderOcr}
+              // block only when a batch is already running (or local prepare state)
+              disabled={batchProcessing || isProcessing}
+              title={batchProcessing ? "Batch OCR running" : isProcessing ? "Preparing batch OCR" : "Scan all files"}
             >
-              {(isProcessing || globalProcessing) ? 'Processing...' : 'Scan all files'}
+              {batchProcessing ? 'Processing...' : isProcessing ? 'Preparing...' : 'Scan all files'}
             </button>
         </div>
 

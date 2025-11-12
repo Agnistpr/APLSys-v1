@@ -20,7 +20,8 @@ import {
   getApplicantName,
   reconstructBlobUrl,
   fileToBase64,
-  persistGeminiAnalysis
+  persistAnalysisResult,
+  persistGeminiAnalysisResult
 } from './utils';
 import { CandidateScoreCard } from '../components/CandidateScoreCard';
 
@@ -764,7 +765,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
     try {
       const response = await axios.post(
-        "http://127.0.0.1:8000/ai/gemini-extract-resume-profile",
+        `${API_BASE_URL}/ai/gemini-extract-resume-profile`,
         { text: safeText },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -1070,7 +1071,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       const extractedText = await extractResumeText(file);
       
       // Then process with NER
-      const nerResult = await NERResumeProfile(extractedText);
+      const nerResult = await geminiExtractResumeProfile(extractedText); //NERResumeProfile(extractedText);
       console.log("DEBUG NER result:", nerResult);
       
       // Check for Gemini error response
@@ -1079,40 +1080,50 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       }
 
       //Persist to store
-      await persistNERResult(nerResult);
+      await persistGeminiAnalysisResult(nerResult); //persistGemini ang other fallback
 
       // Wait for zustand persistence to reflect in memory/localStorage.
       // Poll store until parseComplete is true and editableResume has profile data.
-      const waitForPersist = async (timeoutMs = 3000, intervalMs = 50) => {
-        const start = Date.now();
-        while (Date.now() - start < timeoutMs) {
-          const st = useAnalysisStore.getState();
-          if (st.parseComplete && st.editableResume && st.editableResume.profile && Object.keys(st.editableResume.profile).length > 0) {
-            return st;
-          }
-          // allow browser work to flush writes
-          await new Promise((r) => setTimeout(r, intervalMs));
-        }
-        throw new Error("Timed out waiting for persisted parsed resume");
-      };
-
-      try {
-        const persistedState = await waitForPersist(3000, 50);
-        // Sync UI with persisted store
-        setEditableResume(persistedState.editableResume);
-        setParsed(true);
-
+      const waitForPersist = async (timeoutMs = 10000, intervalMs = 100) => { // increased timeout
+         const start = Date.now();
+         while (Date.now() - start < timeoutMs) {
+           const st = useAnalysisStore.getState();
+           if (st.parseComplete && st.editableResume && st.editableResume.profile && Object.keys(st.editableResume.profile).length > 0) {
+             return st;
+           }
+           // allow browser work to flush writes
+           await new Promise((r) => setTimeout(r, intervalMs));
+         }
+         throw new Error("Timed out waiting for persisted parsed resume");
+       };
+ 
+       try {
+         const persistedState = await waitForPersist(3000, 50);
+         // Sync UI with persisted store
+         setEditableResume(persistedState.editableResume);
+         setParsed(true);
+ 
         // Notify parent App that parsing finished successfully -> spinner can despawn
         try { onParsingStateChange?.(false, displayName); } catch (e) { console.warn("onParsingStateChange success failed", e); }
-      } catch (waitErr) {
-        // If waiting failed, still attempt to use what's in the store and notify parent
-        console.warn("Waiting for persisted state timed out, falling back to immediate sync:", waitErr);
-        const st = useAnalysisStore.getState();
-        setEditableResume(st.editableResume || { ...defaultResume });
-        setParsed(Boolean(st.parseComplete));
-        try { onParsingStateChange?.(false, displayName); } catch (e) { console.warn("onParsingStateChange fallback failed", e); }
-      }
-      
+          // Only show success toast after we confirmed persisted state
+          toast.success(`${displayName} parsed successfully.`, {
+            id: taskId,
+            description: "You may now return to the analyzer tab to see the results",
+            icon: "✅",
+            dismissible: true,
+            duration: Infinity,
+          });
+        } catch (waitErr) {
+          // If waiting failed, still attempt to use what's in the store and notify parent
+          console.warn("Waiting for persisted state timed out, falling back to immediate sync:", waitErr);
+          const st = useAnalysisStore.getState();
+          setEditableResume(st.editableResume || { ...defaultResume });
+          setParsed(Boolean(st.parseComplete));
+          try { onParsingStateChange?.(false, displayName); } catch (e) { console.warn("onParsingStateChange fallback failed", e); }
+          // indicate parse may not have persisted
+        toast.error(`${displayName} parsed but UI persistence timed out. Please refresh or try again.`, { duration: 5000 });
+       }
+       
       // Update task and UI state
       updateTask(taskId, { 
         status: "completed",
@@ -1121,14 +1132,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       });
       console.log("DEBUG store after persist:", useAnalysisStore.getState());
       console.log("DEBUG parsed resume immediately reflected:", useAnalysisStore.getState().editableResume);
-      toast(`${displayName} parsed successfully.`, {
-        id: taskId,
-        description: "You may now return to the analyzer tab to see the results",
-        icon: "✅",
-        dismissible: true,
-        duration: Infinity,
-      });
-
     } catch (err) {
       console.error("Failed to parse resume:", err);
       setEditableResume({...defaultResume});
@@ -1312,7 +1315,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       const analysisText = rawResult.analysis || rawResult.text || rawResult.result || "";
       const resumeData = rawResult.data || rawResult.resume || editableResume;
 
-      await persistGeminiAnalysis({
+      await persistAnalysisResult({
         resume: resumeData,
         analysis: analysisText,
       });
@@ -1322,49 +1325,48 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         throw new Error(rawResult.error);
       }
 
-      // Immediately sync local UI state with store
-      setAnalysisResult(useAnalysisStore.getState().analysisResult);
-
-      toast.success("Resume analyzed successfully", { id: taskId });
-
-      // If result is already a string with sections, use it directly
-      if (typeof rawResult === "string" && rawResult.includes("##")) {
-        setAnalysisResult(rawResult);
-        // Extract score if present
-        const scoreMatch = rawResult.match(/Resume Score:\s*(\d{1,3})\/100/i);
-        if (scoreMatch) {
-          setAiScore(parseInt(scoreMatch[1], 10));
+      // Wait for the persisted store to reflect the analysis (guard against hydration/read races)
+      const waitForAnalysisPersist = async (timeoutMs = 10000, intervalMs = 100) => {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          const st = useAnalysisStore.getState();
+          if (st.analysisResult && st.analysisResult.length > 0) return st;
+          await new Promise((r) => setTimeout(r, intervalMs));
         }
-        return;
-      }
+        throw new Error("Timed out waiting for persisted analysisResult");
+      };
 
-      // If result has a text/analysis/result field, use that
-      if (analysisText) {
-        setAnalysisResult(analysisText);
-        const scoreMatch = analysisText.match(/Resume Score:\s*(\d{1,3})\/100/i);
-        if (scoreMatch) {
-          setAiScore(parseInt(scoreMatch[1], 10));
-        }
-        return;
+      try {
+        const persisted = await waitForAnalysisPersist(5000, 100);
+        setAnalysisResult(persisted.analysisResult);
+        toast("Resume analyzed successfully", {
+          id: taskId,
+          description: "Results will be reflected in a few seconds. You may now return to the analyzer tab.",
+          dismissible: true,
+          duration: Infinity,
+        });
+      } catch (waitErr) {
+        // fallback: use immediate store snapshot and warn
+        console.warn("Timed out waiting for analysis persistence:", waitErr);
+        setAnalysisResult(useAnalysisStore.getState().analysisResult);
+        toast("Resume analyzed successfully", {
+          id: taskId,
+          description: "Results will be reflected in a few seconds. You may now return to the analyzer tab.",
+          dismissible: true,
+          duration: Infinity,
+        });
       }
-
-      // Extract AI score from result (adjust this if your backend returns the score differently)
-      const aiScoreMatch = typeof rawResult === "string"
-        ? rawResult.match(/Resume Score:\s*(\d{1,3})\/100/i)
-        : null;
-      const aiScoreValue = aiScoreMatch ? parseInt(aiScoreMatch[1], 10) : calculateCandidateScore(sectionScores, scoringWeights);
-      setAiScore(aiScoreValue);
-      } catch (err) {
-        console.error("Error analyzing resume:", err);
-        setAnalysisResult("Failed to analyze resume");
-      } finally {
-        // Clear global processing and notify parent
-        setLoadingAnalysis(false);
-        setProcessing(false);
-        try { onParsingStateChange?.(false, displayName); } catch (e) { console.warn("onParsingStateChange end failed", e); }
-        // update task status if needed
-        updateTask(taskId, { status: "completed", completedAt: Date.now() });
-      }
+    } catch (err) {
+      console.error("Error analyzing resume:", err);
+      setAnalysisResult("Failed to analyze resume");
+    } finally {
+      // Clear global processing and notify parent
+      setLoadingAnalysis(false);
+      setProcessing(false);
+      try { onParsingStateChange?.(false, displayName); } catch (e) { console.warn("onParsingStateChange end failed", e); }
+      // update task status if needed
+      updateTask(taskId, { status: "completed", completedAt: Date.now() });
+    }
   };
 
   useEffect(() => {

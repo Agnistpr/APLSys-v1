@@ -82,10 +82,11 @@ export const DocumentScanner: React.FC = () => {
   const [currentImage, setCurrentImage] = useState<string | null>(null);
   const [currentFileUrl, setCurrentFileUrl] = useState<string | null>(null);
   const [currentFileType, setCurrentFileType] = useState<string | null>(null);
+  const [currentFileData, setCurrentFileData] = useState<string | null>(null); // Store base64 or blob data
   const [extractedData, setExtractedData] = useState<ExtractedText[]>([]);
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activePanel, setActivePanel] = useState<'viewer' | 'ocr' | 'tags' | 'docupload' >('ocr'); //to add, export
+  const [activePanel, setActivePanel] = useState<'viewer' | 'ocr' | 'tags' | 'docupload' >('ocr');
   const [inputText, setInputText] = useState("");
   const [entities, setEntities] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -135,6 +136,14 @@ export const DocumentScanner: React.FC = () => {
     const file = event.target.files?.[0];
     if (file) {
       const url = URL.createObjectURL(file);
+      
+      // Store base64 data for later file operations
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64Data = e.target?.result as string;
+        setCurrentFileData(base64Data);
+      };
+      reader.readAsDataURL(file);
       
       // Update local state
       setCurrentFile(file);
@@ -256,10 +265,29 @@ export const DocumentScanner: React.FC = () => {
 
   // Cleanup on unmount
   useEffect(() => {
+    // Track any object URLs created by this component so we only revoke those.
+    const createdUrlsRef = { current: new Set<string>() };
+
+    // Helper to register created blob URLs when you call URL.createObjectURL in this component.
+    // (If you already call URL.createObjectURL elsewhere in this file, call registerCreatedUrl(url) there.)
+    const registerCreatedUrl = (url: string | null) => {
+      if (typeof url === "string" && url.startsWith("blob:")) {
+        createdUrlsRef.current.add(url);
+      }
+    };
+
+    // Expose the helper in case other handlers in this component need it
+    (window as any).__docScanner_registerCreatedUrl = registerCreatedUrl;
+
     return () => {
-      // Clean up any object URLs to prevent memory leaks
-      if (currentFileUrl && !currentStoredFile) {
-        URL.revokeObjectURL(currentFileUrl);
+      // Revoke only blob URLs that this component actually created
+      try {
+        createdUrlsRef.current.forEach((u) => {
+          try { URL.revokeObjectURL(u); } catch (e) { /* ignore */ }
+        });
+      } finally {
+        // clean up the temporary global (if set)
+        try { delete (window as any).__docScanner_registerCreatedUrl; } catch {}
       }
     };
   }, [currentFileUrl, currentStoredFile]);

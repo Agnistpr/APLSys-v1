@@ -222,30 +222,30 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       if (typeof text === "string" && text.trim()) {
         // Use Gemini to label the region text
         let tags: string[] = [];
-        try {
-          const geminiResult = await classifyTextWithAI(text.trim());
-          // normalize into array of strings
-          if (Array.isArray(geminiResult)) {
-            tags = geminiResult
-              .map((it: any) => {
-                if (typeof it === "string") return it;
-                if (it && typeof it === "object") return it.tag || it.label || it.key || "";
-                return "";
-              })
-              .filter(Boolean);
-          } else if (geminiResult && typeof geminiResult === "object") {
-            // object -> prefer keys with truthy value or string values
-            tags = Object.keys(geminiResult).filter(k => {
-              const v = (geminiResult as any)[k];
-              return (typeof v === "string" && v.trim() !== "") || Boolean(v);
-            });
-          } else {
-            tags = [];
-          }
-        } catch (e) {
-          console.warn("AI classification failed:", e);
-          tags = [];
-        }
+        // try {
+        //   const geminiResult = await classifyTextWithAI(text.trim());
+        //   // normalize into array of strings
+        //   if (Array.isArray(geminiResult)) {
+        //     tags = geminiResult
+        //       .map((it: any) => {
+        //         if (typeof it === "string") return it;
+        //         if (it && typeof it === "object") return it.tag || it.label || it.key || "";
+        //         return "";
+        //       })
+        //       .filter(Boolean);
+        //   } else if (geminiResult && typeof geminiResult === "object") {
+        //     // object -> prefer keys with truthy value or string values
+        //     tags = Object.keys(geminiResult).filter(k => {
+        //       const v = (geminiResult as any)[k];
+        //       return (typeof v === "string" && v.trim() !== "") || Boolean(v);
+        //     });
+        //   } else {
+        //     tags = [];
+        //   }
+        // } catch (e) {
+        //   console.warn("AI classification failed:", e);
+        //   tags = [];
+        // }
 
         // build items array from OCR result (items was undefined)
         const extractedItems = [
@@ -406,7 +406,6 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     setIsProcessingOCR(true);
     setGlobalProcessing(true);
     
-    // ADD THIS: Update processingMap to mark this file as processing
     const processingKey = `scanner:${fileName}`;
     setProcessingMap(prev => ({ ...(prev || {}), [processingKey]: true }));
     
@@ -433,50 +432,42 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       console.log("OCR result:", result);
 
       // If result is the doctr structured output:
-      let text = "";
-      if (result.pages) {
-        text = result.pages
-          .map(page =>
-            page.blocks
-              .map(block =>
-                block.lines
-                  .map(line =>
-                    line.words.map(word => word.value).join(" ")
-                  ).join("\n")
-              ).join("\n")
-          ).join("\n\n");
-        console.log("Extracted text for Gemini:", text);
-      }
-      if (!text || !text.trim()) {
-        toast(`${fileName}: Warning`, {
-        id: toastId,
-        description: "No text was extracted. Please try again.",
-        icon: "⚠️",
-        dismissible: true,
-        duration: Infinity,
-      });
-        return;
-      }
-
-      // Normalize -> split into paragraphs or lines so the OCR panel shows multiple items
-      const paragraphs = text.split(/\n{2,}|\r\n{2,}/).map(p => p.trim()).filter(Boolean);
       let items: ExtractedText[] = [];
-
-      // Process each paragraph with AI classification
-      for (const paragraph of paragraphs) {
-        let tags: string[] = [];
-        try {
-          tags = await classifyTextWithAI(paragraph);
-        } catch (err) {
-          console.error('Classification failed:', err);
-        }
-
-        items.push({
-          id: `${Date.now()}-${items.length}`,
-          text: paragraph,
-          bbox: { x: 0, y: 0, width: 0, height: 0 },
-          tags: tags,
+      
+      if (result.pages) {
+        // Extract lines (not words) to maintain top-to-bottom order
+        result.pages.forEach((page: any) => {
+          (page.blocks || []).forEach((block: any) => {
+            (block.lines || []).forEach((line: any) => {
+              // Join all words in this line together
+              const lineText = (line.words || [])
+                .map((word: any) => word.value || "")
+                .join(" ")
+                .trim();
+              
+              // Only create an item if the line has text
+              if (lineText) {
+                items.push({
+                  id: `${Date.now()}-${items.length}`,
+                  text: lineText,
+                  bbox: { x: 0, y: 0, width: 0, height: 0 },
+                  tags: [],
+                });
+              }
+            });
+          });
         });
+      }
+
+      if (items.length === 0) {
+        toast(`${fileName}: Warning`, {
+          id: toastId,
+          description: "No text was extracted. Please try again.",
+          icon: "⚠️",
+          dismissible: true,
+          duration: Infinity,
+        });
+        return;
       }
 
       // persist the result so Management / Docs can restore after navigation/restart
@@ -497,7 +488,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       onTextExtracted(items);
       toast(`${fileName} extracted successfully.`, {
           id: toastId,
-          description: "You may now return to the scanner tab to look at the results",
+          description: `${items.length} lines extracted. You may now return to the scanner tab to look at the results`,
           icon: "✅",
           dismissible: true,
           duration: Infinity,
@@ -512,7 +503,6 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         duration: Infinity,
       });
     } finally {
-      // clear per-file key and global processing
       setProcessingMap(prev => {
         const updated = { ...(prev || {}) };
         delete updated[processingKey];

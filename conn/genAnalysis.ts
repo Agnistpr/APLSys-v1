@@ -95,7 +95,7 @@ export async function analyzeResumeWithDS(payload: {
 
   while (true) {
     try {
-      // Call your backend endpoint that forwards to Gemini
+      // Call your backend endpoint that forwards to DeepSeek
       const res = await axios.post(`${API_BASE_URL}/ai/analyze-resume`, payload,
         { timeout: 120000,
           headers: { "Content-Type": "application/json" }
@@ -121,7 +121,7 @@ export async function analyzeResumeWithDS(payload: {
         const wait = suggested ?? backoff;
         console.warn(`gemini server error: ${status}. retrying in ${wait}ms (attempt ${attempt}/${maxRetries})`);
         await sleep(wait);
-        backoff *= 2; // exponential backoff
+        backoff *= 2; 
         continue;
       }
       // Otherwise rethrow

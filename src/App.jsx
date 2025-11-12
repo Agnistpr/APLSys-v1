@@ -19,7 +19,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocumentScanner } from "./ocr/components/DocumentScanner.tsx";
 import ocrCssPath from './ocr/ocrstyles.css?url';
 import { useOcrStore } from './electron/ocrStore';
-import { useAnalysisStore } from './electron/aiStore'; 
+import { useAnalysisStore } from './electron/aiStore';
+import {API_BASE_URL} from './config';
 
 const Analyzer = lazy(() => import('./app/resume-parser/page.tsx'));
 const Screening = lazy(() => import('./page/Screening.jsx'));
@@ -331,7 +332,7 @@ useEffect(() => {
         const taskIds = Array.from(activeTasks.keys());
         const responses = await Promise.all(
           taskIds.map(id => 
-            fetch(`http://localhost:8000/ocr/tasks/${id}`)
+            fetch(`${API_BASE_URL}/ocr/tasks/${id}`)
               .then(r => r.json())
               .catch(err => ({ error: err.message }))
           )

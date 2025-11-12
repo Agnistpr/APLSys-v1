@@ -12,43 +12,110 @@ export function exportJSON(data: any, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export async function persistGeminiAnalysis(data) {
-  const { setEditableResume, setAnalysisResult } = useAnalysisStore.getState();
+export async function persistAnalysisResult(data) {
+  const { setEditableResume, setAnalysisResult, setParsed } = useAnalysisStore.getState();
 
   setEditableResume(data.resume || data);
   if (data.analysis) {
     setAnalysisResult(data.analysis);
   }
+  if (typeof setParsed === "function") setParsed(true);
+
+  // allow zustand persist middleware to settle then force-write snapshot so hydration sees it
+  await new Promise((r) => setTimeout(r, 80));
+  try {
+    const key = "resume-analysis-store";
+    const snapshot = useAnalysisStore.getState();
+    try {
+      localStorage.setItem(key, JSON.stringify(snapshot));
+    } catch (e) {
+      try { localStorage.setItem(key, JSON.stringify({ state: snapshot })); } catch (_) {}
+    }
+  } catch (e) {
+    console.warn("Failed to flush persist snapshot:", e);
+  }
 }
 
-
 /**
- * Persist Gemini parsing result into the global persisted store (renderer).
- * Normalizes raw backend output and writes into zustand persist store so results
- * survive unmount/hydration.
+ * Persist Gemini/AI parsing result into the global persisted store (renderer).
+ * Handles the Gemini response shape (profile, educations, workExperiences, skills).
+ * Writes into zustand persist store so results survive unmount/hydration.
  */
-export async function persistGeminiResult(rawResult: any, analysisText?: string) {
-  // If caller already passed an already-normalized / merged resume, allow it
-  const normalized = (rawResult && rawResult.profile) ? rawResult : normalizeGeminiResume(rawResult);
+export async function persistGeminiAnalysisResult(geminiResult: any, analysisText?: string) {
+  try {
+    if (!geminiResult) throw new Error("Empty Gemini result");
+    if (geminiResult?.error) throw new Error(geminiResult.error);
 
-  const merged = {
-    ...defaultResume,
-    ...normalized,
-    profile: { ...defaultResume.profile, ...(normalized?.profile || {}) },
-    educations: normalized?.educations?.length ? normalized.educations : defaultResume.educations,
-    workExperiences: normalized?.workExperiences?.length ? normalized.workExperiences : defaultResume.workExperiences,
-    projects: normalized?.projects?.length ? normalized.projects : defaultResume.projects,
-    skills: normalized?.skills ?? defaultResume.skills,
-    custom: normalized?.custom ?? defaultResume.custom,
-  };
+    // Gemini already returns the right shape, so normalize minimally
+    const mapped = {
+      ...defaultResume,
+      profile: {
+        ...defaultResume.profile,
+        firstName: geminiResult.profile?.firstName || "",
+        middleName: geminiResult.profile?.middleName || "",
+        lastName: geminiResult.profile?.lastName || "",
+        email: geminiResult.profile?.email || "",
+        phone: geminiResult.profile?.phone || "",
+        location: geminiResult.profile?.location || "",
+        summary: geminiResult.profile?.summary || "",
+        name: [
+          geminiResult.profile?.firstName,
+          geminiResult.profile?.middleName,
+          geminiResult.profile?.lastName
+        ].filter(Boolean).join(" ") || "",
+      },
+      educations: (geminiResult.educations || []).map((edu: any) => ({
+        school: edu.school || "",
+        degree: edu.degree || "",
+        gpa: edu.gpa || "",
+        date: edu.date || "",
+        descriptions: edu.descriptions || [],
+      })),
+      workExperiences: (geminiResult.workExperiences || []).map((work: any) => ({
+        company: work.company || "",
+        jobTitle: work.jobTitle || "",
+        date: work.date || "",
+        descriptions: Array.isArray(work.descriptions) ? work.descriptions : [],
+      })),
+      projects: geminiResult.projects || defaultResume.projects,
+      skills: {
+        featuredSkills: (geminiResult.skills || []).map((skill: string | any) =>
+          typeof skill === "string" ? { skill, rating: 3 } : skill
+        ),
+        descriptions: geminiResult.skills_descriptions || [],
+      },
+      custom: geminiResult.custom || defaultResume.custom,
+    };
 
-  const store = useAnalysisStore.getState();
-  if (store?.setEditableResume) store.setEditableResume(merged);
-  if (store?.setParsed) store.setParsed(true);
-  if (analysisText && store?.setAnalysisResult) store.setAnalysisResult(analysisText);
+    const store = useAnalysisStore.getState();
+    if (typeof store.setEditableResume === "function") store.setEditableResume(mapped);
+    if (analysisText && typeof store.setAnalysisResult === "function") store.setAnalysisResult(analysisText);
+    if (typeof store.setParsed === "function") store.setParsed(true);
 
-  console.log("persistGeminiResult -> persisted to aiStore", merged);
-  return merged;
+    // allow zustand/persist to flush and then mirror snapshot to localStorage
+    await new Promise((r) => setTimeout(r, 80));
+    try {
+      const key = "resume-analysis-store";
+      const snapshot = useAnalysisStore.getState();
+      try { localStorage.setItem(key, JSON.stringify(snapshot)); }
+      catch (_) { try { localStorage.setItem(key, JSON.stringify({ state: snapshot })); } catch (__) {} }
+    } catch (e) {
+      console.warn("Failed to flush persistGeminiAnalysisResult snapshot:", e);
+    }
+
+    console.log("✅ persistGeminiAnalysisResult -> stored:", useAnalysisStore.getState().editableResume);
+    return mapped;
+  } catch (err) {
+    console.error("❌ persistGeminiAnalysisResult failed:", err);
+    const store = useAnalysisStore.getState();
+    if (typeof store.setEditableResume === "function") {
+      store.setEditableResume({ ...defaultResume });
+    }
+    if (typeof store.setParsed === "function") {
+      store.setParsed(false);
+    }
+    throw err;
+  }
 }
 
 export function mapEntitiesToResume(entities: any[]): any {
@@ -84,32 +151,61 @@ export function calculateCandidateScore(
 export function renderAnalysisSections(analysisText: string) {
   if (!analysisText) return null;
   
+  // Split by section headers (##) and filter out empty sections
   const sections = analysisText
-    .split(/(?=##\s|Strengths:|Weaknesses:|Recommendations:|Analysis:|Score:)/)
+    .split(/(?=##\s)/)
     .filter(Boolean)
     .map(section => section.trim());
 
-  return sections.map((section, idx) => {
-    const [title, ...contentArr] = section.split('\n');
-    const content = contentArr.join('\n').trim();
-
-    let sectionClass = 'analysis-section';
-    if (title.toLowerCase().includes('strength')) sectionClass += ' strengths';
-    if (title.toLowerCase().includes('weakness')) sectionClass += ' weaknesses';
-    if (title.toLowerCase().includes('recommend')) sectionClass += ' recommendations';
-    if (title.toLowerCase().includes('score')) sectionClass += ' score';
-
-    return (
-      <div key={idx} className={`analysis-card ${sectionClass}`}>
-        <h3 className="section-title">{title.replace(/^##\s*/, '')}</h3>
-        <div className="section-content">
-          {content.split('\n').map((line, i) => (
-            <p key={i}>{line || ' '}</p>
-          ))}
-        </div>
-      </div>
-    );
+  // Deduplicate by title: keep only the first occurrence of each section
+  const seenTitles = new Set<string>();
+  const uniqueSections = sections.filter(section => {
+    const titleMatch = section.match(/^##\s+(.+?)$/m);
+    const title = titleMatch ? titleMatch[1].trim().toLowerCase() : '';
+    
+    if (seenTitles.has(title)) {
+      return false; // Skip duplicate
+    }
+    if (title) seenTitles.add(title);
+    return true;
   });
+
+  return (
+    <div className="analysis-sections-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {uniqueSections.map((section, idx) => {
+        const lines = section.split('\n');
+        const titleLine = lines[0].trim();
+        const title = titleLine.replace(/^##\s*/, '');
+        const content = lines.slice(1).join('\n').trim();
+
+        return (
+          <div
+            key={idx}
+            className="analysis-card"
+            style={{
+              background: '#fff',
+              border: '1px solid #e0e0e0',
+              borderLeft: '4px solid #981b1b',
+              borderRadius: '6px',
+              padding: '16px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            }}
+          >
+            <h3 style={{ fontSize: '16px', fontWeight: '600', marginTop: 0, marginBottom: '12px', color: '#333' }}>
+              {title}
+            </h3>
+            <div style={{ fontSize: '14px', lineHeight: '1.6', color: '#555', whiteSpace: 'pre-wrap' }}>
+              {content.split('\n').map((line, i) => (
+                <p key={i} style={{ margin: '8px 0' }}>
+                  {line || ' '}
+                </p>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // Helper to convert file to Base64 string

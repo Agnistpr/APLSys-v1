@@ -3665,22 +3665,31 @@ ocr-root
 
 /* Analysis Cards */
 .analysis-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+.analysis-sections-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 .analysis-card {
   background: #fff;
-  border-radius: 0.5rem;
-  padding: 1.5rem;
+  border: 1px solid #e0e0e0;
   border-left: 4px solid #981b1b;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  border-radius: 6px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
+
 .analysis-card h3 {
   font-weight: 600;
-  font-size: 1.125rem;
-  margin-bottom: 0.5rem;
+  font-size: 16px;
+  margin-bottom: 12px;
+  margin-top: 0;
+  color: #333;
 }
 .analysis-card span {
   display: inline-block;
@@ -3691,6 +3700,13 @@ ocr-root
   color: #981b1b;
   font-weight: bold;
   font-size: 0.9rem;
+}
+
+.analysis-card p {
+  margin: 8px 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #555;
 }
 
 

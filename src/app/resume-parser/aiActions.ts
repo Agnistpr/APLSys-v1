@@ -58,19 +58,34 @@ export async function persistNERResult(nerResult: any, analysisText?: string) {
     };
 
     const store = useAnalysisStore.getState();
-    store.setEditableResume(mapped);
-    store.setParsed(true);
-    if (analysisText) store.setAnalysisResult(analysisText);
+    // Write normalized resume + analysis into the persisted store
+    if (typeof store.setEditableResume === "function") store.setEditableResume(mapped);
+    if (analysisText && typeof store.setAnalysisResult === "function") store.setAnalysisResult(analysisText);
+    if (typeof store.setParsed === "function") store.setParsed(true);
 
-    // let subscribers/localStorage flush synchronously
-    await new Promise(resolve => setTimeout(resolve, 0));
+    // small delay to let zustand/persist middleware settle, then force-write to localStorage
+    await new Promise((r) => setTimeout(r, 80));
+    try {
+      // Write current store snapshot into localStorage under the same key persist uses
+      const key = "resume-analysis-store";
+      const snapshot = useAnalysisStore.getState();
+      try {
+        // prefer persisted shape (zustand may wrap under { state: ... } so maintain compatibility)
+        localStorage.setItem(key, JSON.stringify(snapshot));
+      } catch (e) {
+        // fallback: try wrapping
+        try { localStorage.setItem(key, JSON.stringify({ state: snapshot })); } catch (_) {}
+      }
+    } catch (e) {
+      console.warn("Failed to force-flush resume-analysis-store to localStorage:", e);
+    }
 
     console.log("DEBUG persistNERResult -> stored:", useAnalysisStore.getState().editableResume);
     return mapped;
   } catch (err) {
     console.error("persistNERResult failed:", err);
     const store = useAnalysisStore.getState();
-    store.setEditableResume({ ...defaultResume });
+    if (typeof store.setEditableResume === "function") store.setEditableResume({ ...defaultResume });
     store.setParsed(false);
     throw err;
   }

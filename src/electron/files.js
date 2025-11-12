@@ -6,8 +6,23 @@ import { spawn } from "child_process";
 import os from "os";
 const FormData = (await import("form-data")).default;
 
+// Resolve API_BASE_URL / BACKEND_URL at runtime:
+// 1) prefer explicit env var (BACKEND_URL)
+// 2) try compiled config.js (when app is built)
+// 3) fallback to default localhost
+let API_BASE_URL_RUNTIME = process.env.BACKEND_URL || process.env.API_BASE_URL || process.env.VITE_API_URL || "https://aplsys-backend-production.up.railway.app";
+if (!API_BASE_URL_RUNTIME) {
+  try {
+    // try to import compiled config next to src (config.js) — works in production build
+    const cfg = await import(path.join(__dirname, "..", "config.js")).catch(() => null);
+    API_BASE_URL_RUNTIME = cfg?.API_BASE_URL || cfg?.BACKEND_URL || null;
+  } catch (e) {
+    API_BASE_URL_RUNTIME = null;
+  }
+}
+
 // Backend URL used by Electron handlers. Set BACKEND_URL in the environment for production.
-const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+const BACKEND_URL = API_BASE_URL_RUNTIME;
 
 const fileFilters = {
   pdf: [{ name: "PDF Files", extensions: ["pdf"] }],
@@ -312,10 +327,10 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [] } = {}) => {
               // Try multiple candidate endpoints (some backends mount routers under prefixes)
               const pdfEndpoints = [
                 // try the most likely backend paths first (add the exact route you saw in backend logs)
-                `${BACKEND_URL}/ocr/process-pdf-to-images?save=false&include_b64=true&dpi=300`,
-                `${BACKEND_URL}/ocr/pdf-to-images?save=false&include_b64=true&dpi=300`,
-                `${BACKEND_URL}/parser/pdf-to-images?save=false&include_b64=true&dpi=300`,
-                `${BACKEND_URL}/pdf-to-images?save=false&include_b64=true&dpi=300`,
+                `${API_BASE_URL_RUNTIME}/ocr/process-pdf-to-images?save=false&include_b64=true&dpi=300`,
+                `${API_BASE_URL_RUNTIME}/ocr/pdf-to-images?save=false&include_b64=true&dpi=300`,
+                `${API_BASE_URL_RUNTIME}/parser/pdf-to-images?save=false&include_b64=true&dpi=300`,
+                `${API_BASE_URL_RUNTIME}/pdf-to-images?save=false&include_b64=true&dpi=300`,
               ];
 
               let pdfRes = null;
@@ -365,7 +380,7 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [] } = {}) => {
                   fallbackForm.append("files", fileBuffer, { filename, contentType: "application/pdf" });
                   const fallbackRes = await requestWithRetries(axios, {
                     method: "post",
-                    url: `${BACKEND_URL}/ocr/process-folder`,
+                    url: `${API_BASE_URL_RUNTIME}/ocr/process-folder`,
                     data: fallbackForm,
                     headers: { ...fallbackForm.getHeaders() },
                     timeout: 0,
@@ -405,7 +420,7 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [] } = {}) => {
 
                 const ocrRes = await requestWithRetries(axios, {
                   method: "post",
-                  url: `${BACKEND_URL}/ocr/process-folder`,
+                  url: `${API_BASE_URL_RUNTIME}/ocr/process-folder`,
                   data: pageForm,
                   headers: { ...pageForm.getHeaders() },
                   timeout: 0,
@@ -447,7 +462,7 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [] } = {}) => {
 
             const res = await requestWithRetries(axios, {
               method: "post",
-              url: `${BACKEND_URL}/ocr/process-folder`,
+              url: `${API_BASE_URL_RUNTIME}/ocr/process-folder`,
               data: form,
               headers: { ...form.getHeaders() },
               timeout: 0,
