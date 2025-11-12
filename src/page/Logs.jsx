@@ -98,6 +98,7 @@ const Logs = () => {
     if (x.includes("edit")) return <MdEdit />;
     if (x.includes("add")) return <MdAdd />;
     if (x.includes("delete")) return <MdDelete />;
+    if (x.includes("import")) return <MdAdd />;
     return <MdEdit />;
   };
 

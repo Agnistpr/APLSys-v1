@@ -59,18 +59,19 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId, setSelected
     workStatus: "Work Status",
   };
 
+  const fetchAttendance = async () => {
+    setLoading(true);
+    let data = [];
+    if (selectedDate) {
+      data = await window.attendanceAPI.getAttendance(selectedDate);
+    } else {
+      data = await window.attendanceAPI.getAttendance();
+    }
+    setAttendance(data || []);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const fetchAttendance = async () => {
-      setLoading(true);
-      let data = [];
-      if (selectedDate) {
-        data = await window.attendanceAPI.getAttendance(selectedDate);
-      } else {
-        data = await window.attendanceAPI.getAttendance();
-      }
-      setAttendance(data || []);
-      setLoading(false);
-    };
     fetchAttendance();
   }, [selectedDate]);
 
@@ -279,8 +280,7 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId, setSelected
         onClose={() => setShowImportModal(false)}
         onImportComplete={async (rows) => {
           try {
-            const result = await window.utilityAPI.importAttendance(rows);
-            // window.toast("Attendance imported successfully!", "success");
+            await fetchAttendance();
             setSelectedDate(selectedDate);
           } catch (err) {
             console.error("Import failed:", err);

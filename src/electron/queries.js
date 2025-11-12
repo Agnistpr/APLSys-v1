@@ -95,20 +95,111 @@ ipcMain.handle("importAttendance", async (event, { rows }) => {
   if (!Array.isArray(rows)) return { error: "Invalid rows payload" };
 
   try {
-    // Clean / validate before insert (optional)
-    const cleaned = rows.map((r) => ({
-      date: r.date,
-      profileid: Number(r.profileid) || null,
-      timein: r.timein,
-      timeout: r.timeout,
-      role: r.role,
-    }));
+    const [{ data: employees, error: empErr }, { data: applicants, error: appErr }] =
+      await Promise.all([
+        supabase.from("employee").select("employeeid, firstname, middlename, lastname"),
+        supabase
+          .from("applicant")
+          .select("applicantid, firstname, middlename, lastname, status")
+          .neq("status", "Hired"),
+      ]);
 
-    // Bulk insert into attendance table
-    const { data, error } = await supabase
-      .from("attendance")
-      .insert(cleaned);
+    if (empErr || appErr) throw empErr || appErr;
 
+    const normalize = (s = "") =>
+      s.toLowerCase().replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
+
+    const startsWithLoose = (target, partial) => target.startsWith(partial);
+
+    const findProfile = (fullname) => {
+      if (!fullname) return { id: null, role: null };
+
+      const [lastRaw, firstRaw] = fullname.split(",").map(normalize);
+      if (!lastRaw || !firstRaw) return { id: null, role: null };
+
+      let lastMatches = employees.filter((e) => normalize(e.lastname) === lastRaw);
+      if (lastMatches.length === 1) return { id: lastMatches[0].employeeid, role: "Employee" };
+
+      let matched = lastMatches.find(
+        (e) => normalize(`${e.firstname} ${e.middlename || ""}`).trim() === firstRaw
+      );
+
+      if (!matched) {
+        const partials = lastMatches.filter((e) => {
+          const fullFirst = normalize(`${e.firstname} ${e.middlename || ""}`);
+          return startsWithLoose(fullFirst, firstRaw);
+        });
+        if (partials.length === 1) matched = partials[0];
+      }
+
+      if (!matched) {
+        const fullNorm = normalize(fullname.replace(",", ""));
+        matched = employees.find(
+          (e) =>
+            normalize(`${e.lastname} ${e.firstname} ${e.middlename || ""}`) === fullNorm
+        );
+      }
+
+      if (matched) return { id: matched.employeeid, role: "Employee" };
+
+      lastMatches = applicants.filter((a) => normalize(a.lastname) === lastRaw);
+      if (lastMatches.length === 1) return { id: lastMatches[0].applicantid, role: "Applicant" };
+
+      matched = lastMatches.find(
+        (a) => normalize(`${a.firstname} ${a.middlename || ""}`).trim() === firstRaw
+      );
+
+      if (!matched) {
+        const partials = lastMatches.filter((a) => {
+          const fullFirst = normalize(`${a.firstname} ${a.middlename || ""}`);
+          return startsWithLoose(fullFirst, firstRaw);
+        });
+        if (partials.length === 1) matched = partials[0];
+      }
+
+      if (!matched) {
+        const fullNorm = normalize(fullname.replace(",", ""));
+        matched = applicants.find(
+          (a) =>
+            normalize(`${a.lastname} ${a.firstname} ${a.middlename || ""}`) === fullNorm
+        );
+      }
+
+      return matched
+        ? { id: matched.applicantid, role: "Applicant" }
+        : { id: null, role: null };
+    };
+
+    const cleaned = rows.map((r) => {
+      if (r.profileid && Number(r.profileid) > 0) {
+        return {
+          date: r.date,
+          profileid: Number(r.profileid),
+          timein: r.timein,
+          timeout: r.timeout,
+          role: "Employee",
+        };
+      }
+      const match = findProfile(r.fullname);
+      return {
+        date: r.date,
+        profileid: match.id,
+        timein: r.timein,
+        timeout: r.timeout,
+        role: match.role,
+      };
+    });
+
+    const validRows = cleaned.filter((r) => r.profileid != null);
+    if (!validRows.length) {
+      logMessage(`❌ No matches found. Example input: ${JSON.stringify(rows[0])}`);
+      return { error: "No valid rows with matched profile IDs" };
+    }
+
+    logMessage(`🟢 Ready to import ${validRows.length} attendance records`);
+    logMessage(`Sample record: ${JSON.stringify(validRows[0], null, 2)}`);
+
+    const { data, error } = await supabase.from("attendance").insert(validRows);
     if (error) throw error;
 
     return { success: true, inserted: data?.length ?? 0 };
