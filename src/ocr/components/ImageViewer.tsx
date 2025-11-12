@@ -24,7 +24,7 @@ export function entityToTag(entity: string): string | null {
   if (e === 'ORG' || e === 'ORGANIZATION') return 'organization';
   if (e === 'LOC' || e === 'LOCATION' || e === 'ADDRESS') return 'location';
   if (e === 'MISC') return 'misc';
-  if (e === 'EMAIL') return 'email';
+  if (e === 'EMAIL' ) return 'email';
   if (e === 'PHONE' ) return 'phone';
   if (e === 'EDUCATION') return 'education';
   if (e === 'SKILL' || e === 'SKILLS') return 'skills';
@@ -168,18 +168,29 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     setIsProcessingOCR(true);
     setGlobalProcessing(true);
 
-    //Update processingMap to mark this file as processing
+    // use functional update and namespaced key
     const processingKey = `scanner:${fileName}`;
-    setProcessingMap(prev => ({ ...(prev || {}), [processingKey]: true }));
-
-
-    toast.loading(`${fileName || 'OCR'}: Processing region...`, { 
-      id: toastId,
-      duration: 2000,
-      dismissible: true,
-      className: 'ocr-toast',
-      style: { pointerEvents: 'auto' }
+    
+    // ✅ IMPORTANT: Use setState with callback to ensure it completes before continuing
+    setProcessingMap(prev => {
+      const updated = { ...(prev || {}), [processingKey]: true };
+      console.log("🔄 performOCR: setProcessingMap called with:", updated);
+      return updated;
     });
+
+    // DEBUG: verify store updated immediately after
+    setTimeout(() => {
+      const storeState = useOcrStore.getState().processingMap;
+      console.log("🔍 performOCR (after timeout): processingMap in store =", storeState);
+    }, 0);
+
+    toast(`Processing region scan for ${fileName}...`, {
+        id: toastId,
+        description: "Region scan is being performed. Please wait",
+        icon: "🕓",
+        dismissible: true,
+        duration: Infinity,
+      });
 
     // After starting OCR task
     console.log("DEBUG processingMap after task start:", useOcrStore.getState().processingMap);
@@ -262,21 +273,45 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         }
 
         onTextExtracted(resultPayload.extractedData);
-        toast.success(`${fileName}: Region extracted`, { id: toastId });
+        toast(`${fileName} extracted successfully.`, {
+          id: toastId,
+          description: "You may now return to the scanner tab to look at the results",
+          icon: "✅",
+          dismissible: true,
+          duration: Infinity,
+        });
       } else {
-        toast.error("No text found in selected area", { id: toastId });
+        toast(`${fileName}: Warning`, {
+          id: toastId,
+          description: "No text was found here",
+          icon: "⚠️",
+          dismissible: true,
+          duration: Infinity,
+        });
       }
     } catch (err) {
       console.error(err);
-      toast.error(`${fileName}: Failed to process region`, { id: toastId });
+      toast(`Extracting from ${fileName} failed`, {
+        id: toastId,
+        description: "Something went wrong. Please try again.",
+        icon: "❌",
+        dismissible: true,
+        duration: Infinity,
+      });
     } finally {
+      // always clear both the per-file key AND the global processing flag
       setProcessingMap(prev => {
         const updated = { ...(prev || {}) };
         delete updated[processingKey];
+        console.log("🔄 performOCR (finally): removing key, updated map =", updated);
         return updated;
       });
+      setIsProcessingOCR(false);
+      setGlobalProcessing(false);
+      toast.dismiss(toastId);
     }
-  }, [fileName, onTextExtracted, setGlobalProcessing, processingMap, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
+    //CRITICAL: add setProcessingMap to dependency array
+  }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
 
   //Mouse mapping helper
   const getImageCoords = useCallback((e: React.MouseEvent) => {
@@ -367,22 +402,21 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
   const handleFullScanOCR = useCallback(async () => {
     if (!imageRef.current) return;
-
     const toastId = `ocr-${fileName || 'unsaved'}`;
     setIsProcessingOCR(true);
     setGlobalProcessing(true);
     
     // ADD THIS: Update processingMap to mark this file as processing
     const processingKey = `scanner:${fileName}`;
-    setProcessingMap({ ...processingMap, [processingKey]: true });
+    setProcessingMap(prev => ({ ...(prev || {}), [processingKey]: true }));
     
-    toast.loading(`${fileName || 'OCR'}: Processing...`, {
-      id: toastId,
-      duration: 2000,
-      dismissible: true,
-      className: 'ocr-toast',
-      style: { pointerEvents: 'auto' }
-    });
+    toast(`Processing Full scan for ${fileName}...`, {
+        id: toastId,
+        description: "Full scan is being performed. Please wait",
+        icon: "🕓",
+        dismissible: true,
+        duration: Infinity,
+      });
 
     try {
       const img = imageRef.current;
@@ -414,7 +448,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         console.log("Extracted text for Gemini:", text);
       }
       if (!text || !text.trim()) {
-        toast.error(`${fileName}: No text found`, { id: toastId });
+        toast(`${fileName}: Warning`, {
+        id: toastId,
+        description: "No text was extracted. Please try again.",
+        icon: "⚠️",
+        dismissible: true,
+        duration: Infinity,
+      });
         return;
       }
 
@@ -455,28 +495,34 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       }
 
       onTextExtracted(items);
-      toast.success(`${fileName}: OCR completed`, { id: toastId });
+      toast(`${fileName} extracted successfully.`, {
+          id: toastId,
+          description: "You may now return to the scanner tab to look at the results",
+          icon: "✅",
+          dismissible: true,
+          duration: Infinity,
+        });
     } catch (error) {
       console.error("Full Scan OCR Error:", error);
-      toast.error(`${fileName}: Failed to process OCR`, {
+      toast(`Extracting from ${fileName} failed`, {
         id: toastId,
-        duration: 4000
+        description: "Something went wrong. Please try again.",
+        icon: "❌",
+        dismissible: true,
+        duration: Infinity,
       });
     } finally {
-      setIsProcessingOCR(false);
-      setGlobalProcessing(false);
-      
-      // ADD THIS: Remove file from processingMap when done
+      // clear per-file key and global processing
       setProcessingMap(prev => {
         const updated = { ...(prev || {}) };
         delete updated[processingKey];
         return updated;
       });
-      
-      setCurrentSelection(null);
+      setIsProcessingOCR(false);
+      setGlobalProcessing(false);
       toast.dismiss(toastId);
     }
-  }, [fileName, onTextExtracted, setGlobalProcessing, processingMap, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
+  }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
 
   useEffect(() => {
     const handleGlobalMouseUp = () => {

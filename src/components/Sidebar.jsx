@@ -23,18 +23,57 @@ const subNavIcons = {
   Management: <MdManageSearch />
 };
 
-const Sidebar = ({ activePage, setActivePage, onLogout, isCollapsed, setIsCollapsed, selectedEmployeeId, setSelectedEmployeeId, selectedApplicantId, setSelectedApplicantId, setShowAnalyzer, showAnalyzer, showApplicantInfo, setShowApplicantInfo, isParsingResume, isOcrProcessing, isProcessing, parsingFileName }) => {
+const Sidebar = ({ 
+  activePage, 
+  setActivePage, 
+  onLogout, 
+  isCollapsed, 
+  setIsCollapsed, 
+  selectedEmployeeId, 
+  setSelectedEmployeeId, 
+  selectedApplicantId, 
+  setSelectedApplicantId, 
+  setShowAnalyzer, 
+  showAnalyzer, 
+  showApplicantInfo, 
+  setShowApplicantInfo, 
+  isParsingResume, 
+  isOcrProcessing,  
+  isProcessing, 
+  parsingFileName 
+}) => {
+  useEffect(() => {
+    const unsubscribe = useOcrStore.subscribe(
+      state => state.processingMap,
+      (processingMap) => {
+        console.log("🔄 Sidebar: processingMap changed:", processingMap);
+      }
+    );
+    return unsubscribe;
+  }, []);
+
+  // Subscribe to processingMap
+  const processingMap = useOcrStore(state => state.processingMap || {});
+
+  // Derive flags
+  const scannerProcessing = Boolean(
+    Object.keys(processingMap).find(k => String(k).startsWith('scanner:'))
+  );
+  const batchProcessing = Boolean(
+    Object.keys(processingMap).find(k => String(k).startsWith('batch:'))
+  );
+
+  // DEBUG: log every change
+  useEffect(() => {
+    console.log("📍 Sidebar: processingMap updated:", { processingMap, scannerProcessing, batchProcessing });
+  }, [processingMap, scannerProcessing, batchProcessing]);
+
   const [showEmployees, setShowEmployees] = useState(false);
   const [showApplicants, setShowApplicants] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
 
   const [userName, setUserName] = useState(null);
   const [userRole, setUserRole] = useState(null);
-
-  const processingMap = useOcrStore(state => state.processingMap);
-  // derive context-aware flags from the shared processingMap
-  const scannerProcessing = Boolean(Object.keys(processingMap || {}).find(k => String(k).startsWith('scanner:')));
-  const batchProcessing = Boolean(Object.keys(processingMap || {}).find(k => String(k).startsWith('batch:')));
 
   useEffect(() => {
     console.log("Sidebar states:", { activePage, showAnalyzer, showApplicantInfo, scannerProcessing, batchProcessing });

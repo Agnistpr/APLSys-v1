@@ -5,6 +5,7 @@ import { FaFilter, FaFolderOpen, FaCheck } from "react-icons/fa";
 import { batchProcessFolder, searchOcrResults } from '../api/ocr';
 import { toast } from "sonner";
 import {useOcrStore} from '../electron/ocrStore';
+import { API_BASE_URL } from '../../config';
 
 const Management = ({ onTaskStart, onTaskEnd }) => {
   const { docs, setDocs, processingMap, setProcessingMap, batchId, setBatchId, ocrMatches, setOcrMatches } = useOcrStore();
@@ -36,7 +37,7 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
 
   // helper to call backend create-task
   const createServerTask = async (payload) => {
-   const resp = await fetch("http://localhost:8000/ocr/create-task", {
+   const resp = await fetch(`${API_BASE_URL}/ocr/create-task`, {
      method: "POST",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify(payload),
@@ -304,7 +305,7 @@ useEffect(() => {
       localStorage.removeItem(PROCESSING_STATE_KEY);
       window.fileAPI.listDocuments().then(setDocs);
       onTaskEnd(task_id);
-      window.toast("All files have been processed", "success");
+      toast.success("All files have been processed");
     }
   };
 
@@ -381,7 +382,7 @@ useEffect(() => {
       catch (err)
       {
         console.error("OCR search failed:", err);
-        window.toast("Word Search failed", "error");
+        toast.error("Word Search failed");
         setOcrMatches({});
       }
       return;
@@ -541,7 +542,7 @@ useEffect(() => {
 
     } catch (err) {
       console.error("Failed to start OCR process:", err);
-      window.toast(err.message || "Failed to start OCR process", "error");
+      toast.error(err.message || "Failed to start OCR process");
       setProcessingMap({});
       localStorage.removeItem(PROCESSING_STATE_KEY);
       setBatchId(null);
