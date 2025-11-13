@@ -16,6 +16,9 @@ import type { ExtractedText } from './DocumentScanner';
 import axios from "axios";
 import { useOcrStore } from '../../electron/ocrStore';
 
+
+console.log("DEBUG: parseDocumentText =", typeof parseDocumentText, parseDocumentText);
+
 //Mapping function for NER entity to tag
 export function entityToTag(entity: string): string | null {
   if (!entity) return null;
@@ -189,7 +192,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         description: "Region scan is being performed. Please wait",
         icon: "🕓",
         dismissible: true,
-        duration: Infinity,
+        duration: 10000,
       });
 
     // After starting OCR task
@@ -278,7 +281,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           description: "You may now return to the scanner tab to look at the results",
           icon: "✅",
           dismissible: true,
-          duration: Infinity,
+          duration: 10000,
         });
       } else {
         toast(`${fileName}: Warning`, {
@@ -286,7 +289,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           description: "No text was found here",
           icon: "⚠️",
           dismissible: true,
-          duration: Infinity,
+          duration: 10000,
         });
       }
     } catch (err) {
@@ -296,7 +299,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         description: "Something went wrong. Please try again.",
         icon: "❌",
         dismissible: true,
-        duration: Infinity,
+        duration: 10000,
       });
     } finally {
       // always clear both the per-file key AND the global processing flag
@@ -414,7 +417,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         description: "Full scan is being performed. Please wait",
         icon: "🕓",
         dismissible: true,
-        duration: Infinity,
+        duration: 10000,
       });
 
     try {
@@ -465,7 +468,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           description: "No text was extracted. Please try again.",
           icon: "⚠️",
           dismissible: true,
-          duration: Infinity,
+          duration: 10000,
         });
         return;
       }
@@ -491,7 +494,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           description: `${items.length} lines extracted. You may now return to the scanner tab to look at the results`,
           icon: "✅",
           dismissible: true,
-          duration: Infinity,
+          duration: 10000,
         });
     } catch (error) {
       console.error("Full Scan OCR Error:", error);
@@ -500,7 +503,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         description: "Something went wrong. Please try again.",
         icon: "❌",
         dismissible: true,
-        duration: Infinity,
+        duration: 10000,
       });
     } finally {
       setProcessingMap(prev => {
@@ -588,7 +591,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       );
       toast.success("Document parsed successfully!");
     } catch (err) {
-      toast.error("Failed to parse document.");
+      console.error("handleParseDocument error:", err);
+      toast.error("Failed to parse document.", {
+        description: err instanceof Error ? err.message : "Unknown error"
+      });
     } finally {
       setParsing(false);
     }

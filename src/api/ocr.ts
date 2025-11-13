@@ -2,7 +2,12 @@ import axios from "axios";
 import * as pdfjs from "pdfjs-dist"
 import { API_BASE_URL } from "../config";
 
-const BACKEND_URL = API_BASE_URL;
+
+//verify at load time:
+if (!API_BASE_URL) {
+  console.error("❌ API_BASE_URL is undefined at module load!");
+}
+
 
 // Helper to convert base64 to Blob
 function base64ToBlob(base64: string) {
@@ -18,22 +23,31 @@ function base64ToBlob(base64: string) {
 export async function ocrFullScan(imageData: string) {
   const formData = new FormData();
   formData.append("file", base64ToBlob(imageData), "scan.png");
-  const res = await axios.post(`${BACKEND_URL}/ocr/extract-full`, formData, {
+  const res = await axios.post(`${API_BASE_URL}/ocr/extract-full`, formData, {
     headers: { "Content-Type": "multipart/form-data" }
   });
   return res.data.result;
 }
 
 export async function parseDocumentText(text: string) {
-  const res = await axios.post(`${BACKEND_URL}/parser/parse-document`, { text });
-  return res.data.entities;
+  if (!API_BASE_URL) {
+    throw new Error('API_BASE_URL is not defined');
+  }
+  try {
+    const res = await axios.post(`${API_BASE_URL}/parser/parse-document`, { text });
+    if (!res.data) throw new Error('No response data from parseDocumentText');
+    return res.data.entities || [];
+  } catch (err) {
+    console.error('parseDocumentText error:', err);
+    throw err;
+  }
 }
 
 export async function ocrRegion(imageData: string) {
   const formData = new FormData();
   formData.append("file", base64ToBlob(imageData), "region.png");
   try {
-    const res = await axios.post(`${BACKEND_URL}/ocr/extract-region`, formData, {
+    const res = await axios.post(`${API_BASE_URL}/ocr/extract-region`, formData, {
       headers: { "Content-Type": "multipart/form-data" }
     });
     // The backend now returns { text, confidence }
@@ -49,7 +63,7 @@ export async function ocrSearch(imageData: string, query: string) {
   const formData = new FormData();
   formData.append("file", base64ToBlob(imageData), "scan.png");
   formData.append("query", query);
-  const res = await axios.post(`${BACKEND_URL}/ocr/search`, formData, {
+  const res = await axios.post(`${API_BASE_URL}/ocr/search`, formData, {
     headers: { "Content-Type": "multipart/form-data" }
   });
   return res.data.matches;
@@ -135,7 +149,7 @@ export async function batchProcessFolder(files: File[]) {
     }
 
     // Send to backend API endpoint
-    const res = await axios.post(`${BACKEND_URL}/ocr/process-folder`, formData, {
+    const res = await axios.post(`${API_BASE_URL}/ocr/process-folder`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
 

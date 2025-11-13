@@ -258,7 +258,7 @@ const Sidebar = ({
           </div>
            {showDocuments && (
              <div className="subNavList">
-              {['Management'].map((page, idx) => (//Scanner', leave here just in case; redundant na imo
+              {['Scanner','Management'].map((page, idx) => (//Scanner', leave here just in case; redundant na imo
                 <div
                   key={idx}
                   className={`subNavItem ${activePage === page ? "activeSubTab" : ""}`}
@@ -275,14 +275,14 @@ const Sidebar = ({
                   <span>{page}</span>
 
                   {/* show circular inline spinner only when corresponding context has active keys */}
-                  {/* {page === "Scanner" && scannerProcessing && (
+                  {page === "Scanner" && scannerProcessing && (
                     <span
                       className="inlineSpinner"
                       title="Manual scan in progress"
                       aria-hidden="true"
                       style={{ marginLeft: 6 }}
                     />
-                  )} */}
+                  )}
 
                   {page === "Management" && batchProcessing && (
                     <span

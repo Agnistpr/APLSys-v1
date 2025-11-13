@@ -174,7 +174,7 @@ useEffect(() => {
           description: "Scanning has started, you can close this while it runs.",
           icon: "⏳",
           dismissible: true,
-          duration: Infinity,
+          duration: 10000,
         });
       } else if (status === "done") {
         // Dismiss any existing toasts for this file first
@@ -208,7 +208,7 @@ useEffect(() => {
             description: `${fileName} has been scanned successfully.`,
             icon: "✅",
             dismissible: true,
-            duration: Infinity,
+            duration: 10000,
           });
         
         // Clear from localStorage
@@ -248,7 +248,7 @@ useEffect(() => {
             description: `${fileName} was not scanned correctly. Please try again later.`,
             icon: "❌",
             dismissible: true,
-            duration: Infinity,
+            duration: 10000,
           });
       }
     } else if (status === "all_done") {
@@ -364,7 +364,7 @@ useEffect(() => {
           id: taskId,
           description: "All files in this page have been scanned.",
           dismissible: true,
-          duration: Infinity,
+          duration: 10000,
         });
         
         setIsProcessing(false);
@@ -378,7 +378,7 @@ useEffect(() => {
         description: "Scanning all files, you can close this while it runs.",
         icon: "⏳",
         dismissible: true,
-        duration: Infinity,
+        duration: 10000,
       });
 
       const filenames = pathsToProcess.map(p => normalizeName(p.name));

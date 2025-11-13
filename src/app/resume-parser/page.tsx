@@ -157,11 +157,12 @@ function PdfPreview({
         ref={canvasRef}
         style={{
           width: "100%",
+          maxWidth: "40rem",
           height: "auto",
           display: "block",
           borderRadius: "6px",
           background: "#fff",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+          boxShadow: "0 1px 4px rgba(74, 68, 68, 0.1)",
           flex: 1,
         }}
       />
@@ -368,6 +369,13 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
   // Always preview the local blob immediately
   setFileUrl(fileUrl);
   setResumeName(fileName);
+
+  // If fileUrl is empty, user clicked the x button to remove the file
+  if (!fileUrl) {
+    // Clear the persisted currentFile from the store immediately
+    setCurrentFile(null);
+    return;
+  }
 
   if (!fileObj) return;
 
@@ -1006,7 +1014,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       description: "Processing resume, you can close this while it runs.",
       icon: "⏳",
       dismissible: true,
-      duration: Infinity,
+      duration: 10000,
     });
 
 
@@ -1111,7 +1119,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             description: "You may now return to the analyzer tab to see the results",
             icon: "✅",
             dismissible: true,
-            duration: Infinity,
+            duration: 10000,
           });
         } catch (waitErr) {
           // If waiting failed, still attempt to use what's in the store and notify parent
@@ -1151,7 +1159,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         description: "Something went wrong. Please try again.",
         icon: "❌",
         dismissible: true,
-        duration: Infinity,
+        duration: 10000,
       });
     } finally {
       setProcessing(false);
@@ -1192,7 +1200,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       id: taskId,
       description: "Analyzing resume, you can close this while it runs.",
       dismissible: true,
-      duration: Infinity,
+      duration: 10000,
     });
 
     try {
@@ -1343,7 +1351,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
           id: taskId,
           description: "Results will be reflected in a few seconds. You may now return to the analyzer tab.",
           dismissible: true,
-          duration: Infinity,
+          duration: 10000,
         });
       } catch (waitErr) {
         // fallback: use immediate store snapshot and warn
@@ -1353,7 +1361,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
           id: taskId,
           description: "Results will be reflected in a few seconds. You may now return to the analyzer tab.",
           dismissible: true,
-          duration: Infinity,
+          duration: 10000,
         });
       }
     } catch (err) {
