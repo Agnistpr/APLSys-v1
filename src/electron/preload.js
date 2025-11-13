@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('fileAPI', {
   selectFile: (opts) => ipcRenderer.invoke("dialog:openFile", opts),
   saveFileToFolder: (opts) => ipcRenderer.invoke("file:saveToFolder", opts),
+  saveUploadedFile: (opts) => ipcRenderer.invoke('file:saveUploadedFile', opts),
   readFileAsBase64: (filePath) => ipcRenderer.invoke("file:readAsBase64", filePath),
   hexToBase64: (hexString) => ipcRenderer.invoke('file:hexToBase64', hexString),
   listDocuments: () => ipcRenderer.invoke("file:listDocuments"),

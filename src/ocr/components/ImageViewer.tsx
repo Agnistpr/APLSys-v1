@@ -7,7 +7,8 @@ import {
   Move, 
   Square,
   RotateCcw,
-  Maximize
+  Maximize,
+  Download
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ocrFullScan, ocrRegion, parseDocumentText } from '../../api/ocr';
@@ -600,6 +601,52 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   };
 
+  const handleSaveUploadedFile = useCallback(async () => {
+    if (!fileUrl) {
+      toast.error("No file to save");
+      return;
+    }
+
+    try {
+      toast.loading("Saving file to documents...", { id: "save-file" });
+
+      // Fetch the file and convert to base64
+      const response = await fetch(fileUrl);
+      const blob = await response.blob();
+      const reader = new FileReader();
+
+      reader.onload = async (e) => {
+        const base64Data = (e.target?.result as string).split(',')[1]; // Extract base64 part
+        
+        const result = await window.fileAPI.saveUploadedFile({
+          fileName: fileName,
+          base64Data: base64Data
+        });
+
+        if (result.success) {
+          toast.success("File saved to documents", {
+            id: "save-file",
+            description: `${fileName} has been saved`,
+            duration: 4000
+          });
+        } else {
+          toast.error("Failed to save file", {
+            id: "save-file",
+            description: result.error || "Unknown error"
+          });
+        }
+      };
+
+      reader.readAsDataURL(blob);
+    } catch (err) {
+      console.error("Failed to save uploaded file:", err);
+      toast.error("Failed to save file", {
+        id: "save-file",
+        description: err instanceof Error ? err.message : "Unknown error"
+      });
+    }
+  }, [fileUrl, fileName]);
+
   // Render logic (image area) — ensure only ONE <img ref={imageRef} ... /> is present
   // Remove the duplicated image and keep a single image element that the handlers reference
   if (fileType.startsWith("image/")) {
@@ -659,8 +706,6 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-10 pointer-events-auto">
           <Button size="sm" onClick={handleZoomIn} title="Zoom In"><ZoomIn /></Button>
           <Button size="sm" onClick={handleZoomOut} title="Zoom Out"><ZoomOut /></Button>
-          {/* <Button size="sm" onClick={handleRotate} title="Rotate Clockwise"><RotateCw /></Button> */}
-          {/* <Button size="sm" onClick={handleRotateCounterclockwise} title="Rotate Counterclockwise"><RotateCcw /></Button> */}
           <Button size="sm" onClick={handleReset} title="Reset View"><Maximize /></Button>
           <Button 
             size="sm" 

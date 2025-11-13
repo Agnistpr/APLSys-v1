@@ -9,6 +9,7 @@ declare global {
       // === File Dialogs ===
       selectFile: (opts?: any) => Promise<any>;
       saveFileToFolder: (opts?: any) => Promise<any>;
+      saveUploadedFile: (opts: { fileName: string; base64Data: string }) => Promise<{ success: boolean; path?: string; error?: string }>;
 
       // === File Operations ===
       readFileAsBase64: (filePath: string) => Promise<string>;

@@ -79,10 +79,9 @@ const DEFAULT_TAGS = [
 
 export const DocumentScanner: React.FC = () => {
   const [currentFile, setCurrentFile] = useState<File | null>(null);
-  const [currentImage, setCurrentImage] = useState<string | null>(null);
   const [currentFileUrl, setCurrentFileUrl] = useState<string | null>(null);
   const [currentFileType, setCurrentFileType] = useState<string | null>(null);
-  const [currentFileData, setCurrentFileData] = useState<string | null>(null); // Store base64 or blob data
+  const [currentFileData, setCurrentFileData] = useState<string | null>(null);
   const [extractedData, setExtractedData] = useState<ExtractedText[]>([]);
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -137,21 +136,13 @@ export const DocumentScanner: React.FC = () => {
     if (file) {
       const url = URL.createObjectURL(file);
       
-      // Store base64 data for later file operations
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const base64Data = e.target?.result as string;
-        setCurrentFileData(base64Data);
-      };
-      reader.readAsDataURL(file);
-      
-      // Update local state
+      // Store File object immediately
       setCurrentFile(file);
       setCurrentFileUrl(url);
       setCurrentFileType(file.type);
       setExtractedData([]);
 
-      // Persist to store
+      // Store in Zustand
       setCurrentStoredFile({
         file,
         url,
@@ -164,11 +155,37 @@ export const DocumentScanner: React.FC = () => {
         duration: 4000,
       });
 
-      // Persist file metadata and create task
       addFileMeta({ name: file.name, type: file.type, url, addedAt: Date.now() });
       addTask({ id: `local-${Date.now()}`, filename: file.name, status: 'pending', createdAt: Date.now() });
     }
   }, [addFileMeta, addTask, setCurrentStoredFile]);
+
+  // ✅ SEPARATE useEffect: Convert File to base64 AFTER currentFile is set
+  useEffect(() => {
+    if (!currentFile) {
+      setCurrentFileData(null);
+      return;
+    }
+
+    // Only convert once per file
+    if (currentFileData) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64Data = e.target?.result as string;
+      setCurrentFileData(base64Data);
+      console.log("✅ Base64 data ready for:", currentFile.name);
+    };
+    reader.onerror = (err) => {
+      console.error("FileReader error:", err);
+      setCurrentFileData(null);
+    };
+    
+    // ✅ CRITICAL: Pass the File object (not URL)
+    reader.readAsDataURL(currentFile);
+  }, [currentFile, currentFileData]); // Only run when currentFile changes
 
   const handleDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -396,6 +413,8 @@ export const DocumentScanner: React.FC = () => {
                       <OCRPanel
                         extractedData={extractedData}
                         availableTags={allTags}
+                        currentFileName={currentFile?.name || "document"}
+                        currentFileData={currentFileData}  //Now properly set after delay
                         onUpdateExtraction={handleUpdateExtraction}
                         onDeleteExtraction={handleDeleteExtraction}
                       />

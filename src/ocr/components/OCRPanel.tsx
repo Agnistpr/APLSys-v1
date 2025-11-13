@@ -51,62 +51,79 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
     return new Blob([u8arr], { type: mime });
   };
 
-  // Helper to download metadata AND copy original file
-  const handleDownloadMetadata = async (format: "json" | "txt" = "json") => {
+  // Combined handler: save metadata JSON + original file to documents
+  const handleSaveToDocuments = async () => {
     if (extractedData.length === 0) {
-      toast.error("No metadata to export");
+      toast.error("No data to save");
       return;
     }
 
     try {
-      // Prepare metadata
-      const metadata = {
-        extractedData,
-        exported_at: new Date().toISOString(),
-      };
+      toast.loading("Saving to documents...", { id: "save-docs" });
 
-      // Generate filename from current file (e.g., "samp2.jpg.json")
-      const metadataFileName = `${currentFileName}.json`;
-
-      // 1. Save metadata to ocr_results folder
+      // 1. Save metadata JSON
       if (window.fileAPI?.writeFile) {
+        const metadata = {
+          extractedData,
+          exported_at: new Date().toISOString(),
+        };
+        const metadataFileName = `${currentFileName}.json`;
         const jsonContent = JSON.stringify(metadata, null, 2);
+        
         await window.fileAPI.writeFile(
           `ocr_results/${metadataFileName}`,
           jsonContent
         );
-        console.log("✅ Metadata saved to ocr_results:", metadataFileName);
-      } else {
-        throw new Error("File API not available for metadata");
+        console.log("✅ Metadata saved:", metadataFileName);
       }
 
-      // 2. Copy original file to documents folder (if data is available)
-      if (currentFileData && window.fileAPI?.writeFile) {
+      // 2. Save original file
+      let fileSaved = false;
+      
+      // ✅ Debug: Check what currentFileData actually is
+      console.log("DEBUG currentFileData type:", typeof currentFileData, "first 50 chars:", currentFileData?.substring?.(0, 50));
+      
+      if (window.fileAPI?.saveUploadedFile && currentFileData && typeof currentFileData === 'string') {
         try {
-          // Extract base64 part only (remove data:mime;base64, prefix)
+          // ✅ Only extract base64 if it has the data: prefix
           const base64Part = currentFileData.includes(',') 
             ? currentFileData.split(',')[1] 
             : currentFileData;
-          
-          await window.fileAPI.writeFile(
-            `${currentFileName}`,
-            base64Part,
-            //{ encoding: 'base64' }
-          );
-          console.log("✅ Original file copied to documents:", currentFileName);
+
+          console.log("DEBUG base64Part first 50:", base64Part.substring(0, 50));
+
+          const result = await window.fileAPI.saveUploadedFile({
+            fileName: currentFileName,
+            base64Data: base64Part
+          });
+
+          if (result.success) {
+            console.log("✅ File saved:", currentFileName);
+            fileSaved = true;
+          } else {
+            console.warn("⚠️ File save failed:", result.error);
+          }
         } catch (fileErr) {
-          console.warn("⚠️ Failed to copy original file:", fileErr);
-          // Don't fail the entire operation if file copy fails
+          console.warn("⚠️ File save error:", fileErr);
         }
+      } else {
+        console.warn("⚠️ currentFileData missing or not a string:", typeof currentFileData);
       }
 
-      toast.success("Moved to Documents", {
-        description: `${metadataFileName} + ${currentFileName}`,
+      toast.success("Saved to Documents", {
+        id: "save-docs",
+        description: fileSaved 
+          ? `${currentFileName}.json + ${currentFileName}` 
+          : `${currentFileName}.json only (file data unavailable)`,
         duration: 4000,
       });
+
     } catch (err) {
-      console.error("Failed to move to documents:", err);
-      toast.error("Failed to move to Documents");
+      console.error("Failed to save:", err);
+      toast.error("Failed to save", {
+        id: "save-docs",
+        description: err instanceof Error ? err.message : "Unknown error"
+      });
     }
   };
 
@@ -177,15 +194,17 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
             </Badge>
           </div>
 
-          {/* Single button for moving to documents */}
+          {/* Single unified button */}
           <div className="flex items-center gap-2">
             <Button 
               size="sm" 
               variant="outline" 
-              onClick={() => handleDownloadMetadata("json")}
+              onClick={handleSaveToDocuments}
               disabled={extractedData.length === 0}
+              title="Save metadata JSON to ocr_results and original file to documents"
             >
-              <Download className="w-4 h-4 mr-1" /> Move to Documents
+              <Download className="w-4 h-4 mr-1" /> 
+              Save All
             </Button>
           </div>
         </div>

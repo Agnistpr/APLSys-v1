@@ -79,6 +79,25 @@ ipcMain.handle("file:saveToFolder", async (event, { sourcePath, customDir }) => 
   return destination;
 });
 
+ipcMain.handle('file:saveUploadedFile', async (event, { fileName, base64Data }) => {
+  try {
+    const baseDir = getDocumentsFolder();
+    const fullPath = path.join(baseDir, fileName);
+    const dir = path.dirname(fullPath);
+    
+    fs.mkdirSync(dir, { recursive: true });
+
+    // Convert base64 to Buffer and write
+    const buffer = Buffer.from(base64Data, 'base64');
+    fs.writeFileSync(fullPath, buffer);
+    
+    return { success: true, path: fullPath };
+  } catch (err) {
+    console.error("Failed to save uploaded file:", err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle("file:listDocuments", async () => {
   const baseDir = getDocumentsFolder();
   const ocrDir = path.join(baseDir, "ocr_results"); // Directory for OCR results
