@@ -164,6 +164,28 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     }
   };
 
+  const handleKeyDownName = (e) => {
+    if (e.key === "Enter") {
+      handleBlurName();
+    }
+  };
+
+  const handleBlurName = () => {
+    if (
+      fieldValue.firstname !== employee.firstname ||
+      fieldValue.middlename !== employee.middlename ||
+      fieldValue.lastname !== employee.lastname
+    ) {
+      setPendingChange({
+        field: "name",
+        value: { ...fieldValue },
+      });
+      setConfirmChanges(true);
+    } else {
+      setEditingField(null);
+    }
+  };
+
   const formatContactNumber = (value) => {
     if (!value) return "";
     const digits = value.replace(/\D/g, "");
@@ -171,6 +193,14 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     if (digits.length <= 4) return digits;
     if (digits.length <= 7) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
     return `${digits.slice(0, 4)}-${digits.slice(4, 7)}-${digits.slice(7, 11)}`;
+  };
+
+  const formatTime12Hour = (timeString) => {
+    if (!timeString) return "";
+    const [hour, minute] = timeString.split(":");
+    const h = ((+hour + 11) % 12) + 1;
+    const suffix = +hour >= 12 ? "PM" : "AM";
+    return `${h}:${minute.padStart(2, "0")} ${suffix}`;
   };
 
   const handleConfirmChange = async () => {
@@ -182,7 +212,24 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
 
     if (field === "department") dbField = "departmentid";
     if (field === "position") dbField = "positionid";
+    if (field === "name") {
+      const { firstname, middlename, lastname } = value;
 
+      await Promise.all([
+        window.employeeAPI.updateEmployee(employeeId, "firstname", firstname.trim()),
+        window.employeeAPI.updateEmployee(employeeId, "middlename", middlename.trim()),
+        window.employeeAPI.updateEmployee(employeeId, "lastname", lastname.trim()),
+      ]);
+
+      setEmployee((prev) => ({
+        ...prev,
+        firstname,
+        middlename,
+        lastname,
+      }));
+
+      window.toast("Name updated successfully", "success");
+    }
     try {
       await window.employeeAPI.updateEmployee(employeeId, dbField, dbValue);
 
@@ -373,7 +420,13 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
             </select>
           ) : (
             <input
-              type={isDate ? "date" : "text"}
+              type={
+                isDate
+                  ? "date"
+                  : field.includes("shift") 
+                    ? "time"
+                    : "text"
+              }
               value={
                 isDate
                   ? new Date(fieldValue).toISOString().split("T")[0]
@@ -397,7 +450,9 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
               ? new Date(employee[field]).toISOString().split("T")[0]
               : field === "contact"
                 ? formatContactNumber(employee[field])
-                : employee[field] || "—"}
+                : field.includes("shift") && employee[field]
+                  ? formatTime12Hour(employee[field])
+                  : employee[field] || "—"}
             <MdEdit className="editIcon" onClick={() => handleEditClick(field, employee[field])} />
           </>
         )}
@@ -517,16 +572,83 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
 
         <div className="employeeInfoMeta">
           <div className="employeeInfoName">
-            {employee.employeeid} | {employee.name}
+            {editingField !== "name" && (
+              <>
+                {employee.employeeid} |{" "}
+              </>
+            )}
+              {editingField === "name" ? (
+                <div
+                  className="editableField"
+                  onBlurCapture={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget)) {
+                      handleBlurName(); // user left the name group entirely
+                    }
+                  }}
+                >
+                  <input
+                    type="text"
+                    placeholder="Last Name"
+                    value={fieldValue.lastname || ""}
+                    onChange={(e) =>
+                      setFieldValue((prev) => ({ ...prev, lastname: e.target.value }))
+                    }
+                    onKeyDown={handleKeyDownName}
+                    autoFocus
+                  />
+                  <input
+                    type="text"
+                    placeholder="First Name"
+                    value={fieldValue.firstname || ""}
+                    onChange={(e) =>
+                      setFieldValue((prev) => ({ ...prev, firstname: e.target.value }))
+                    }
+                    onKeyDown={handleKeyDownName}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Middle Name"
+                    value={fieldValue.middlename || ""}
+                    onChange={(e) =>
+                      setFieldValue((prev) => ({ ...prev, middlename: e.target.value }))
+                    }
+                    onKeyDown={handleKeyDownName}
+                  />
+                </div>
+              ) : (
+                <p className="editableField">
+                  {`${employee.lastname}, ${employee.firstname}${
+                    employee.middlename ? ` ${employee.middlename.charAt(0)}.` : ""
+                  }`}
+                  <MdEdit
+                    className="editIcon"
+                    onClick={() => {
+                      setEditingField("name");
+                      setFieldValue({
+                        firstname: employee.firstname,
+                        middlename: employee.middlename,
+                        lastname: employee.lastname,
+                      });
+                    }}
+                  />
+                </p>
+              )}
           </div>
 
           <div className="employeeInfoColumns">
+            {/* <div className="infoColumn">
+              {renderEditableField("Shift Start", "shiftstart")}
+              {renderEditableField("Shift End", "shiftend")}
+            </div> */}
+
             <div className="infoColumn">
               {renderEditableField("Department", "department")}
               {renderEditableField("Position", "position")}
               {renderEditableField("Employee Type", "type")}
               {renderEditableField("Leave Credit", "leavecredit")}
               {renderEditableField("Hire Date", "hiredate", true)}
+              {renderEditableField("Shift Start", "shiftstart")}
+              {renderEditableField("Shift End", "shiftend")}
             </div>
 
             <div className="infoColumn">

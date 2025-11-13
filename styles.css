@@ -36,7 +36,8 @@ p {
   font-size: 14px;
   color: #333;
   margin-bottom: 20px;
-  text-align: center;
+  /* text-align: center;  */ 
+  /* I changed this to fix the alignment of text in info pages */
 }
 
 label {
@@ -665,7 +666,7 @@ input {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 20px 0;
+  padding: 10px 0;
   color: white;
   font-family: 'Arial', sans-serif;
   position: fixed;
@@ -712,8 +713,8 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 10px 20px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .sidebar.collapsed .userProfile {
@@ -2177,9 +2178,25 @@ ocr-root
 }
 
 .employeeInfoName {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-weight: 600;
   font-size: 1.2rem;
-  /* margin-bottom: 10px; */
+}
+
+.employeeInfoName .editIcon {
+  visibility: hidden;
+  cursor: pointer;
+}
+
+.employeeInfoName:hover .editIcon {
+  visibility: visible;
+}
+
+.employeeInfoName .editableField {
+  font-size: 1.2rem;
+  margin: 0;
 }
 
 .employeeInfoColumns {

@@ -20,6 +20,8 @@ process.on("unhandledRejection", (reason, p) => {
 });
 
 // --- helpers -----------------------------------------------------------------
+const allowedRoles = ['Finance', 'President', 'HR Generalist', 'IT'];
+
 function formatDateToISO(date) {
   if (!date) return "";
   try {
@@ -210,31 +212,6 @@ ipcMain.handle("importAttendance", async (event, { rows }) => {
 });
 
 // -----too bothered to organize for now---
-
-ipcMain.handle("getUser", async (event, { username, password }) => {
-  try {
-    logMessage(`Attempting login for user: ${username}`);
-
-    const { data, error } = await supabase
-      .from("users")
-      .select("userid, username, createddate, userimage")
-      .eq("username", username)
-      .eq("password", password)
-      .limit(1)
-      .single();
-
-    if (error) {
-      console.error("Supabase getUser error:", error);
-      return null;
-    }
-
-    return data || null;
-  } catch (err) {
-    console.error("DB error:", err);
-    throw err;
-  }
-});
-
 ipcMain.handle("logAction", async (event, { uid, useraction, description }) => {
   try {
     console.log("logAction called with:", { uid, useraction, description });
@@ -281,9 +258,10 @@ ipcMain.handle("exportEmployees", async () => {
         philhealth_number,
         bir_number,
         leavecredit,
+        shiftstart,
+        shiftend,
         department:departmentid ( departmentname ),
         position:positionid ( positionname ),
-        shift:shiftid ( timestart, timeend ),
         type
       `)
       .order("employeeid", { ascending: true });
@@ -297,20 +275,23 @@ ipcMain.handle("exportEmployees", async () => {
       lastname: r.lastname,
       firstname: r.firstname,
       middlename: r.middlename,
+
+      type: r.type,
+      department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : "") ?? "",
+      position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : "") ?? "",
+      shiftstart: r.shiftstart ? formatTime12(r.shiftstart) : "",
+      shiftend: r.shiftend ? formatTime12(r.shiftend) : "",
+      leavecredit: r.leavecredit,
+
       contact: r.contact,
       address: r.address,
       email: r.email,
       hiredate: formatDateToISO(r.hiredate),
+
       sss_number: r.sss_number,
       pagibig_number: r.pagibig_number,
       philhealth_number: r.philhealth_number,
       bir_number: r.bir_number,
-      leavecredit: r.leavecredit,
-      department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : "") ?? "",
-      position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : "") ?? "",
-      shiftstart: r.shift?.timestart ?? (Array.isArray(r.shift) ? r.shift[0]?.timestart : "") ?? "",
-      shiftend: r.shift?.timeend ?? (Array.isArray(r.shift) ? r.shift[0]?.timeend : "") ?? "",
-      type: r.type
     }));
 
     const csv = buildCSV(rows);
@@ -352,7 +333,6 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
     const { data: attendanceBase, error } = await query;
     if (error) throw error;
 
-    // Fetch profiles like getAttendance
     const attendance = await Promise.all(
       (attendanceBase || []).map(async (a) => {
         const role = (a.role || "Employee").toLowerCase();
@@ -362,7 +342,7 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
           const { data } = await supabase
             .from("employee")
             .select(
-              "employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid"
+              "employeeid, lastname, firstname, middlename, positionid, shiftstart, shiftend, departmentid"
             )
             .eq("employeeid", a.profileid)
             .single();
@@ -371,7 +351,7 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
           const { data } = await supabase
             .from("applicant")
             .select(
-              "applicantid, lastname, firstname, middlename, positionid, shiftid, departmentid"
+              "applicantid, lastname, firstname, middlename, positionid, shiftstart, shiftend, departmentid"
             )
             .eq("applicantid", a.profileid)
             .single();
@@ -383,7 +363,6 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
     );
 
     const positionIds = [...new Set((attendance || []).map(a => a.employee?.positionid).filter(Boolean))];
-    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
     const departmentIds = [...new Set((attendance || []).map(a => a.employee?.departmentid).filter(Boolean))];
 
     const { data: positions } = await supabase
@@ -391,12 +370,6 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
       .select("positionid, positionname")
       .in("positionid", positionIds.length ? positionIds : [-1]);
     const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
-
-    const { data: shifts } = await supabase
-      .from("shift")
-      .select("shiftid, timestart, timeend")
-      .in("shiftid", shiftIds.length ? shiftIds : [-1]);
-    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
 
     const { data: departments } = await supabase
       .from("department")
@@ -415,17 +388,15 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
     const ARRIVAL_TOLERANCE = 15;
     const WORK_TOLERANCE = 15;
 
-    // Build CSV rows like getAttendance
     const rows = (attendance || []).map((a) => {
       const emp = a.employee ?? {};
       const pos = posMap.get(emp.positionid) || "";
-      const sh = shiftMap.get(emp.shiftid) || {};
       const department = deptMap.get(emp.departmentid) || "";
 
       const timeInMin = timeToMinutes(a.timein);
       const timeOutMin = timeToMinutes(a.timeout);
-      const shiftStartMin = timeToMinutes(sh.timestart);
-      const shiftEndMin = timeToMinutes(sh.timeend);
+      const shiftStartMin = timeToMinutes(emp.shiftstart);
+      const shiftEndMin = timeToMinutes(emp.shiftend);
 
       let arrivalDiff = 0;
       let arrivalStatus = "On Time";
@@ -467,8 +438,8 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
         FullName: `${emp.lastname ?? ""}, ${emp.firstname ?? ""}${emp.middlename ? " " + emp.middlename.charAt(0) + "." : ""}`,
         Department: department,
         Position: pos,
-        Shift: sh.timestart && sh.timeend
-          ? `${formatTime12(sh.timestart)} - ${formatTime12(sh.timeend)}`
+        Shift: emp.shiftstart && emp.shiftend
+          ? `${formatTime12(emp.shiftstart)} - ${formatTime12(emp.shiftend)}`
           : "",
         TimeIn: formatTime12(a.timein),
         TimeOut: formatTime12(a.timeout),
@@ -1035,9 +1006,10 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
         leavecredit,
         department:departmentid ( departmentid, departmentname ),
         position:positionid ( positionid, positionname ),
-        shift:shiftid ( shiftid, timestart, timeend ),
         employeeimage,
-        type
+        type,
+        shiftstart,
+        shiftend
       `)
       .eq("employeeid", employeeId)
       .maybeSingle();
@@ -1047,13 +1019,14 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
 
     const dep = data.department ?? (Array.isArray(data.department) ? data.department[0] : null);
     const pos = data.position ?? (Array.isArray(data.position) ? data.position[0] : null);
-    const sh = data.shift ?? (Array.isArray(data.shift) ? data.shift[0] : null);
 
-    const name = `${data.lastname}, ${data.firstname}${data.middlename ? ` ${data.middlename.charAt(0)}.` : ""}`;
+    // const name = `${data.lastname}, ${data.firstname}${data.middlename ? ` ${data.middlename.charAt(0)}.` : ""}`;
 
     return {
       employeeid: data.employeeid,
-      name,
+      firstname: data.firstname,
+      middlename: data.middlename,
+      lastname: data.lastname,
       department: dep?.departmentname ?? "",
       position: pos?.positionname ?? "",
       contact: data.contact,
@@ -1068,8 +1041,8 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
       philhealth_number: data.philhealth_number,
       bir_number: data.bir_number,
       leavecredit: data.leavecredit,
-      shiftstart: sh?.timestart ?? "",
-      shiftend: sh?.timeend ?? "",
+      shiftstart: data.shiftstart ?? "",
+      shiftend: data.shiftend ?? "",
       employeeimage: data.employeeimage || null,
       type: data.type ?? "",
     };
@@ -1089,9 +1062,10 @@ ipcMain.handle('getEmployees', async () => {
         firstname,
         middlename,
         leavecredit,
+        shiftstart,
+        shiftend,
         department:departmentid ( departmentname ),
-        position:positionid ( positionname ),
-        shift:shiftid ( timestart, timeend )
+        position:positionid ( positionname )
       `)
       .order('employeeid', { ascending: true });
 
@@ -1102,7 +1076,7 @@ ipcMain.handle('getEmployees', async () => {
       name: `${r.lastname}, ${r.firstname}${r.middlename ? ` ${r.middlename.charAt(0)}.` : ''}`,
       department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : '') ?? '',
       position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : '') ?? '',
-      shift: `${r.shift?.timestart ?? ''} - ${r.shift?.timeend ?? ''}`,
+      shift: `${r.shiftstart ?? ''} - ${r.shiftend ?? ''}`,
       leavecredit: r.leavecredit,
     }));
   } catch (err) {
@@ -1130,17 +1104,11 @@ ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate =
 
     const { data: employee, error: empError } = await supabase
       .from("employee")
-      .select("employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid")
+      .select("employeeid, lastname, firstname, middlename, shiftstart, shiftend, positionid, departmentid")
       .eq("employeeid", employeeId)
       .single();
     if (empError) throw empError;
-
-    const { data: shifts } = await supabase
-      .from("shift")
-      .select("shiftid, timestart, timeend")
-      .eq("shiftid", employee.shiftid);
-    const shift = shifts?.[0] || {};
-
+    
     const parseDurationLabel = (mins) => {
       if (mins == null || isNaN(mins)) return "";
       const abs = Math.abs(mins);
@@ -1155,8 +1123,8 @@ ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate =
     const rows = (attendanceBase || []).map((a) => {
       const timeInMin = timeToMinutes(a.timein);
       const timeOutMin = timeToMinutes(a.timeout);
-      const shiftStartMin = timeToMinutes(shift.timestart);
-      const shiftEndMin = timeToMinutes(shift.timeend);
+      const shiftStartMin = timeToMinutes(employee.shiftstart);
+      const shiftEndMin = timeToMinutes(employee.shiftend);
 
       let arrivalDiff = 0;
       let arrivalStatus = "On Time";
@@ -1193,8 +1161,8 @@ ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate =
       return {
         date: formatDateToISO(a.date),
         shift:
-          shift.timestart && shift.timeend
-            ? `${formatTime12(shift.timestart)} - ${formatTime12(shift.timeend)}`
+          employee.shiftstart && employee.shiftend
+            ? `${formatTime12(employee.shiftstart)} - ${formatTime12(employee.shiftend)}`
             : "",
         timeIn: formatTime12(a.timein),
         arrivalDiff: parseDurationLabel(arrivalDiff),
@@ -1303,14 +1271,14 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
         if (role === "employee") {
           const { data } = await supabase
             .from("employee")
-            .select("employeeid, lastname, firstname, middlename, positionid, shiftid, departmentid")
+            .select("employeeid, lastname, firstname, middlename, positionid, shiftstart, shiftend, departmentid")
             .eq("employeeid", a.profileid)
             .single();
           profile = data;
         } else if (role === "applicant") {
           const { data } = await supabase
             .from("applicant")
-            .select("applicantid, lastname, firstname, middlename, positionid, shiftid, departmentid")
+            .select("applicantid, lastname, firstname, middlename, positionid, shiftstart, shiftend, departmentid")
             .eq("applicantid", a.profileid)
             .single();
           profile = data;
@@ -1321,7 +1289,6 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
     );
 
     const positionIds = [...new Set((attendance || []).map(a => a.employee?.positionid).filter(Boolean))];
-    const shiftIds = [...new Set((attendance || []).map(a => a.employee?.shiftid).filter(Boolean))];
     const departmentIds = [...new Set((attendance || []).map(a => a.employee?.departmentid).filter(Boolean))];
 
     const { data: positions } = await supabase
@@ -1329,12 +1296,6 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
       .select("positionid, positionname")
       .in("positionid", positionIds.length ? positionIds : [-1]);
     const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
-
-    const { data: shifts } = await supabase
-      .from("shift")
-      .select("shiftid, timestart, timeend")
-      .in("shiftid", shiftIds.length ? shiftIds : [-1]);
-    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
 
     const { data: departments } = await supabase
       .from("department")
@@ -1356,13 +1317,12 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
     const rows = (attendance || []).map((a) => {
       const emp = a.employee ?? {};
       const pos = posMap.get(emp.positionid) || "";
-      const sh = shiftMap.get(emp.shiftid) || {};
       const department = deptMap.get(emp.departmentid) || "";
 
       const timeInMin = timeToMinutes(a.timein);
       const timeOutMin = timeToMinutes(a.timeout);
-      const shiftStartMin = timeToMinutes(sh.timestart);
-      const shiftEndMin = timeToMinutes(sh.timeend);
+      const shiftStartMin = timeToMinutes(emp.shiftstart);
+      const shiftEndMin = timeToMinutes(emp.shiftend);
 
       let arrivalDiff = 0;
       let arrivalStatus = "On Time";
@@ -1406,8 +1366,8 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
         }`,
         department,
         position: pos,
-        shift: sh.timestart && sh.timeend
-          ? `${formatTime12(sh.timestart)} - ${formatTime12(sh.timeend)}`
+        shift: emp.shiftstart && emp.shiftend
+          ? `${formatTime12(emp.shiftstart)} - ${formatTime12(emp.shiftend)}`
           : "",
         timeIn: formatTime12(a.timein),
         timeOut: formatTime12(a.timeout),
@@ -1437,10 +1397,9 @@ ipcMain.handle("getAbsent", async (event, date) => {
     const { data: employees, error: empErr } = await supabase
       .from("employee")
       .select(
-        `employeeid, lastname, firstname, middlename,
+        `employeeid, lastname, firstname, middlename, shiftstart, shiftend,
          department:departmentid ( departmentname ),
-         position:positionid ( positionname ),
-         shift:shiftid ( timestart, timeend )`
+         position:positionid ( positionname )`
       )
       .order("lastname", { ascending: true });
     if (empErr) throw empErr;
@@ -1448,10 +1407,9 @@ ipcMain.handle("getAbsent", async (event, date) => {
     const { data: applicants, error: appErr } = await supabase
       .from("applicant")
       .select(
-        `applicantid, lastname, firstname, middlename,
+        `applicantid, lastname, firstname, middlename, shiftstart, shiftend,
          department:departmentid ( departmentname ),
-         position:positionid ( positionname ),
-         shift:shiftid ( timestart, timeend )`
+         position:positionid ( positionname )`
       )
       .order("lastname", { ascending: true });
     if (appErr) throw appErr;
@@ -1509,8 +1467,8 @@ ipcMain.handle("getAbsent", async (event, date) => {
       department: r.department?.departmentname ?? "",
       position: r.position?.positionname ?? "",
       shift:
-        r.shift?.timestart && r.shift?.timeend
-          ? `${formatTime12(r.shift.timestart)} - ${formatTime12(r.shift.timeend)}`
+        r.shiftstart && r.shiftend
+          ? `${formatTime12(r.shiftstart)} - ${formatTime12(r.shiftend)}`
           : "",
       date: targetDate,
     }));
@@ -1542,7 +1500,8 @@ ipcMain.handle('getLeave', async (event, date) => {
           lastname,
           positionid,
           departmentid,
-          shiftid
+          shiftstart,
+          shiftend
         )
       `)
       .order("employeeid", { ascending: true });
@@ -1562,17 +1521,14 @@ ipcMain.handle('getLeave', async (event, date) => {
 
     const positionIds = [...new Set((data || []).map(l => l.employee?.positionid).filter(Boolean))];
     const departmentIds = [...new Set((data || []).map(l => l.employee?.departmentid).filter(Boolean))];
-    const shiftIds = [...new Set((data || []).map(l => l.employee?.shiftid).filter(Boolean))];
 
-    const [{ data: positions }, { data: departments }, { data: shifts }] = await Promise.all([
+    const [{ data: positions }, { data: departments }] = await Promise.all([
       supabase.from("position").select("positionid, positionname").in("positionid", positionIds),
       supabase.from("department").select("departmentid, departmentname").in("departmentid", departmentIds),
-      supabase.from("shift").select("shiftid, timestart, timeend").in("shiftid", shiftIds),
     ]);
 
     const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
     const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
-    const shiftMap = new Map((shifts || []).map(s => [s.shiftid, s]));
 
     return (data || []).map(l => {
       const emp = l.employee ?? (Array.isArray(l.employee) ? l.employee[0] : {});
@@ -1598,8 +1554,10 @@ ipcMain.handle('getLeave', async (event, date) => {
         fullName: `${emp.lastname}, ${emp.firstname}${emp.middlename ? ` ${emp.middlename.charAt(0)}.` : ''}`,
         position: posMap.get(emp.positionid) || "",
         department: deptMap.get(emp.departmentid) || "",
-        shift: `${formatTime12(shiftMap.get(emp.shiftid)?.timestart || "")} - ${formatTime12(shiftMap.get(emp.shiftid)?.timeend || "")}`,
-        reason: l.reason,
+        shift:
+          emp.shiftstart && emp.shiftend
+            ? `${formatTime12(emp.shiftstart)} - ${formatTime12(emp.shiftend)}`
+            : "",        reason: l.reason,
         status: l.status,
         type: l.type,
         isPaid: l.is_paid,
@@ -1934,9 +1892,10 @@ ipcMain.handle("getApplicant", async (event, applicantId) => {
         status,
         applicationdate,
         trainingdate,
+        shiftstart,
+        shiftend,
         department:departmentid ( departmentid, departmentname ),
         position:positionid ( positionid, positionname ),
-        shift:shiftid ( shiftid, timestart, timeend ),
         applicantimage,
         resume
       `)
@@ -1948,14 +1907,14 @@ ipcMain.handle("getApplicant", async (event, applicantId) => {
 
     const dep = data.department ?? (Array.isArray(data.department) ? data.department[0] : null);
     const pos = data.position ?? (Array.isArray(data.position) ? data.position[0] : null);
-    const sh = data.shift ?? (Array.isArray(data.shift) ? data.shift[0] : null);
 
-    const name = `${data.lastname}, ${data.firstname}${data.middlename ? ` ${data.middlename.charAt(0)}.` : ""}`;
+    // const name = `${data.lastname}, ${data.firstname}${data.middlename ? ` ${data.middlename.charAt(0)}.` : ""}`;
 
     return {
       applicantid: data.applicantid,
-      name,
-      gender: data.gender,
+      firstname: data.firstname,
+      middlename: data.middlename,
+      lastname: data.lastname,      gender: data.gender,
       age: data.age,
       birthdate: new Date(data.birthdate).toISOString().split("T")[0],
       department: dep?.departmentname ?? "",
@@ -1970,8 +1929,8 @@ ipcMain.handle("getApplicant", async (event, applicantId) => {
       status: data.status,
       applicationdate: data.applicationdate ? new Date(data.applicationdate).toISOString().split("T")[0] : "",
       trainingdate: data.trainingdate ? new Date(data.trainingdate).toISOString().split("T")[0] : "",
-      shiftstart: sh?.timestart ?? "",
-      shiftend: sh?.timeend ?? "",
+      shiftstart: data.shiftstart ?? "",
+      shiftend: data.shiftend ?? "",
       applicantimage: data.applicantimage || null,
       resume: data.resume || null,
     };
@@ -2000,16 +1959,10 @@ ipcMain.handle("getApplicantAttendance", async (event, applicantId, selectedDate
 
     const { data: applicant, error: appError } = await supabase
       .from("applicant")
-      .select("applicantid, lastname, firstname, middlename, positionid, shiftid, departmentid")
+      .select("applicantid, lastname, firstname, middlename, positionid, shiftstart, shiftend, departmentid")
       .eq("applicantid", applicantId)
       .single();
     if (appError) throw appError;
-
-    const { data: shifts } = await supabase
-      .from("shift")
-      .select("shiftid, timestart, timeend")
-      .eq("shiftid", applicant.shiftid);
-    const shift = shifts?.[0] || {};
 
     const parseDurationLabel = (mins) => {
       if (mins == null || isNaN(mins)) return "";
@@ -2025,8 +1978,8 @@ ipcMain.handle("getApplicantAttendance", async (event, applicantId, selectedDate
     const rows = (attendanceBase || []).map((a) => {
       const timeInMin = timeToMinutes(a.timein);
       const timeOutMin = timeToMinutes(a.timeout);
-      const shiftStartMin = timeToMinutes(shift.timestart);
-      const shiftEndMin = timeToMinutes(shift.timeend);
+      const shiftStartMin = timeToMinutes(applicant.shiftstart);
+      const shiftEndMin = timeToMinutes(applicant.shiftend);
 
       let arrivalDiff = 0;
       let arrivalStatus = "On Time";
@@ -2063,8 +2016,8 @@ ipcMain.handle("getApplicantAttendance", async (event, applicantId, selectedDate
       return {
         date: formatDateToISO(a.date),
         shift:
-          shift.timestart && shift.timeend
-            ? `${formatTime12(shift.timestart)} - ${formatTime12(shift.timeend)}`
+          applicant.shiftstart && applicant.shiftend
+            ? `${formatTime12(applicant.shiftstart)} - ${formatTime12(applicant.shiftend)}`
             : "",
         timeIn: formatTime12(a.timein),
         arrivalDiff: parseDurationLabel(arrivalDiff),
@@ -2235,39 +2188,52 @@ ipcMain.handle('addApplicant', async (event, resume) => {
   }
 });
 
-ipcMain.handle('getLogs', async (event, date) => {
+ipcMain.handle("getLogs", async (event, date) => {
   try {
+    // Base query for logs
     let q = supabase
-      .from('userlogs')
-      .select('userlogid, userid, useraction, description, dateofaction')
-      .order('dateofaction', { ascending: false });
+      .from("userlogs")
+      .select("userlogid, user_id, useraction, description, dateofaction")
+      .order("dateofaction", { ascending: false });
 
+    // Optional date filter
     if (date) {
       const start = `${date}T00:00:00`;
       const end = `${date}T23:59:59`;
-      q = q.gte('dateofaction', start).lte('dateofaction', end);
+      q = q.gte("dateofaction", start).lte("dateofaction", end);
     }
 
-    const { data, error } = await q;
-    if (error) throw error;
+    // Fetch logs
+    const { data: logs, error: logError } = await q;
+    if (logError) throw logError;
 
-    const userIds = [...new Set((data || []).map(l => l.userid))];
-    const { data: users } = await supabase
-      .from('users')
-      .select('userid, username')
-      .in('userid', userIds);
+    // Get distinct user IDs
+    const userIds = [...new Set((logs || []).map((l) => l.user_id))].filter(Boolean);
+    if (userIds.length === 0) return logs;
 
-    const userMap = new Map((users || []).map(u => [u.userid, u.username]));
+    // Fetch corresponding employees
+    const { data: employees, error: empError } = await supabase
+      .from("employee")
+      .select("user_id, firstname, lastname")
+      .in("user_id", userIds);
 
-    return (data || []).map(l => ({
+    if (empError) throw empError;
+
+    // Map employee UID → full name
+    const employeeMap = new Map(
+      (employees || []).map((e) => [e.user_id, `${e.lastname}, ${e.firstname}`])
+    );
+
+    // Combine logs with readable username
+    return (logs || []).map((l) => ({
       userlogid: l.userlogid,
-      username: userMap.get(l.userid) || '',
+      username: employeeMap.get(l.user_id) || "Unknown User",
       useraction: l.useraction,
       description: l.description,
-      dateofaction: l.dateofaction
+      dateofaction: l.dateofaction,
     }));
   } catch (err) {
-    console.error('getLogs error:', err);
+    console.error("getLogs error:", err);
     return [];
   }
 });
@@ -2344,8 +2310,6 @@ ipcMain.handle('getDeptPos', async () => {
 
 ipcMain.handle('signUp', async (event, { email, password }) => {
   try {
-    // logMessage(`Incoming email: ${email}`);
-
     const { data: employee, error: empError } = await supabase
       .from('employee')
       .select('employeeid, firstname, middlename, lastname, positionid')
@@ -2357,6 +2321,7 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
       return { error: 'Email not found in employee records.' };
     }
 
+    // 2️⃣ Check employee’s position
     const { data: position, error: posError } = await supabase
       .from('position')
       .select('positionname')
@@ -2364,19 +2329,17 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
       .single();
 
     if (posError || !position) {
-      logMessage(`Position not found for employee ${employee.employeeid}`);
       return { error: 'Employee position not found.' };
     }
 
     const userRole = position.positionname;
-    const allowedRoles = ['Finance', 'President', 'HR Generalist', 'IT'];
 
     if (!allowedRoles.includes(userRole)) {
-      logMessage(`Unauthorized signup attempt: ${email} (${userRole})`);
-      return { error: `Only certain positions can create an account.` };
+      return { error: 'Only certain positions can create an account.' };
     }
 
-    const fullName = `${employee.lastname}, ${employee.firstname} || ''}`.trim();
+    // 3️⃣ Signup the user in Supabase Auth
+    const fullName = `${employee.lastname}, ${employee.firstname} ${employee.middlename || ''}`.trim();
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -2392,13 +2355,18 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
 
     if (error) throw error;
 
-    logMessage(`Signup success for ${email} (${userRole})`);
+    // 4️⃣ Link the auth user to employee record
+    if (data.user) {
+      await supabase
+        .from('employee')
+        .update({ user_id: data.user.id })
+        .eq('employeeid', employee.employeeid);
+    }
 
     return {
       user: data.user,
       message: 'Signup successful. Please verify your email before logging in.',
     };
-
   } catch (err) {
     console.error('Signup error:', err.message);
     return { error: err.message };
@@ -2407,13 +2375,51 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
 
 ipcMain.handle('logIn', async (event, { email, password }) => {
   try {
+    // 1️⃣ Log in with Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
-    return { user: data.user, session: data.session }; 
+
+    const user = data.user;
+    if (!user) return { error: 'No user returned from authentication.' };
+
+    // 2️⃣ Find the employee with this user_id
+    const { data: employee, error: empError } = await supabase
+      .from('employee')
+      .select('employeeid, positionid')
+      .eq('user_id', user.id)
+      .single();
+
+    if (empError || !employee) {
+      return { error: 'No matching employee record found for this user.' };
+    }
+
+    // 3️⃣ Get their position name
+    const { data: position, error: posError } = await supabase
+      .from('position')
+      .select('positionname')
+      .eq('positionid', employee.positionid)
+      .single();
+
+    if (posError || !position) {
+      return { error: 'Unable to determine position for this employee.' };
+    }
+
+    const userRole = position.positionname;
+
+    // 4️⃣ Check allowed roles
+    if (!allowedRoles.includes(userRole)) {
+      return { error: 'You are not authorized to log in with this account.' };
+    }
+
+    // ✅ Successful login and role validated
+    return { user, session: data.session, role: userRole };
+
   } catch (err) {
+    console.error('Login error:', err.message);
     return { error: err.message };
   }
 });
+
 
 ipcMain.handle('logOut', async () => {
   try {

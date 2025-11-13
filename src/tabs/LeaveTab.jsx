@@ -84,7 +84,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
           // "Revoked", 
           // "Rejected",  
           // "Cancelled",
-          "Request"
+          "Pending"
         ].includes(l.status));
     setOnLeave(filtered);
     setLoading(false);

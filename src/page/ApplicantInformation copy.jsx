@@ -87,13 +87,11 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     const fetchApplicant = async () => {
       const data = await window.applicantAPI.getApplicant(applicantId);
       if (!data) return;
-      // NOTE: your getApplicant now returns firstname/middlename/lastname (unbuilt name).
       setApplicant(data);
     };
     fetchApplicant();
   }, [applicantId]);
 
-  // After dept/pos list loads, map departmentid/positionid from names (if available)
   useEffect(() => {
     if (!applicant || deptPosList.length === 0) return;
 
@@ -111,7 +109,7 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     const fetchAttendance = async () => {
       setLoading(true);
       const data = await window.attendanceAPI.getApplicantAttendance(applicantId, selectedDate);
-      setAttendance(data || []);
+      setAttendance(data);
       setLoading(false);
     };
     fetchAttendance();
@@ -131,16 +129,7 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
 
   const handleEditClick = (field, value) => {
     setEditingField(field);
-    if (field === "name") {
-      // populate three inputs
-      setFieldValue({
-        firstname: value?.firstname || applicant?.firstname || "",
-        middlename: value?.middlename || applicant?.middlename || "",
-        lastname: value?.lastname || applicant?.lastname || "",
-      });
-    } else {
-      setFieldValue(value ?? "");
-    }
+    setFieldValue(value);
   };
 
   const handleKeyDown = async (e, field, isDate = false) => {
@@ -173,99 +162,38 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     }
   };
 
-  const handleKeyDownName = (e) => {
-    if (e.key === "Enter") {
-      handleBlurName();
-    }
-  };
-
-  const handleBlurName = () => {
-    if (!applicant) return;
-    const changed =
-      fieldValue.firstname !== (applicant.firstname || "") ||
-      fieldValue.middlename !== (applicant.middlename || "") ||
-      fieldValue.lastname !== (applicant.lastname || "");
-
-    if (changed) {
-      setPendingChange({ field: "name", value: { ...fieldValue } });
-      setConfirmChanges(true);
-    } else {
-      setEditingField(null);
-    }
-  };
-
-  const formatContactNumber = (value) => {
-    if (!value) return "";
-    const digits = value.replace(/\D/g, "");
-
-    if (digits.length <= 4) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
-    return `${digits.slice(0, 4)}-${digits.slice(4, 7)}-${digits.slice(7, 11)}`;
-  };
-
-  // 12-hour time formatter for times like "08:00" -> "8:00 AM"
-  const formatTime12Hour = (timeString) => {
-    if (!timeString) return "";
-    const parts = timeString.split(":");
-    if (parts.length < 2) return timeString;
-    const hour = parseInt(parts[0], 10);
-    const minute = parts[1];
-    const suffix = hour >= 12 ? "PM" : "AM";
-    const h = ((hour + 11) % 12) + 1; // convert 0 -> 12
-    return `${h}:${minute.padStart(2, "0")} ${suffix}`;
-  };
-
   const handleConfirmChange = async () => {
     if (!pendingChange) return;
     const { field, value } = pendingChange;
 
+    let dbField = field;
+    let dbValue = value;
+
+    if (field === "department") dbField = "departmentid";
+    if (field === "position") dbField = "positionid";
+
     try {
-      if (field === "name") {
-        const { firstname, middlename, lastname } = value;
-        // update three name fields via applicantAPI
-        await Promise.all([
-          window.applicantAPI.updateApplicant(applicantId, "firstname", firstname.trim()),
-          window.applicantAPI.updateApplicant(applicantId, "middlename", middlename.trim()),
-          window.applicantAPI.updateApplicant(applicantId, "lastname", lastname.trim()),
-        ]);
+      await window.applicantAPI.updateApplicant(applicantId, dbField, dbValue);
 
-        setApplicant((prev) => ({
-          ...prev,
-          firstname,
-          middlename,
-          lastname,
-        }));
+      setApplicant((prev) => {
+        const newState = { ...prev };
+        if (field === "department") {
+          newState.positionid = null;
+          newState.position = "---";
+          newState.departmentid = value;
+        } else if (field === "position") {
+          newState.positionid = value;
+          const posObj = deptPosList.find(
+            (d) => d.departmentid === prev.departmentid && d.positionid == value
+          );
+          newState.position = posObj?.positionname || "---";
+        } else {
+          newState[field] = value;
+        }
+        return newState;
+      });
 
-        window.toast("Name updated successfully", "success");
-      } else {
-        let dbField = field;
-        let dbValue = value;
-
-        if (field === "department") dbField = "departmentid";
-        if (field === "position") dbField = "positionid";
-
-        await window.applicantAPI.updateApplicant(applicantId, dbField, dbValue);
-
-        setApplicant((prev) => {
-          const newState = { ...prev };
-          if (field === "department") {
-            newState.positionid = null;
-            newState.position = "---";
-            newState.departmentid = value;
-          } else if (field === "position") {
-            newState.positionid = value;
-            const posObj = deptPosList.find(
-              (d) => d.departmentid === prev.departmentid && d.positionid == value
-            );
-            newState.position = posObj?.positionname || "---";
-          } else {
-            newState[field] = value;
-          }
-          return newState;
-        });
-
-        window.toast("Change saved successfully", "success");
-      }
+      window.toast("Change saved successfully", "success");
     } catch (err) {
       console.error("Update failed:", err);
       window.toast("Database update failed.", "error");
@@ -327,21 +255,7 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
   };
 
   const handleFieldBlur = (field, isDate) => {
-    // For name we compare against the separate firstname/lastname fields; for others compare stored value
-    if (field === "name") {
-      const currentBuilt = `${applicant?.lastname || ""}, ${applicant?.firstname || ""}`;
-      if ((fieldValue.lastname || "") !== (applicant?.lastname || "") ||
-          (fieldValue.firstname || "") !== (applicant?.firstname || "") ||
-          (fieldValue.middlename || "") !== (applicant?.middlename || "")) {
-        setPendingChange({ field, value: fieldValue });
-        setConfirmChanges(true);
-      } else {
-        setEditingField(null);
-      }
-      return;
-    }
-
-    if (fieldValue !== (applicant?.[field] ?? "")) {
+    if (fieldValue !== applicant[field]) {
       setPendingChange({ field, value: fieldValue });
       setConfirmChanges(true);
     } else {
@@ -420,26 +334,17 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
             </select>
           ) : (
             <input
-              type={
-                isDate
-                  ? "date"
-                  : field.includes("shift")
-                    ? "time"
-                    : "text"
-              }
+              type={isDate ? "date" : "text"}
               value={
-                isDate
-                  ? new Date(fieldValue).toISOString().split("T")[0]
-                  : field === "contact"
-                    ? formatContactNumber(fieldValue)
-                    : fieldValue
+                isDate && fieldValue
+                  ? (() => {
+                      const d = new Date(fieldValue);
+                      return isNaN(d) ? "" : d.toISOString().split("T")[0];
+                    })()
+                  : fieldValue
               }
               autoFocus
-              onChange={(e) => {
-                let val = e.target.value;
-                if (field === "contact") val = e.target.value.replace(/\D/g, "");
-                setFieldValue(val);
-              }}
+              onChange={(e) => setFieldValue(e.target.value)}
               onKeyDown={(e) => handleKeyDown(e, field, isDate)}
               onBlur={(e) => handleFieldBlur(field, isDate)}
             />
@@ -450,77 +355,11 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
               ? applicant[field]
                 ? new Date(applicant[field]).toISOString().split("T")[0]
                 : "—"
-              : field === "contact"
-                ? formatContactNumber(applicant[field])
-                : field.includes("shift") && applicant[field]
-                  ? formatTime12Hour(applicant[field])
-                  : applicant[field] || "—"}
+              : applicant[field] || "—"}
             <MdEdit className="editIcon" onClick={() => handleEditClick(field, applicant[field])} />
           </>
         )}
       </p>
-    );
-  };
-
-  const renderEditableName = () => {
-    const builtName = `${applicant?.lastname || ""}, ${applicant?.firstname || ""}${applicant?.middlename ? ` ${applicant.middlename.charAt(0)}.` : ""}`.trim();
-
-    return (
-      <div className="employeeInfoName">
-        {editingField === "name" ? (
-          <div className="editableField nameInputs"
-            onBlurCapture={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget)) {
-                handleBlurName();
-              }
-            }}
-          >
-            <input
-              type="text"
-              placeholder="Last Name"
-              value={fieldValue.lastname || ""}
-              onChange={(e) =>
-                setFieldValue((prev) => ({ ...prev, lastname: e.target.value }))
-              }
-              onKeyDown={handleKeyDownName}
-              autoFocus
-            />
-            <input
-              type="text"
-              placeholder="First Name"
-              value={fieldValue.firstname || ""}
-              onChange={(e) =>
-                setFieldValue((prev) => ({ ...prev, firstname: e.target.value }))
-              }
-              onKeyDown={handleKeyDownName}
-            />
-            <input
-              type="text"
-              placeholder="Middle Name"
-              value={fieldValue.middlename || ""}
-              onChange={(e) =>
-                setFieldValue((prev) => ({ ...prev, middlename: e.target.value }))
-              }
-              onKeyDown={handleKeyDownName}
-            />
-          </div>
-        ) : (
-          <>
-            {applicant?.applicantid} | <p className="editableField">{builtName}</p>
-            <MdEdit
-              className="editIcon"
-              onClick={() => {
-                setEditingField("name");
-                setFieldValue({
-                  firstname: applicant.firstname || "",
-                  middlename: applicant.middlename || "",
-                  lastname: applicant.lastname || "",
-                });
-              }}
-            />
-          </>
-        )}
-      </div>
     );
   };
 
@@ -577,19 +416,9 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
   };
 
   const calculateTimeDiff = (start, end) => {
-    if (!start || !end) return 0;
     const startDate = new Date(`1970-01-01T${start}`);
     const endDate = new Date(`1970-01-01T${end}`);
     return (endDate - startDate) / (1000 * 60);
-  };
-
-  const formatShift = (row) => {
-    if (row.shift) return row.shift;
-    if (row.shiftstart && row.shiftend) {
-      const hours = Math.round((calculateTimeDiff(row.shiftstart, row.shiftend) / 60) * 100) / 100;
-      return `${formatTime12Hour(row.shiftstart)} - ${formatTime12Hour(row.shiftend)} (${hours}h)`;
-    }
-    return "-";
   };
 
   const filtered = useMemo(() => {
@@ -634,6 +463,8 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
 
   if (!applicant) return <div className="loadingContainer"><div className="spinner"></div></div>;
 
+  const fullName = `${applicant.firstname || ""} ${applicant.middlename || ""} ${applicant.lastname || ""}`.trim();
+
   return (
     <div className="employeeInfoContainer">
       <div className="employeeInfoHeader">
@@ -664,7 +495,9 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
         </div>
 
         <div className="employeeInfoMeta">
-          {renderEditableName()}
+          <div className="employeeInfoName">
+            {applicant.applicantid} | {applicant.name}
+          </div>
 
           <div className="employeeInfoColumns">
             <div className="infoColumn">
@@ -736,7 +569,7 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
             selectedFilters={selectedFilters}
             setSelectedFilters={setSelectedFilters}
             uniqueValues={{
-              shift: [...new Set(attendance.map((r) => formatShift(r)))],
+              shift: [...new Set(attendance.map((r) => r.shift))],
               arrivalStatus: [...new Set(attendance.map((r) => r.arrivalStatus))],
               workStatus: [...new Set(attendance.map((r) => r.workStatus))],
             }}
@@ -812,7 +645,7 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
                           })
                         : "-"}
                     </td>
-                    <td>{formatShift(row)}</td>
+                    <td>{row.shift || "-"}</td>
                     <td>{row.timeIn || "-"}</td>
                     <td style={{ color: colorForArrival(row.arrivalStatus) }}>
                       {row.arrivalDiff === 0

@@ -60,45 +60,62 @@ ipcMain.handle("clearSession", clearSession);
 ipcMain.handle("restoreSession", (_e, session) => restoreSession(null, session));
 
 ipcMain.handle("getCurrentUser", async () => {
-  // console.log("[getCurrentUser] called");
   try {
-    const { data: authData, error: authError } = await supabase.auth.getUser();
-    if (authError) throw authError;
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return null;
 
-    const user = authData?.user;
-    if (!user) {
-      // console.warn("[getCurrentUser] no authenticated user");
-      return null;
-    }
-
-    const { data: profile, error: profileError } = await supabase
-      .from("users")
-      .select("userid, uid, username, userrole, userimage, employeeid, createddate")
-      .eq("uid", user.id)
+    const { data: employee, error: empError } = await supabase
+      .from("employee")
+      .select("employeeid, firstname, lastname, middlename, positionid, employeeimage")
+      .eq("user_id", user.id)
       .single();
 
-    if (profileError) {
-      // console.warn("[getCurrentUser] no profile found:", profileError.message);
+    if (empError || !employee) {
+      return {
+        uid: user.id,
+        name: user.user_metadata?.full_name || "Unknown User",
+        role: "N/A",
+        image: null,
+        email: user.email,
+      };
     }
 
-    const merged = {
-      id: user.id,
-      email: user.email,
-      username: profile?.username || user.email,
-      userrole: profile?.userrole || "Unknown Role",
-      userimage: profile?.userimage || null,
-      employeeid: profile?.employeeid || null,
-      createddate: profile?.createddate || null,
-    };
+    const { data: position, error: posError } = await supabase
+      .from("position")
+      .select("positionname")
+      .eq("positionid", employee.positionid)
+      .single();
 
-    // console.log("[getCurrentUser] merged user:", merged);
-    return merged;
+    const positionName = posError
+      ? "Unknown Role"
+      : position?.positionname || "Employee";
+
+    let imageUrl = null;
+
+    if (employee.employeeimage) {
+      // Only call getPublicUrl if it's a relative path, not a full URL
+      if (employee.employeeimage.startsWith("http")) {
+        imageUrl = employee.employeeimage;
+      } else {
+        const { data: imgData } = supabase.storage
+          .from("image")
+          .getPublicUrl(employee.employeeimage);
+        imageUrl = imgData?.publicUrl || null;
+      }
+    }
+
+    return {
+      uid: user.id,
+      name: user.user_metadata?.full_name || `${employee.firstname} ${employee.lastname}`,
+      role: positionName,
+      image: imageUrl,
+      email: user.email,
+    };
   } catch (err) {
-    // console.error("[getCurrentUser]", err.message);
+    console.error("❌ Error in getCurrentUser IPC:", err);
     return null;
   }
 });
-
 
 supabase.auth.onAuthStateChange((_event, session) => {
   // if (session) {

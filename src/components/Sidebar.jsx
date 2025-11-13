@@ -46,7 +46,7 @@ const Sidebar = ({
     const unsubscribe = useOcrStore.subscribe(
       state => state.processingMap,
       (processingMap) => {
-        console.log("🔄 Sidebar: processingMap changed:", processingMap);
+        // console.log("🔄 Sidebar: processingMap changed:", processingMap);
       }
     );
     return unsubscribe;
@@ -65,7 +65,7 @@ const Sidebar = ({
 
   // DEBUG: log every change
   useEffect(() => {
-    console.log("📍 Sidebar: processingMap updated:", { processingMap, scannerProcessing, batchProcessing });
+    // console.log("📍 Sidebar: processingMap updated:", { processingMap, scannerProcessing, batchProcessing });
   }, [processingMap, scannerProcessing, batchProcessing]);
 
   const [showEmployees, setShowEmployees] = useState(false);
@@ -74,24 +74,46 @@ const Sidebar = ({
 
   const [userName, setUserName] = useState(null);
   const [userRole, setUserRole] = useState(null);
+  const [userImage, setUserImage] = useState(null);
 
   useEffect(() => {
-    console.log("Sidebar states:", { activePage, showAnalyzer, showApplicantInfo, scannerProcessing, batchProcessing });
+    // console.log("Sidebar states:", { activePage, showAnalyzer, showApplicantInfo, scannerProcessing, batchProcessing });
   }, [activePage, showAnalyzer, showApplicantInfo, scannerProcessing, batchProcessing]);
 
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const user = await window.authAPI.getCurrentUser();
+        const user = await window.authAPI.getCurrentUser(); // ✅ calls queries.js
         if (user) {
-          setUserName(user.username || 'Unknown User');
-          setUserRole(user.userrole || 'Unknown Role');
+          setUserName(user.name);
+          setUserRole(user.role);
+
+          if (user.image) {
+            try {
+              // Fetch the image from Supabase public URL
+              const res = await fetch(user.image);
+              if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+              const blob = await res.blob();
+
+              // Convert to base64
+              const reader = new FileReader();
+              reader.onload = () => setUserImage(reader.result); // base64 string
+              reader.readAsDataURL(blob);
+            } catch (imgErr) {
+              console.error("Failed to load user image:", imgErr);
+              setUserImage(null);
+            }
+          } else {
+            setUserImage(null);
+          }
         } else {
           setUserName('Guest');
           setUserRole('N/A');
+          setUserImage(null);
         }
       } catch (err) {
         console.error('Failed to load user session:', err);
+        setUserImage(null);
       }
     };
 
@@ -113,7 +135,21 @@ const Sidebar = ({
     <div className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
       <div className="userProfile">
         <div className="topBar">
-          <div className="avatarPlaceholder" />
+          {userImage ? (
+            <img
+              src={userImage}
+              alt="User"
+              className="avatarImg"
+              style={{
+                width: 50,
+                height: 50,
+                borderRadius: '50%',
+                objectFit: 'cover'
+              }}
+            />
+          ) : (
+            <div className="avatarPlaceholder" />
+          )}
           <div className="userInfo">
             <div className="role">{userRole}</div>
             <div className="name">{userName}</div>

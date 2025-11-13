@@ -35,6 +35,12 @@ const Auth = ({ onLogin }) => {
 
         await window.authAPI.setSession(res.session);
 
+        if (rememberMe) {
+          localStorage.setItem("rememberedEmail", email);
+        } else {
+          localStorage.removeItem("rememberedEmail");
+        }
+
         if (res.user) onLogin(res.user);
 
       } else {
