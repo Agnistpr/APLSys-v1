@@ -88,6 +88,7 @@ app.on("ready", async () => {
          webSecurity: true,
          allowRunningInsecureContent: false
       },
+      icon: path.join(__dirname, '../assets/appLogo.png')
     });
 
       // Build and apply CSP headers

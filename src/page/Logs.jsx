@@ -149,7 +149,12 @@ const Logs = () => {
             <div
               key={i}
               className={`logEntry ${log.description ? "expandable" : ""}`}
-              onClick={() => log.description && toggleExpand(i)}
+              onClick={() => {
+                const shortAction = (log.useraction || "").split(" ")[0];
+                if (log.description && !["Imported", "Exported"].includes(shortAction)) {
+                  toggleExpand(i);
+                }
+              }}
             >
               <div className="logLeftIcon">{getActionIcon(log.useraction)}</div>
               <div className="logMain">
@@ -164,7 +169,7 @@ const Logs = () => {
                 )}
               </div>
 
-              {log.description && (
+              {log.description && !["Imported", "Exported"].includes((log.useraction || "").split(" ")[0]) && (
                 <div className="logExpandIcon">
                   <FiChevronRight
                     style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}

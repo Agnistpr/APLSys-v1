@@ -408,7 +408,7 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
       <ConfirmModal
         open={confirmOpen}
         title="Delete Item"
-        message={`Are you sure you want to delete "${pendingDelete?.itemname}"?`}
+        message={`Are you sure you want to delete "${pendingDelete?.itemname}"? This will remove all logs for this item as well.`}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         onConfirm={confirmDelete}

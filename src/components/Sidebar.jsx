@@ -228,7 +228,7 @@ const Sidebar = ({
                     setActivePage(page);
                     if (page === "Analyzer") {
                       setShowAnalyzer(true);
-                      setShowApplicantInfo(false);
+                      // setShowApplicantInfo(false);
                     }
                   }}
                   title={page === "Analyzer" && isParsingResume ? `Parsing ${parsingFileName || 'resume'}... Please be patient` : page}
@@ -291,7 +291,6 @@ const Sidebar = ({
                   className={`subNavItem ${activePage === page ? "activeSubTab" : ""}`}
                   onClick={() => {
                     setActivePage(page);
-                    // keep analyzer/applicant behavior unchanged
                     setShowAnalyzer(page === "Scanner" ? false : showAnalyzer);
                     setShowApplicantInfo(false);
                   }}
