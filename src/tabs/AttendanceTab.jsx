@@ -12,7 +12,7 @@ const getYesterday = () => {
   return d.toISOString().split("T")[0];
 };
 
-const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId, setSelectedApplicantId }) => {
+const DashboardAttendance = ({ uid, setActivePage, setSelectedEmployeeId, setSelectedApplicantId }) => {
   const [attendance, setAttendance] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState("fullName");
@@ -262,14 +262,31 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId, setSelected
           totalItems={attendance.length}
           onPageChange={setCurrentPage}
           onItemsPerPageChange={setItemsPerPage}
-          onImport={() => setShowImportModal(true)}
-          onExport={() => window.exportAPI.exportAttendance()}
+          // onImport={() => setShowImportModal(true)}
+          // onExport={() => window.exportAPI.exportAttendance()}
         />
         <div className="actions">
           <button className="exportBtn" onClick={() => setShowImportModal(true)}>
             Import
           </button>
-          <button className="exportBtn" onClick={() => window.exportAPI.exportAttendance(selectedDate)}>
+          <button
+            className="exportBtn"
+            onClick={async () => {
+              try {
+                const result = await window.exportAPI.exportAttendance(selectedDate);
+                console.log(uid);
+                if (result.success) {
+                  await window.userAPI.logAction(uid, "exported a copy of Attendance");
+                  window.toast("Attendance exported successfully!", "success");
+                } else {
+                  window.toast(result.message || "Export failed", "error");
+                }
+              } catch (err) {
+                console.error("Export error:", err);
+                window.toast("An error occurred during export", "error");
+              }
+            }}
+          >
             Export
           </button>
         </div>

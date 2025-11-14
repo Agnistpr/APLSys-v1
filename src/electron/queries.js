@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import supabase from "./supabaseClient.js";
 
+// LOGGING -----------------------------------------------------------------------------
 const logPath = app.isPackaged
   ? path.join(app.getPath("userData"), "log.txt")
   : path.join(process.cwd(), "log.txt");
@@ -18,10 +19,15 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason, p) => {
   logMessage(`UNHANDLED REJECTION: ${reason}`);
 });
+// -----------------------------------------------------------------------------
 
-// --- helpers -----------------------------------------------------------------
+// --------------------------------------------------------------------
+// Permissions for now
 const allowedRoles = ['Finance', 'President', 'HR Generalist', 'IT'];
+// --------------------------------------------------------------------
 
+// FORMATTING --------------------------------------------------------------------
+// Date formatting
 function formatDateToISO(date) {
   if (!date) return "";
   try {
@@ -34,6 +40,7 @@ function formatDateToISO(date) {
   }
 }
 
+// Time formatting
 function formatTime12(timeStr) {
   if (!timeStr && timeStr !== 0) return "";
   const t = String(timeStr);
@@ -56,7 +63,9 @@ function timeToMinutes(timeStr) {
   const m = parseInt(parts[1], 10) || 0;
   return h * 60 + m;
 }
+// --------------------------------------------------------------------
 
+// CSV --------------------------------------------------------------------
 function buildCSV(rows) {
   if (!rows || rows.length === 0) return "";
   const headers = Object.keys(rows[0]);
@@ -66,18 +75,34 @@ function buildCSV(rows) {
   ].join("\n");
   return csv;
 }
+// --------------------------------------------------------------------
 
-function toBase64IfNeeded(val) {
-  if (!val) return "";
-  if (typeof val === "string") return val;
-  try {
-    return Buffer.from(val).toString("base64");
-  } catch (e) {
-    return String(val);
-  }
+// LOG ACTION--------------------------------------------------------------------
+async function logUserAction(uid, useraction, description = "") {
+  const { error } = await supabase.from("userlogs").insert([
+    {
+      user_id: uid,
+      useraction,
+      description,
+    },
+  ]);
+
+  if (error) throw error;
 }
 
-// -----------------------------------------------------------------------------
+ipcMain.handle("logAction", async (event, { uid, useraction, description = "" }) => {
+  try {
+    await logUserAction(uid, useraction, description);
+    return { success: true };
+  } catch (err) {
+    console.error("Error in logAction:", err);
+    return { success: false, error: err.message };
+  }
+});
+// --------------------------------------------------------------------
+
+
+// ATTENDANCE -----------------------------------------------------------------------------
 ipcMain.handle("getAttendanceColumns", async () => {
   try {
     const { data, error } = await supabase.from("attendance").select("*").limit(1);
@@ -220,33 +245,6 @@ ipcMain.handle("importAttendance", async (event, { rows }) => {
 });
 
 // -----too bothered to organize for now---
-ipcMain.handle("logAction", async (event, { uid, useraction, description }) => {
-  try {
-    console.log("logAction called with:", { uid, useraction, description });
-    const { data: userRecord, error: lookupError } = await supabase
-      .from("users")
-      .select("userid")
-      .eq("uid", uid)
-      .single();
-
-    if (lookupError) throw lookupError;
-    if (!userRecord) throw new Error("No matching internal user found.");
-
-    const { error } = await supabase.from("userlogs").insert([
-      {
-        userid: userRecord.userid,
-        useraction,
-        description,
-      },
-    ]);
-
-    if (error) throw error;
-    return { success: true };
-  } catch (err) {
-    console.error("Error in logAction:", err);
-    return { success: false, error: err.message };
-  }
-});
 
 ipcMain.handle("exportEmployees", async () => {
   try {
@@ -477,8 +475,9 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
     if (!filePath) return { success: false, message: "Export cancelled" };
 
     await fs.promises.writeFile(filePath, csv, "utf8");
+    // logMessage(`Attendance exported to ${filePath} (${rows.length} rows)`);
 
-    logMessage(`Attendance exported to ${filePath} (${rows.length} rows)`);
+    // await logUserAction(uid, "Exported Attendance");
 
     return { success: true, filePath, count: rows.length };
   } catch (err) {

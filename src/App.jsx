@@ -425,7 +425,7 @@ useEffect(() => {
   };
 
   const sharedProps = {
-    uid: user?.id,
+    uid: user?.uid,
     activePage,
     setActivePage,
     setSelectedEmployeeId,

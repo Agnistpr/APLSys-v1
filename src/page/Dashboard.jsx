@@ -98,22 +98,19 @@ const Dashboard = ({
   };
 
   useEffect(() => {
-    const updateTimeAndData = async () => {
+    const updateTime = () => {
       const now = new Date();
-      setDateStr(
-        now.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        })
-      );
+      setDateStr(now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
       setTimeStr(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-      await fetchCounts();
     };
 
-    updateTimeAndData();
-    const interval = setInterval(updateTimeAndData, 60000);
+    updateTime();
+    const interval = setInterval(updateTime, 60000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    fetchCounts();
   }, []);
 
   const tabComponents = {
