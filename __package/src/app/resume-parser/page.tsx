@@ -1583,14 +1583,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             onFileUrlChange={handleFileChange}
             currentFile={currentFile}
           />
-          <button
-            onClick={handleParseResume}
-            className="btn-primary ml-2"
-            disabled={isParsingResume || isProcessing}
-            title="Parse Uploaded Resume"
-          >
-            {isParsingResume || isProcessing ? "Parsing..." : "Parse Resume"}
-          </button>
         </div>
 
         <div className="tab-header">
