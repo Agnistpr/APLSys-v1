@@ -31,7 +31,14 @@ const Auth = ({ onLogin }) => {
     try {
       if (mode === "login") {
         const res = await window.authAPI.login(email, password);
-        if (res.error) throw new Error(res.error);
+
+        if (res.error) {
+          throw new Error(res.error);
+        }
+
+        if (!res.session || !res.user) {
+          throw new Error("Invalid login response.");
+        }
 
         await window.authAPI.setSession(res.session);
 
@@ -41,8 +48,7 @@ const Auth = ({ onLogin }) => {
           localStorage.removeItem("rememberedEmail");
         }
 
-        if (res.user) onLogin(res.user);
-
+        onLogin(res.user);
       } else {
         if (password !== confirmPassword) throw new Error("Passwords do not match");
 

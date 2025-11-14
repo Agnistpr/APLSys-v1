@@ -263,7 +263,7 @@ const Sidebar = ({
                   onClick={() => {
                     setActivePage("ApplicantInformation");
                     setShowApplicantInfo(true); // ✅ mark as open
-                    setShowAnalyzer(false);
+                    // setShowAnalyzer(false);
                   }}
                   title="Information"
                 >
