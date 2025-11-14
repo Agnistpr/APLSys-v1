@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { generateResumeAnalysisPrompt, analyzeResumeWithGemini } from "../../../conn/genAnalysis";
+import { generateResumeAnalysisPrompt, analyzeResumeWithDS } from "../../../../conn/genAnalysis";
 import { readPdf } from "../lib/parse-resume-from-pdf/read-pdf"; // adjust path if needed
 import { JOB_ROLES } from "../data/jobRoles";
 
@@ -40,7 +40,7 @@ export const BatchResumeAnalyzer = ({ jobRole,jobDescription, jobCategory }) => 
         job_description: jobRoleObj?.description || jobDescription || "",
       };
 
-      const result = await analyzeResumeWithGemini(payload);
+      const result = await analyzeResumeWithDS(payload);
       setResults(prev => [...prev, { name: file.name, result }]);
       setProgress(i + 1);
     }

@@ -417,8 +417,7 @@ const ImportModal = ({ show, onClose, onImportComplete }) => {
 const handleApplyFix = async () => {
   if (mode !== "kiosk") return;
 
-  const valid = kioskRows.filter(r => !r._incomplete);
-
+  const valid = kioskRows.filter(r => !r._incomplete && r.timeout && r.timein && r.fullname);
   const rows = valid.map(r => {
     const isNextDay = /\(Next Day\)/i.test(r.timeout || "");
     const cleanTimeout = (r.timeout || "").replace(/\s*\(Next Day\)/i, "").trim();

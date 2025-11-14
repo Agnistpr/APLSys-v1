@@ -91,12 +91,12 @@ export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
     const newFile = event.target.files?.[0];
     if (!newFile) return;
 
-    const validTypes = [".pdf"];
+    const validTypes = [".pdf", ".png", ".jpg", ".jpeg", ".docx"];
     const ext = newFile.name.substring(newFile.name.lastIndexOf(".")).toLowerCase();
     if (!validTypes.includes(ext)) {
       setHasNonPdfFile(true);
       toast.error("Invalid file type", {
-        description: "Please upload only PDF files.",
+        description: "Please upload PDF, image (PNG/JPG), or DOCX files.",
         duration: 3000,
       });
       event.target.value = "";
@@ -110,6 +110,7 @@ export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
 
     const blobUrl = URL.createObjectURL(newFile);
     setFile({ name: newFile.name, size: newFile.size, fileUrl: blobUrl, ownBlob: true });
+    // Pass the File object as the third parameter so parent gets the MIME type
     onFileUrlChange(blobUrl, newFile.name, newFile);
   };
 
@@ -118,11 +119,12 @@ export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
     const newFile = event.dataTransfer.files[0];
     if (!newFile) return;
 
+    const validTypes = [".pdf", ".png", ".jpg", ".jpeg", ".docx"];
     const ext = newFile.name.substring(newFile.name.lastIndexOf(".")).toLowerCase();
-    if (ext !== ".pdf") {
+    if (!validTypes.includes(ext)) {
       setHasNonPdfFile(true);
       toast.error("Invalid file type", {
-        description: "Please upload only PDF files.",
+        description: "Please upload PDF, image (PNG/JPG), or DOCX files.",
         duration: 3000,
       });
       return;
@@ -134,6 +136,7 @@ export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
     }
     const blobUrl = URL.createObjectURL(newFile);
     setFile({ name: newFile.name, size: newFile.size, fileUrl: blobUrl, ownBlob: true });
+    // Pass the File object as the third parameter so parent gets the MIME type
     onFileUrlChange(blobUrl, newFile.name, newFile);
   };
 
@@ -167,8 +170,8 @@ export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
       <div className="text-center space-y-3">
         {!hasFile ? (
           <>
-            <input type="file" className="sr-only" accept=".pdf" onChange={onInputChange} />
-            {hasNonPdfFile && <p className="mt-2 text-red-500">Only PDF files supported</p>}
+            <input type="file" className="sr-only" accept=".pdf,.png,.jpg,.jpeg,.docx" onChange={onInputChange} />
+            {hasNonPdfFile && <p className="mt-2 text-red-500">Only PDF, PNG, JPG, and DOCX files supported</p>}
           </>
         ) : (
           <div className="flex items-center justify-center gap-3">

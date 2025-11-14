@@ -85,10 +85,11 @@ const sanitizeEditableResume = (r: any) => {
     }
   };
 
-type PdfPreviewProps = {
+type ResumePreviewProps = {
   fileUrl: string | null;
-  scale?: number; // optional scale for rendering
-  maxPages?: number; // optional limit for pages to render
+  fileType?: string;
+  scale?: number;
+  maxPages?: number;
   currentPage: number;
   setCurrentPage: (page: number) => void;
   totalPages: number;
@@ -97,8 +98,9 @@ type PdfPreviewProps = {
   setIsLoading: (loading: boolean) => void;
 };
 
-function PdfPreview({ 
+function ResumePreview({ 
   fileUrl, 
+  fileType,
   scale = 1, 
   maxPages,
   currentPage,
@@ -107,69 +109,213 @@ function PdfPreview({
   setTotalPages,
   isLoading,
   setIsLoading
- }: PdfPreviewProps) {
+ }: ResumePreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
+  // Detect file type from URL, prop, or blob type
+  const getFileType = () => {
+    // Use passed fileType first (most reliable)
+    if (fileType) {
+      const typeLower = fileType.toLowerCase();
+      if (typeLower.includes('image')) return 'image';
+      if (typeLower.includes('pdf')) return 'pdf';
+      // Check for all DOCX variants
+      if (typeLower.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document') ||
+          typeLower.includes('application/msword') ||
+          typeLower.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.template') ||
+          typeLower.includes('wordprocessingml') || 
+          typeLower.includes('officedocument') || 
+          typeLower.includes('docx') ||
+          typeLower.includes('word'))
+        return 'docx';
+    }
+    
+    // Fallback to URL extension
+    if (!fileUrl) return null;
+    // Skip blob URLs
+    if (fileUrl.startsWith("blob:")) return null;
+
+    const ext = fileUrl.split("?")[0].split(".").pop()?.toLowerCase();
+    console.log("DEBUG: detected file extension:", ext); // Add debug log
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext ?? "")) return 'image';
+    if (ext === "pdf") return "pdf";
+    if (ext === "docx") return "docx";
+    return null;
+  };
+
+  const detectedFileType = getFileType();
+  console.log("DEBUG: detectedFileType:", detectedFileType, "fileType prop:", fileType); // Add debug log
+
+  // PDF rendering logic
   useEffect(() => {
-  if (!fileUrl || !canvasRef.current) return;
+    if (detectedFileType !== 'pdf' || !fileUrl || !canvasRef.current) return;
 
-  let cancelled = false;
+    let cancelled = false;
 
-  const loadAndRender = async () => {
-    try {
-      setIsLoading(true);
-      const loadingTask = pdfjsLib.getDocument({ url: fileUrl });
-      const pdf = await loadingTask.promise;
-      const pages = maxPages ? Math.min(pdf.numPages, maxPages) : pdf.numPages;
-      setTotalPages(pages);
+    const loadAndRender = async () => {
+      try {
+        setIsLoading(true);
+        const loadingTask = pdfjsLib.getDocument({ url: fileUrl });
+        const pdf = await loadingTask.promise;
+        const pages = maxPages ? Math.min(pdf.numPages, maxPages) : pdf.numPages;
+        setTotalPages(pages);
 
-      const page = await pdf.getPage(currentPage || 1);
-      if (cancelled) return;
+        const page = await pdf.getPage(currentPage || 1);
+        if (cancelled) return;
 
-      const viewport = page.getViewport({ scale });
-      const canvas = canvasRef.current!;
-      const ctx = canvas.getContext("2d")!;
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const renderTask = page.render({ canvasContext: ctx, canvas, viewport });
-      await renderTask.promise;
-    } catch (err) {
-      console.error("PDF load/render error:", err);
-    } finally {
+        const viewport = page.getViewport({ scale });
+        const canvas = canvasRef.current!;
+        const ctx = canvas.getContext("2d")!;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const renderTask = page.render({ canvasContext: ctx, canvas, viewport });
+        await renderTask.promise;
+      } catch (err) {
+        console.error("PDF load/render error:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadAndRender();
+    return () => {
+      cancelled = true;
+      const ctx = canvasRef.current?.getContext("2d");
+      if (ctx && canvasRef.current) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+    };
+  }, [fileUrl, currentPage, scale, detectedFileType, setIsLoading, setTotalPages]);
+
+  // Image rendering logic
+  useEffect(() => {
+    if (detectedFileType !== 'image' || !fileUrl) return;
+
+    setIsLoading(true);
+    const img = new Image();
+    
+    img.onload = () => {
+      if (imgRef.current) {
+        imgRef.current.src = fileUrl;
+      }
+      setTotalPages(1);
+      setCurrentPage(1);
       setIsLoading(false);
-    }
-  };
+    };
+    
+    img.onerror = () => {
+      console.error("Failed to load image");
+      setIsLoading(false);
+    };
+    
+    img.src = fileUrl;
+  }, [fileUrl, detectedFileType, setIsLoading, setTotalPages, setCurrentPage]);
 
-  loadAndRender();
-  return () => {
-    cancelled = true;
-    const ctx = canvasRef.current?.getContext("2d");
-    if (ctx && canvasRef.current) {
-      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+  // DOCX preview message (no native browser support)
+  useEffect(() => {
+    if (detectedFileType === 'docx') {
+      console.log("DEBUG: Setting DOCX preview - totalPages to 1, currentPage to 1");
+      setIsLoading(false);
+      setTotalPages(1);
+      setCurrentPage(1);
     }
-  };
-}, [fileUrl, currentPage, scale]);
+  }, [detectedFileType, setTotalPages, setCurrentPage, setIsLoading]);
 
+  // Render DOCX via Microsoft Office embed for public HTTP(S) URLs
+  if (detectedFileType === 'docx' && fileUrl && /^https?:\/\//i.test(fileUrl)) {
+    const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
+    return (
+      <div style={{ height: "100%", width: "100%" }}>
+        <iframe
+          title="DOCX preview"
+          src={viewerUrl}
+          style={{ 
+            width: "100%", 
+            height: "100%", 
+            border: "none", 
+            minHeight: 1000,
+            display: "block"
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px", height: "100%" }}>
-      <canvas
-        ref={canvasRef}
-        style={{
-          width: "100%",
-          maxWidth: "40rem",
-          height: "auto",
-          display: "block",
-          borderRadius: "6px",
-          background: "#fff",
-          boxShadow: "0 1px 4px rgba(74, 68, 68, 0.1)",
-          flex: 1,
-        }}
-      />
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", height: "100%", width: "100%" }}>
+      {detectedFileType === 'pdf' && (
+        <canvas
+          ref={canvasRef}
+          style={{
+            width: "100%",
+            maxWidth: "100%",
+            height: "auto",
+            display: "block",
+            borderRadius: "6px",
+            background: "#fff",
+            boxShadow: "0 1px 4px rgba(74, 68, 68, 0.1)",
+            flex: 1,
+            maxHeight: "600px",
+          }}
+        />
+      )}
 
-      {isLoading && (
-        <div style={{ textAlign: "center", color: "#999", fontSize: "14px" }}>
+      {detectedFileType === 'image' && fileUrl && (
+        <img
+          ref={imgRef}
+          style={{
+            width: "100%",
+            maxWidth: "100%",
+            height: "auto",
+            display: "block",
+            borderRadius: "6px",
+            background: "#fff",
+            boxShadow: "0 1px 4px rgba(74, 68, 68, 0.1)",
+            flex: 1,
+            maxHeight: "600px",
+            objectFit: "contain",
+          }}
+          alt="Resume preview"
+        />
+      )}
+
+      {detectedFileType === 'docx' && (
+        <div
+          style={{
+            width: "100%",
+            maxWidth: "100%",
+            height: "200px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: "6px",
+            background: "#f5f5f5",
+            border: "1px solid #ddd",
+            color: "#999",
+            fontSize: "14px",
+            flex: 1,
+          }}
+        >
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "24px", marginBottom: "8px" }}>📄</div>
+            <div>DOCX preview not supported.</div>
+            <div style={{ fontSize: "12px", marginTop: "4px" }}>Text will be extracted for processing.</div>
+          </div>
+        </div>
+      )}
+
+      {isLoading && detectedFileType !== 'pdf' && (
+        <div style={{ textAlign: "center", color: "#999", fontSize: "14px", padding: "16px" }}>
           Loading...
+        </div>
+      )}
+
+      {!detectedFileType && fileUrl && (
+        <div style={{ textAlign: "center", color: "#d9534f", fontSize: "14px", padding: "16px" }}>
+          Unsupported file type: {fileType || "unknown"}
+          <br />
+          Please upload PDF, image (PNG/JPG), or DOCX.
         </div>
       )}
     </div>
@@ -199,6 +345,7 @@ export default function ResumeParser
   console.log("DEBUG ResumeTable:", typeof ResumeTable, ResumeTable);
   console.log("DEBUG CandidateScoreCard:", typeof CandidateScoreCard, CandidateScoreCard);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [fileType, setFileType] = useState<string | null>(null);
   const [textItems, setTextItems] = useState<TextItems>([]);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [resumeName, setResumeName] = useState("");
@@ -376,6 +523,11 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
   setFileUrl(fileUrl);
   setResumeName(fileName);
 
+  // ✅ Add this line to set fileType from the File object
+  if (fileObj) {
+    setFileType(fileObj.type);
+  }
+
   // If fileUrl is empty, user clicked the x button to remove the file
   if (!fileUrl) {
     // Clear the persisted currentFile from the store immediately
@@ -384,6 +536,7 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
   }
 
   if (!fileObj) return;
+
 
   try {
     // Upload to Supabase for persistence
@@ -394,12 +547,12 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
       // Persist a stable HTTP(S) URL and no base64 blob
       setCurrentFile({
         url: publicUrl,
-        name: fileObj.name,
+        name: fileObj.name, // Use actual File object name
         type: fileObj.type,
         data: undefined,
       });
       setFileUrl(publicUrl); // Switch preview to Supabase URL once ready
-      setResumeName(fileObj.name);
+      setResumeName(fileObj.name); // Use actual filename
       setEditableResume({ ...defaultResume });
     } else {
       console.warn("Supabase upload failed or disabled, persisting base64 (not blob:) and using blob preview only.");
@@ -408,7 +561,7 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
         const base64 = await fileToBase64(fileObj); // returns data:<mime>;base64,...
         setCurrentFile({
           url: undefined,
-          name: fileObj.name,
+          name: fileObj.name, // Use actual File object name
           type: fileObj.type || "application/pdf",
           data: base64,
         });
@@ -417,7 +570,7 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
         console.warn("Failed to convert file to base64 for persistence:", e);
         setCurrentFile({
           url: undefined,
-          name: fileObj.name,
+          name: fileObj.name, // Use actual File object name
           type: fileObj.type || "application/pdf",
           data: undefined,
         });
@@ -431,7 +584,7 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
     // Persist metadata only; do not persist blob: url
     setCurrentFile({
       url: undefined,
-      name: fileName,
+      name: fileName, // Use passed filename
       type: fileObj.type || "application/pdf",
       data: undefined,
     });
@@ -445,65 +598,6 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
     setEditableResume({ ...defaultResume });
   }
 }, [setCurrentFile, setEditableResume, setParsed]);
-
-  //WE NEED TO CHECK THIS (commented out nalang kasi may pangclear na ng blobs on top level (App.jsx))
-  // On first mount (app startup) clear only the persisted uploaded file (currentFile) once per
-  // app session. We use sessionStorage as a guard so this runs only once per full app boot —
-  // not on subsequent navigations while the app is running.
-  // useEffect(() => {
-  //   try {
-  //     const flag = sessionStorage.getItem('resume-currentfile-cleared');
-  //     if (!flag) {
-  //       // 1) Clear the persisted `currentFile` key inside the zustand storage object
-  //       try {
-  //         const key = 'resume-analysis-store';
-  //         const raw = localStorage.getItem(key);
-  //         if (raw) {
-  //           try {
-  //             const parsed = JSON.parse(raw);
-  //             // Zustand persist may store the state directly or under a `state` wrapper — handle both
-  //             if (parsed && typeof parsed === 'object') {
-  //               if (parsed.currentFile !== undefined) {
-  //                 delete parsed.currentFile;
-  //               }
-  //               if (parsed.state && parsed.state.currentFile !== undefined) {
-  //                 delete parsed.state.currentFile;
-  //               }
-  //               localStorage.setItem(key, JSON.stringify(parsed));
-  //             }
-  //           } catch (e) {
-  //             // If parsing failed, as a fallback remove the whole key
-  //             console.warn('Could not parse persisted store; removing whole key as fallback');
-  //             localStorage.removeItem(key);
-  //           }
-  //         }
-  //       } catch (e) {
-  //         console.error('Failed to clear persisted currentFile:', e);
-  //       }
-
-  //       // 2) Update in-memory store so UI reflects cleared file immediately
-  //       try {
-  //         if (typeof setCurrentFile === 'function') setCurrentFile(null);
-  //       } catch (e) {
-  //         console.error('Failed to setCurrentFile(null):', e);
-  //       }
-
-  //       // 3) Mark flag so we don't clear again this session
-  //       try { sessionStorage.setItem('resume-currentfile-cleared', '1'); } catch {}
-
-  //       // 4) Show a short visual indicator to help debugging / inform the user
-  //       setClearedMessage('Previous uploaded resume cleared for this session');
-  //       setTimeout(() => setClearedMessage(null), 4000);
-  //     }
-  //   } catch (e) {
-  //     console.error('Session-only clear effect failed:', e);
-  //   }
-
-  //   // Ensure editableResume exists as a defensive fallback
-  //   if (!editableResume) {
-  //     setEditableResume({ ...defaultResume });
-  //   }
-  // }, []);
 
   // Initialize from persisted state
   useEffect(() => {
@@ -525,6 +619,7 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
           console.log("Hydrated file to existing URL:", currfile.url);
           setFileUrl(currfile.url);
           setResumeName(currfile.name || "resume.pdf");
+          if (currfile.type) setFileType(currfile.type);
           return;
         }
 
@@ -532,7 +627,7 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
         if (currfile?.name && rendererSupabase) {
           try {
           console.log("Searching Supabase for:", currfile.name);
-          const publicUrl = await findSupabasePublicUrl(currfile.name, "PDFs");
+          const publicUrl = await findSupabasePublicUrl(currfile.name, "Resumes");
           if (publicUrl) 
             {
             console.log("Found in Supabase:", publicUrl);
@@ -589,6 +684,7 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
       console.log("Syncing fileUrl from currentFile:", currentFile.url);
       setFileUrl(currentFile.url);
       setResumeName(currentFile.name || "resume.pdf");
+      if (currentFile.type) setFileType(currentFile.type);
     }
   }, [activePage]);
 
@@ -795,35 +891,43 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     }
   }
 
-  //Extract text from file using extract endpoint
+  //Extract text from file using extract endpoint (supports PDF, images, and DOCX)
   async function extractResumeText(file: File): Promise<string> {
     const formData = new FormData();
     formData.append("file", file);
-    console.log("Uploading file:", file);
+    console.log("Uploading file for text extraction:", file.name, file.type);
 
-    const response = await axios.post(`${API_BASE_URL}/parser/extract-resume-text`, formData);
-    console.log("Response:", response);
-
-    // Normalize response -> always return a string
-    const data = response.data;
-    if (typeof data === "string") {
-      return data;
-    }
-
-    // Common server shapes: { text: "..." } or { result: "..." }
-    if (data && typeof data.text === "string") return data.text;
-    if (data && typeof data.result === "string") return data.result;
-    if (data && typeof data.data === "string") return data.data;
-
-    // fallback: try to build a readable string (avoid passing objects to gemini endpoint)
     try {
-      return JSON.stringify(data);
-    } catch (e) {
-      return "";
+      // Use the unified endpoint that supports PDF, images, and DOCX
+      const response = await axios.post(`${API_BASE_URL}/parser/extract-resume-text`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      console.log("Text extraction response:", response);
+
+      // Normalize response -> always return a string
+      const data = response.data;
+      if (typeof data === "string") {
+        return data;
+      }
+
+      // Common server shapes: { text: "..." } or { result: "..." }
+      if (data && typeof data.text === "string") return data.text;
+      if (data && typeof data.result === "string") return data.result;
+      if (data && typeof data.data === "string") return data.data;
+
+      // fallback: try to build a readable string
+      try {
+        return JSON.stringify(data);
+      } catch (e) {
+        return "";
+      }
+    } catch (err: any) {
+      console.error("Text extraction failed:", err);
+      throw new Error(err?.response?.data?.error || err?.message || "Text extraction failed");
     }
   }
 
-  async function findSupabasePublicUrl(originalName: string, bucket = "PDFs") {
+  async function findSupabasePublicUrl(originalName: string, bucket = "Resumes") {
     if (!rendererSupabase || !originalName) return null;
     try {
       const user = (await rendererSupabase.auth.getUser()).data.user;
@@ -878,7 +982,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     return new Blob([byteArray], { type: mimeType });
   }
   // Upload helper: upload a File/Blob to Supabase storage and return a public URL (bucket must allow public access)
-  async function uploadFileToSupabase(file: File | File, bucket = "PDFs") {
+  async function uploadFileToSupabase(file: File | File, bucket = "Resumes") {
     if (!rendererSupabase) return null;
 
     try {
@@ -903,11 +1007,11 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         return null;
       }
 
-      // ✅ PUBLIC bucket
+      //PUBLIC bucket
       const { data: urlData } = rendererSupabase.storage.from(bucket).getPublicUrl(fileName);
       if (urlData?.publicUrl) return urlData.publicUrl;
 
-      // 🔒 PRIVATE bucket — fallback to signed URL
+      //PRIVATE bucket — fallback to signed URL
       const { data: signed } = await rendererSupabase.storage.from(bucket).createSignedUrl(fileName, 3600);
       return signed?.signedUrl || null;
     } catch (err) {
@@ -931,7 +1035,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         let previewUrl: string | null = null;
         if (rendererSupabase && selectedResumeFile.name) {
           try {
-            const uploaded = await findSupabasePublicUrl(selectedResumeFile.name, "PDFs");
+            const uploaded = await findSupabasePublicUrl(selectedResumeFile.name, "Resumes");
             if (uploaded) {
               previewUrl = uploaded;
               console.log("Found existing Supabase file for selectedResumeFile ->", previewUrl);
@@ -947,7 +1051,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         // 2) If not found on Supabase, attempt to upload only if a File object was passed from UI
         if (!previewUrl && selectedResumeFile.file instanceof File && rendererSupabase) {
           try {
-            previewUrl = await uploadFileToSupabase(selectedResumeFile.file, "PDFs");
+            previewUrl = await uploadFileToSupabase(selectedResumeFile.file, "Resumes");
             if (previewUrl) console.log("Uploaded File object to Supabase ->", previewUrl);
           } catch (e) {
             console.warn("Uploading File object to Supabase failed, will fallback to blob:", e);
@@ -971,6 +1075,8 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         if (previewUrl) {
         setFileUrl(previewUrl);
         setResumeName(selectedResumeFile.name || 'uploaded_resume.pdf');
+        // Ensure the fileType is recorded for preview detection
+        if (selectedResumeFile.type) setFileType(selectedResumeFile.type);
         setFileState(prev => ({ ...prev, fileUrl: previewUrl, resumeName: selectedResumeFile.name || 'uploaded_resume.pdf' }));
 
         setCurrentFile({ 
@@ -1467,10 +1573,11 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         <section className="w-1/2 p-2" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           {fileUrl ? (
             <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 0 }}>
-              {/* Scrollable PDF area */}
+              {/* Scrollable PDF/Image/DOCX area */}
               <div style={{ flex: 1, overflow: "auto", border: "1px solid #ddd", borderRadius: "6px" }}>
-                <PdfPreview 
+                <ResumePreview 
                 fileUrl={fileUrl}
+                fileType={fileType}
                 currentPage={currentPage}
                 setCurrentPage={setCurrentPage}
                 totalPages={totalPages}
@@ -1555,7 +1662,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             </div>
           ) : (
             <div className="text-gray-400 text-center py-8">
-              No Resume loaded. Please upload one in .pdf format
+              No Resume loaded. Please upload one in .pdf, .docx or image format
             </div>
           )}
         </section>
@@ -1844,7 +1951,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
               cursor: !modalCategory ? "not-allowed" : "pointer",
             }}
           >
-            <option value="">Select a role</option>
+          <option value="">Select a role</option>
             {modalCategory &&
               Object.keys(JOB_ROLES[modalCategory] || {}).map((role) => (
                 <option key={role} value={role}>
