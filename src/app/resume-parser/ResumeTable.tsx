@@ -2,7 +2,6 @@ import { Fragment } from "react";
 // import type { Resume } from "../lib/redux/types";
 import { initialEducation, initialWorkExperience } from "../lib/redux/resumeSlice";
 import { deepClone } from "../lib/deep-clone";
-import { cx } from "../lib/cx";
 
  // Define minimal types locally to avoid circular deps
  type Resume = {

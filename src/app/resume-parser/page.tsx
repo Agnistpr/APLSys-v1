@@ -353,6 +353,12 @@ export default function ResumeParser
     }
   }, [fileUrl]);
 
+  useEffect(() => {
+    if (!parseComplete) {
+      try { setActiveTab("parsing"); } catch (e) { /* noop */ }
+    }
+  }, [parseComplete, setActiveTab]);
+
   const handleNextPage = () => {
       if (currentPage < totalPages) {
         setCurrentPage(currentPage + 1);
@@ -1577,26 +1583,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             onFileUrlChange={handleFileChange}
             currentFile={currentFile}
           />
-          <button
-              onClick={handleParseResume}
-              disabled={!fileUrl || isParsingResume || isProcessing}
-              className="parse-res-btn"
-              title={isParsingResume ? `Parsing ${resumeName || 'resume'}...` : "Click to parse the uploaded resume"}
-              style={{
-                opacity: (!fileUrl || isParsingResume || isProcessing) ? 0.6 : 1,
-                cursor: (!fileUrl || isParsingResume || isProcessing) ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {isParsingResume ? "Parsing..." : "Parse Resume"}
-            </button>
-          <button
-            onClick={() => {
-              goBack()
-            }}
-            className="btn-secondary"
-          >
-            ✕ Close
-          </button>
         </div>
 
         <div className="tab-header">
@@ -1606,39 +1592,33 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
           >
             Parsing Table
           </button>
-          <button
-            className={`tab-btn ${activeTab === "analysis" ? "active" : ""}`}
-            onClick={() => setActiveTab("analysis")}
-          >
-            Resume Analysis
-          </button>
+          {parseComplete && (
+            <button
+              className={`tab-btn ${activeTab === "analysis" ? "active" : ""}`}
+              onClick={() => setActiveTab("analysis")}
+            >
+              Resume Analysis
+            </button>
+          )}
         </div>
 
         <div className="tab-content">
           {activeTab === "parsing" ? (
             <div className="resume-table-section">
               <h2 className="section-title">Resume Parsing Results</h2>
-              {( (fileUrl || currentFile?.data) && parseComplete && editableResume && editableResume.profile ) ? (
-                <ResumeTable
-                  resume={editableResume || defaultResume}
-                  onFieldChange={handleFieldPathChange}
-                />
-              ) : (
-                <div className="empty-resume-note">No parsed resume available. Try parsing a file again.</div>
-              )}
+              {/* Always render the editable table (use persisted editableResume or default) */}
+              <ResumeTable
+                resume={editableResume || defaultResume}
+                onFieldChange={handleFieldPathChange}
+              />
               <button
                 onClick={handleAddApplicantClick}
                 className="btn-secondary mt-2"
-                disabled={!editableResume}
+                disabled={isAddingApplicant}
+                title={!editableResume ? "Preparing resume editor..." : "Add applicant from this resume data"}
               >
                 ➕ Add Applicant
               </button>
-              {/* <button
-                onClick={() => editableResume && exportJSON(editableResume, `${getApplicantName(editableResume)}_resume.json`)}
-                className="btn-primary mt-4"
-              >
-                Export Resume JSON
-              </button> */}
             </div>
           ) : (
             <div className="resume-analysis-section">
@@ -1769,11 +1749,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                     : "No analysis yet. Click 'Analyze Resume' to start."}
                 </div>
               )}
-
-              {!analysisResult && (
-                <div className="analysis-card mt-4">No analysis yet.</div>
-              )}
-
               {/* <BatchResumeAnalyzer 
               jobRole={selectedJobRole}
               jobDescription={customJobDescription}

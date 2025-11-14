@@ -400,6 +400,15 @@ useEffect(() => {
         useAnalysisStore.setState({ currentFile: { ...a, url: undefined } });
       }
     } catch (e) { /* noop */ }
+
+    // NEW: clear previous parsing/analysis results on cold start
+    try {
+      const analysisStore = useAnalysisStore.getState();
+      if (typeof analysisStore.reset === "function") {
+        console.warn("App init: resetting resume-analysis-store to clear previous parsing/analysis results");
+        analysisStore.reset();
+      }
+    } catch (e) { /* noop */ }
   }, []);
 
   const trackTask = (taskId, metadata = {}) => {

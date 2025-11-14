@@ -332,7 +332,7 @@ export const DocumentScanner: React.FC = () => {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-foreground">DocScanner</h1>
-                <p className="text-sm text-muted-foreground">APLSys Intelligent Scanner</p>
+                <p className="text-sm text-muted-foreground">APLSys Scanner</p>
               </div>
             </div>
             <div className="flex items-center gap-2">

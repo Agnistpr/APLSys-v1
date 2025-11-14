@@ -19,11 +19,11 @@
     --popover: 220 15% 99%;
     --popover-foreground: 215 25% 15%;
 
-    /* Brand Colors - Professional Blue Theme */
-    --primary: 214 95% 50%;
+    /* Brand Colors - APLSys Theme (Deep Red) */
+    --primary: 0 75% 30%;
     --primary-foreground: 0 0% 100%;
-    --primary-soft: 214 85% 92%;
-    --primary-hover: 214 95% 45%;
+    --primary-soft: 0 75% 95%;
+    --primary-hover: 0 75% 25%;
 
     /* Secondary & Accent */
     --secondary: 215 20% 94%;
@@ -53,7 +53,7 @@
     /* Interface Elements */
     --border: 215 25% 88%;
     --input: 215 25% 88%;
-    --ring: 214 95% 50%;
+    --ring: 0 75% 30%;
 
     /* Border Radius */
     --radius: 0.75rem;
@@ -63,8 +63,8 @@
     /* Document Viewer Specific */
     --viewer-bg: 215 25% 96%;
     --viewer-border: 215 25% 85%;
-    --selection-box: 214 95% 50%;
-    --selection-overlay: 214 95% 50%;
+    --selection-box: 0 75% 30%;
+    --selection-overlay: 0 75% 30%;
 
     /* Animation & Transitions */
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -93,10 +93,10 @@
     --popover: 215 25% 10%;
     --popover-foreground: 215 15% 92%;
 
-    --primary: 214 95% 55%;
-    --primary-foreground: 215 25% 8%;
-    --primary-soft: 214 50% 15%;
-    --primary-hover: 214 95% 60%;
+    --primary: 0 75% 35%;
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 0 75% 20%;
+    --primary-hover: 0 75% 40%;
 
     --secondary: 215 25% 15%;
     --secondary-foreground: 215 15% 85%;
@@ -119,11 +119,11 @@
 
     --border: 215 25% 20%;
     --input: 215 25% 20%;
-    --ring: 214 95% 55%;
+    --ring: 0 75% 35%;
 
     --viewer-bg: 215 25% 12%;
     --viewer-border: 215 25% 25%;
-    --selection-overlay: 214 95% 55%;
+    --selection-overlay: 0 75% 35%;
 
     --shadow-soft: 0 2px 8px hsl(215 25% 4% / 0.4);
     --shadow-medium: 0 4px 16px hsl(215 25% 4% / 0.5);
