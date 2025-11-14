@@ -11,12 +11,14 @@ import {
   Tag,
   Copy,
   Eye,
-  EyeOff
+  EyeOff,
+  FileText
 } from 'lucide-react';
 import type { ExtractedText } from './DocumentScanner';
 import { toast } from 'sonner';
 import { Download } from 'lucide-react';
 import Select from 'react-select';
+import { useOcrStore } from '../../electron/ocrStore';
 interface OCRPanelProps {
   extractedData: ExtractedText[];
   availableTags: string[];
@@ -34,10 +36,13 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
   onUpdateExtraction,
   onDeleteExtraction
 }) => {
+  // ✅ Guard: ensure extractedData is always an array
+  const safeExtractedData = Array.isArray(extractedData) ? extractedData : [];
+  
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [visibleExtractions, setVisibleExtractions] = useState<Set<string>>(
-    new Set(extractedData.map(item => item.id))
+    new Set(safeExtractedData.map(item => item.id))
   );
 
   // Helper to convert base64 to Blob
@@ -53,7 +58,8 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
 
   // Combined handler: save metadata JSON + original file to documents
   const handleSaveToDocuments = async () => {
-    if (extractedData.length === 0) {
+    // use safeExtractedData (guarded) instead of raw prop
+    if (safeExtractedData.length === 0) {
       toast.error("No data to save");
       return;
     }
@@ -64,56 +70,80 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
       // 1. Save metadata JSON
       if (window.fileAPI?.writeFile) {
         const metadata = {
-          extractedData,
+          extractedData: safeExtractedData,
           exported_at: new Date().toISOString(),
         };
         const metadataFileName = `${currentFileName}.json`;
         const jsonContent = JSON.stringify(metadata, null, 2);
-        
-        await window.fileAPI.writeFile(
-          `ocr_results/${metadataFileName}`,
-          jsonContent
-        );
+
+        await window.fileAPI.writeFile(`ocr_results/${metadataFileName}`, jsonContent);
         console.log("✅ Metadata saved:", metadataFileName);
       }
 
-      // 2. Save original file
+      // 2. Save original file (robustly handle different shapes)
       let fileSaved = false;
-      
-      // ✅ Debug: Check what currentFileData actually is
-      console.log("DEBUG currentFileData type:", typeof currentFileData, "first 50 chars:", currentFileData?.substring?.(0, 50));
-      
-      if (window.fileAPI?.saveUploadedFile && currentFileData && typeof currentFileData === 'string') {
+
+      // Try prop first, then fall back to store
+      const fileDataRaw = currentFileData ?? useOcrStore.getState().currentFileData;
+
+      console.log("DEBUG fileDataRaw type:", typeof fileDataRaw, fileDataRaw);
+
+      // Helper to actually call saveUploadedFile with a base64 payload (no data: prefix)
+      const callSave = async (maybeBase64: string) => {
+        if (!maybeBase64) return false;
+        const base64Part = maybeBase64.includes(",") ? maybeBase64.split(",")[1] : maybeBase64;
+        const result = await window.fileAPI.saveUploadedFile({
+          fileName: currentFileName,
+          base64Data: base64Part
+        });
+        return result?.success === true;
+      };
+
+      if (!window.fileAPI?.saveUploadedFile) {
+        console.warn("⚠️ window.fileAPI.saveUploadedFile not available");
+      } else if (typeof fileDataRaw === "string") {
+        // string could be data:<mime>;base64,AAAA... or raw base64
         try {
-          // ✅ Only extract base64 if it has the data: prefix
-          const base64Part = currentFileData.includes(',') 
-            ? currentFileData.split(',')[1] 
-            : currentFileData;
-
-          console.log("DEBUG base64Part first 50:", base64Part.substring(0, 50));
-
-          const result = await window.fileAPI.saveUploadedFile({
-            fileName: currentFileName,
-            base64Data: base64Part
-          });
-
-          if (result.success) {
-            console.log("✅ File saved:", currentFileName);
-            fileSaved = true;
-          } else {
-            console.warn("⚠️ File save failed:", result.error);
+          fileSaved = await callSave(fileDataRaw);
+          if (!fileSaved) console.warn("⚠️ saveUploadedFile returned falsy for string input");
+        } catch (err) {
+          console.warn("⚠️ saveUploadedFile error for string input:", err);
+        }
+      } else if (fileDataRaw && typeof fileDataRaw === "object") {
+        // possible shapes: { data: 'data:...base64,...' } or { base64: 'AAA...' }
+        const maybe = (fileDataRaw.data || fileDataRaw.base64 || fileDataRaw.content) as any;
+        if (typeof maybe === "string") {
+          try {
+            fileSaved = await callSave(maybe);
+            if (!fileSaved) console.warn("⚠️ saveUploadedFile returned falsy for object.data input");
+          } catch (err) {
+            console.warn("⚠️ saveUploadedFile error for object.data input:", err);
           }
-        } catch (fileErr) {
-          console.warn("⚠️ File save error:", fileErr);
+        } else if (fileDataRaw instanceof Blob || fileDataRaw instanceof File) {
+          // convert Blob/File -> base64 then save
+          try {
+            const reader = new FileReader();
+            const base64Str: string = await new Promise((resolve, reject) => {
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = reject;
+              reader.readAsDataURL(fileDataRaw as Blob);
+            });
+            fileSaved = await callSave(base64Str);
+          } catch (err) {
+            console.warn("⚠️ Error converting Blob/File to base64:", err);
+          }
+        } else {
+          // unexpected object shape — log for debugging
+          console.warn("⚠️ Unexpected fileDataRaw shape:", fileDataRaw);
         }
       } else {
-        console.warn("⚠️ currentFileData missing or not a string:", typeof currentFileData);
+        console.warn("⚠️ fileData missing or not usable:", typeof fileDataRaw);
       }
 
       toast.success("Saved to Documents", {
         id: "save-docs",
-        description: fileSaved 
-          ? `${currentFileName}.json + ${currentFileName}` 
+        description: fileSaved
+          ? `${currentFileName}.json + ${currentFileName}`
           : `${currentFileName}.json only (file data unavailable)`,
         duration: 4000,
       });
@@ -171,14 +201,11 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
     setVisibleExtractions(newVisible);
   };
 
-  if (extractedData.length === 0) {
+  if (safeExtractedData.length === 0) {
     return (
-      <div className="text-center text-muted-foreground">
-        <Tag className="w-12 h-12 mx-auto mb-3 opacity-50" />
-        <p className="text-sm mb-2">No text extracted yet</p>
-        <p className="text-xs">
-          Use the selection tool to draw a box around text in the document
-        </p>
+      <div className="text-center text-muted-foreground py-8">
+        <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
+        <p className="text-sm">No extractions yet. Use OCR to extract text from your document.</p>
       </div>
     );
   }
@@ -190,7 +217,7 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-foreground">Extracted Text</h3>
             <Badge variant="secondary" className="bg-primary-soft text-primary">
-              {extractedData.length} items
+              {safeExtractedData.length} items
             </Badge>
           </div>
 
@@ -200,7 +227,7 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
               size="sm" 
               variant="outline" 
               onClick={handleSaveToDocuments}
-              disabled={extractedData.length === 0}
+              disabled={safeExtractedData.length === 0}
               title="Save metadata JSON to ocr_results and original file to documents"
             >
               <Download className="w-4 h-4 mr-1" /> 
@@ -212,140 +239,39 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
 
       {/* scrollable content */}
       <div className="flex-1 overflow-y-auto p-4 min-h-0">
-        <div className="space-y-4">
-          {extractedData.map((item, index) => (
-            <Card 
-              key={item.id} 
-              className={`p-4 border transition-all ${
-                visibleExtractions.has(item.id) 
-                  ? 'border-border bg-surface' 
-                  : 'border-muted bg-muted/30 opacity-60'
-              }`}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs">
-                    #{index + 1}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => toggleVisibility(item.id)}
-                    className="h-7 w-7 p-0"
-                  >
-                    {visibleExtractions.has(item.id) ? (
-                      <Eye className="w-3 h-3" />
-                    ) : (
-                      <EyeOff className="w-3 h-3" />
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleCopyText(item.text)}
-                    className="h-7 w-7 p-0"
-                  >
-                    <Copy className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleStartEdit(item)}
-                    className="h-7 w-7 p-0"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onDeleteExtraction(item.id)}
-                    className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
+        {safeExtractedData.map((item) => (
+          <div key={item.id} className="mb-3 p-3 bg-muted rounded border border-border">
+            {editingId === item.id ? (
+              <div className="space-y-2">
+                <textarea
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  className="w-full p-2 border rounded text-sm"
+                  rows={3}
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSaveEdit}>Save</Button>
+                  <Button size="sm" variant="outline" onClick={handleCancelEdit}>Cancel</Button>
                 </div>
               </div>
-
-              {/* Text Content */}
-              {editingId === item.id ? (
-                <div className="space-y-3">
-                  <Textarea
-                    value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
-                    className="min-h-[80px] bg-background"
-                    placeholder="Edit extracted text..."
-                  />
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={handleSaveEdit}>
-                      <Check className="w-3 h-3 mr-1" />
-                      Save
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={handleCancelEdit}>
-                      <X className="w-3 h-3 mr-1" />
-                      Cancel
-                    </Button>
+            ) : (
+              <div>
+                <p className="font-semibold text-foreground mb-1">{item.text}</p>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex gap-1 flex-wrap">
+                    {item.tags.map((tag, idx) => (
+                      <Badge key={idx} variant="secondary" className="text-xs">{tag}</Badge>
+                    ))}
+                  </div>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => handleStartEdit(item)}>Edit</Button>
+                    <Button size="sm" variant="ghost" onClick={() => onDeleteExtraction(item.id)}>Delete</Button>
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-foreground bg-background/50 p-3 rounded border border-border">
-                    {item.text}
-                  </p>
-                </div>
-              )}
-
-              {/* Tags */}
-              <div className="space-y-2 mt-3">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Tags:
-                </label>
-                <Select
-                  isMulti
-                  name="tags"
-                  options={availableTags.map(tag => ({ value: tag, label: tag }))}
-                  className="tag-selector"
-                  classNamePrefix="select"
-                  value={item.tags.map(tag => ({ value: tag, label: tag }))}
-                  onChange={(selected) => {
-                    const newTags = selected ? selected.map(option => option.value) : [];
-                    onUpdateExtraction(item.id, { tags: newTags });
-                  }}
-                  styles={{
-                    control: (base) => ({
-                      ...base,
-                      minHeight: '35px',
-                      backgroundColor: 'var(--background)',
-                      borderColor: 'var(--border)'
-                    }),
-                    menu: (base) => ({
-                      ...base,
-                      maxHeight: '200px',
-                      overflowY: 'auto',
-                      backgroundColor: 'var(--background)'
-                    }),
-                    option: (base, state) => ({
-                      ...base,
-                      backgroundColor: state.isSelected ? 'var(--primary)' : 'var(--background)',
-                      '&:hover': {
-                        backgroundColor: 'var(--accent)'
-                      }
-                    })
-                  }}
-                />
               </div>
-
-              {/* Bounding Box Info */}
-              <div className="mt-3 pt-3 border-t border-border">
-                <p className="text-xs text-muted-foreground">
-                  Position: {Math.round(item.bbox.x)}, {Math.round(item.bbox.y)} • Size: {Math.round(item.bbox.width)} × {Math.round(item.bbox.height)}
-                </p>
-              </div>
-            </Card>
-          ))}
-        </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

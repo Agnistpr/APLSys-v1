@@ -10,6 +10,7 @@ export const useOcrStore = create(
       isProcessing: false,
       docs: [],
       currentFile: null,
+      currentFileData: null, // ← ADD THIS
       currentExtractedData: [],
       ocrMatches: {},
 
@@ -25,6 +26,7 @@ export const useOcrStore = create(
       setProcessing: (flag) => set({ isProcessing: flag }),
       setDocs: (docs) => set({ docs }),
       setCurrentFile: (file) => set({ currentFile: file }),
+      setCurrentFileData: (data) => set({ currentFileData: data }), // ← ADD THIS
       setCurrentExtractedData: (data) => set({ currentExtractedData: data }),
       setOcrMatches: (matches) => set({ ocrMatches: matches }),
       
@@ -52,6 +54,7 @@ export const useOcrStore = create(
         return {
           docs: persistable.docs || [],
           currentFile: persistable.currentFile || null,
+          currentFileData: persistable.currentFileData || null, // ← PERSIST THIS
           currentExtractedData: persistable.currentExtractedData || [],
           ocrMatches: persistable.ocrMatches || {},
         };

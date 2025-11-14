@@ -3095,6 +3095,7 @@ ocr-root
 .managementContainer {
   width: 100%;
   padding: 2rem;
+  overflow: auto;
   background-color: #f8f9fa;
   font-family: 'Helvetica Neue', sans-serif;
   box-sizing: border-box;

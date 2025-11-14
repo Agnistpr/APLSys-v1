@@ -132,6 +132,10 @@ export const DocumentScanner: React.FC = () => {
   // }, []);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    if (currentFileUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(currentFileUrl);
+    }
+
     const file = event.target.files?.[0];
     if (file) {
       const url = URL.createObjectURL(file);
@@ -162,7 +166,7 @@ export const DocumentScanner: React.FC = () => {
 
   // ✅ SEPARATE useEffect: Convert File to base64 AFTER currentFile is set
   useEffect(() => {
-    if (!currentFile) {
+    if (!currentFile || !(currentFile instanceof Blob)) {
       setCurrentFileData(null);
       return;
     }
@@ -176,6 +180,8 @@ export const DocumentScanner: React.FC = () => {
     reader.onload = (e) => {
       const base64Data = e.target?.result as string;
       setCurrentFileData(base64Data);
+      // ✅ ALSO persist to store immediately
+      useOcrStore.getState().setCurrentFileData(base64Data);
       console.log("✅ Base64 data ready for:", currentFile.name);
     };
     reader.onerror = (err) => {
@@ -183,7 +189,6 @@ export const DocumentScanner: React.FC = () => {
       setCurrentFileData(null);
     };
     
-    // ✅ CRITICAL: Pass the File object (not URL)
     reader.readAsDataURL(currentFile);
   }, [currentFile, currentFileData]); // Only run when currentFile changes
 
@@ -297,17 +302,23 @@ export const DocumentScanner: React.FC = () => {
     (window as any).__docScanner_registerCreatedUrl = registerCreatedUrl;
 
     return () => {
-      // Revoke only blob URLs that this component actually created
+      // only run when DocumentScanner unmounts, not on every dependency change
+        // Revoke and clear any blob URLs created this session
       try {
-        createdUrlsRef.current.forEach((u) => {
-          try { URL.revokeObjectURL(u); } catch (e) { /* ignore */ }
-        });
+        const setRef = createdUrlsRef && createdUrlsRef.current;
+        if (setRef && typeof setRef.forEach === "function") {
+          setRef.forEach((u: string) => {
+            try { URL.revokeObjectURL(u); } catch { /* ignore */ }
+          });
+          setRef.clear();
+        }
+      } catch (e) {
+        console.warn("Failed to revoke created blob URLs:", e);
       } finally {
-        // clean up the temporary global (if set)
-        try { delete (window as any).__docScanner_registerCreatedUrl; } catch {}
+        delete (window as any).__docScanner_registerCreatedUrl;
       }
     };
-  }, [currentFileUrl, currentStoredFile]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">

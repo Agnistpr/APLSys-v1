@@ -440,64 +440,64 @@ const handleFileChange = useCallback(async (fileUrl: string, fileName: string, f
   }
 }, [setCurrentFile, setEditableResume, setParsed]);
 
-
+  //WE NEED TO CHECK THIS (commented out nalang kasi may pangclear na ng blobs on top level (App.jsx))
   // On first mount (app startup) clear only the persisted uploaded file (currentFile) once per
   // app session. We use sessionStorage as a guard so this runs only once per full app boot —
   // not on subsequent navigations while the app is running.
-  useEffect(() => {
-    try {
-      const flag = sessionStorage.getItem('resume-currentfile-cleared');
-      if (!flag) {
-        // 1) Clear the persisted `currentFile` key inside the zustand storage object
-        try {
-          const key = 'resume-analysis-store';
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            try {
-              const parsed = JSON.parse(raw);
-              // Zustand persist may store the state directly or under a `state` wrapper — handle both
-              if (parsed && typeof parsed === 'object') {
-                if (parsed.currentFile !== undefined) {
-                  delete parsed.currentFile;
-                }
-                if (parsed.state && parsed.state.currentFile !== undefined) {
-                  delete parsed.state.currentFile;
-                }
-                localStorage.setItem(key, JSON.stringify(parsed));
-              }
-            } catch (e) {
-              // If parsing failed, as a fallback remove the whole key
-              console.warn('Could not parse persisted store; removing whole key as fallback');
-              localStorage.removeItem(key);
-            }
-          }
-        } catch (e) {
-          console.error('Failed to clear persisted currentFile:', e);
-        }
+  // useEffect(() => {
+  //   try {
+  //     const flag = sessionStorage.getItem('resume-currentfile-cleared');
+  //     if (!flag) {
+  //       // 1) Clear the persisted `currentFile` key inside the zustand storage object
+  //       try {
+  //         const key = 'resume-analysis-store';
+  //         const raw = localStorage.getItem(key);
+  //         if (raw) {
+  //           try {
+  //             const parsed = JSON.parse(raw);
+  //             // Zustand persist may store the state directly or under a `state` wrapper — handle both
+  //             if (parsed && typeof parsed === 'object') {
+  //               if (parsed.currentFile !== undefined) {
+  //                 delete parsed.currentFile;
+  //               }
+  //               if (parsed.state && parsed.state.currentFile !== undefined) {
+  //                 delete parsed.state.currentFile;
+  //               }
+  //               localStorage.setItem(key, JSON.stringify(parsed));
+  //             }
+  //           } catch (e) {
+  //             // If parsing failed, as a fallback remove the whole key
+  //             console.warn('Could not parse persisted store; removing whole key as fallback');
+  //             localStorage.removeItem(key);
+  //           }
+  //         }
+  //       } catch (e) {
+  //         console.error('Failed to clear persisted currentFile:', e);
+  //       }
 
-        // 2) Update in-memory store so UI reflects cleared file immediately
-        try {
-          if (typeof setCurrentFile === 'function') setCurrentFile(null);
-        } catch (e) {
-          console.error('Failed to setCurrentFile(null):', e);
-        }
+  //       // 2) Update in-memory store so UI reflects cleared file immediately
+  //       try {
+  //         if (typeof setCurrentFile === 'function') setCurrentFile(null);
+  //       } catch (e) {
+  //         console.error('Failed to setCurrentFile(null):', e);
+  //       }
 
-        // 3) Mark flag so we don't clear again this session
-        try { sessionStorage.setItem('resume-currentfile-cleared', '1'); } catch {}
+  //       // 3) Mark flag so we don't clear again this session
+  //       try { sessionStorage.setItem('resume-currentfile-cleared', '1'); } catch {}
 
-        // 4) Show a short visual indicator to help debugging / inform the user
-        setClearedMessage('Previous uploaded resume cleared for this session');
-        setTimeout(() => setClearedMessage(null), 4000);
-      }
-    } catch (e) {
-      console.error('Session-only clear effect failed:', e);
-    }
+  //       // 4) Show a short visual indicator to help debugging / inform the user
+  //       setClearedMessage('Previous uploaded resume cleared for this session');
+  //       setTimeout(() => setClearedMessage(null), 4000);
+  //     }
+  //   } catch (e) {
+  //     console.error('Session-only clear effect failed:', e);
+  //   }
 
-    // Ensure editableResume exists as a defensive fallback
-    if (!editableResume) {
-      setEditableResume({ ...defaultResume });
-    }
-  }, []);
+  //   // Ensure editableResume exists as a defensive fallback
+  //   if (!editableResume) {
+  //     setEditableResume({ ...defaultResume });
+  //   }
+  // }, []);
 
   // Initialize from persisted state
   useEffect(() => {

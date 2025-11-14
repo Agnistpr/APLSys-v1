@@ -383,6 +383,25 @@ useEffect(() => {
     return () => clearInterval(interval);
   }, [activeTasks]);
 
+  useEffect(() => {
+    // Clear any persisted blob: URLs from analysis or ocr stores on app cold start
+    try {
+      const o = useOcrStore.getState().currentFile;
+      if (o && typeof o.url === "string" && o.url.startsWith("blob:")) {
+        console.warn("App init: clearing stale blob URL in useOcrStore");
+        useOcrStore.setState({ currentFile: { ...o, url: undefined } });
+      }
+    } catch (e) { /* noop */ }
+
+    try {
+      const a = useAnalysisStore.getState().currentFile;
+      if (a && typeof a.url === "string" && a.url.startsWith("blob:")) {
+        console.warn("App init: clearing stale blob URL in useAnalysisStore");
+        useAnalysisStore.setState({ currentFile: { ...a, url: undefined } });
+      }
+    } catch (e) { /* noop */ }
+  }, []);
+
   const trackTask = (taskId, metadata = {}) => {
     setActiveTasks(prev => {
       const next = new Map(prev);

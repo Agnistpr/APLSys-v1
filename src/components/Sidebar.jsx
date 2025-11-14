@@ -220,34 +220,25 @@ const Sidebar = ({
 
           {showApplicants && (
             <div className="subNavList">
-              {["Screening", "Training"].map((page) => (
+              {["Screening", "Training", "Analyzer"].map((page) => (
                 <div
                   key={page}
                   className={`subNavItem ${activePage === page ? "activeSubTab" : ""}`}
-                  onClick={() => setActivePage(page)}
-                  title={page}
+                  onClick={() => {
+                    setActivePage(page);
+                    if (page === "Analyzer") {
+                      setShowAnalyzer(true);
+                      setShowApplicantInfo(false);
+                    }
+                  }}
+                  title={page === "Analyzer" && isParsingResume ? `Parsing ${parsingFileName || 'resume'}... Please be patient` : page}
+                  style={page === "Analyzer" ? { position: "relative", display: "flex", alignItems: "center", gap: 8 } : {}}
                 >
                   {subNavIcons[page]}
                   <span>{page}</span>
-                </div>
-              ))}
 
-              {(activePage === "Analyzer" || showAnalyzer) && (
-                <div
-                  className={`subNavItem ${activePage === "Analyzer" ? "activeSubTab" : ""}`}
-                  onClick={() => {
-                    setActivePage("Analyzer");
-                    setShowAnalyzer(true); // mark as open
-                    setShowApplicantInfo(false);
-                  }}
-                  title={isParsingResume ? `Parsing ${parsingFileName || 'resume'}... Please be patient` : "Analyzer"}
-                  style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}
-                >
-                  {subNavIcons["Analyzer"]}
-                  <span>Analyzer</span>
-
-                  {/* Inline spinner + accessible label when parsing */}
-                  {(isParsingResume || isProcessing) && (
+                  {/* Inline spinner for Analyzer when parsing */}
+                  {page === "Analyzer" && (isParsingResume || isProcessing) && (
                     <span
                       role="status"
                       aria-label={`${parsingFileName || 'resume'} is currently being processed`}
@@ -264,7 +255,7 @@ const Sidebar = ({
                     />
                   )}
                 </div>
-              )}
+              ))}
 
               {(activePage === "ApplicantInformation" || showApplicantInfo) && (
                 <div
