@@ -43,7 +43,7 @@ contextBridge.exposeInMainWorld('exportAPI', {
   exportAllApplicants: () => ipcRenderer.invoke('exportAllApplicants'),
   exportAllTrainees: () => ipcRenderer.invoke('exportAllTrainees'),
   exportApplicants: (status) => ipcRenderer.invoke('exportApplicants', status),
-  exportAttendance: () => ipcRenderer.invoke('exportAttendance'),
+  exportAttendance: (date) => ipcRenderer.invoke('exportAttendance', date),
   exportEmployees: () => ipcRenderer.invoke('exportEmployees'),
   exportInventory: () => ipcRenderer.invoke('exportInventory'),
   exportInventoryLogs: (date) => ipcRenderer.invoke('exportInventoryLogs', date),

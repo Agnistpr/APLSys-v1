@@ -172,6 +172,14 @@ ipcMain.handle("importAttendance", async (event, { rows }) => {
         : { id: null, role: null };
     };
 
+    rows = rows.filter(
+      (r) => r.fullname && r.date && r.timein && r.timeout && r.timein.trim() && r.timeout.trim()
+    );
+
+    if (!rows.length) {
+      return { error: "All rows were incomplete or missing fields" };
+    }
+
     const cleaned = rows.map((r) => {
       if (r.profileid && Number(r.profileid) > 0) {
         return {
@@ -316,10 +324,10 @@ ipcMain.handle("exportEmployees", async () => {
 
 ipcMain.handle("exportAttendance", async (event, date = null) => {
   try {
-    logMessage("Starting exportAttendance...");
+    // logMessage("Starting exportAttendance...");
 
     const targetDate = date ? formatDateToISO(date) : null;
-
+    
     const query = supabase
       .from("attendance")
       .select("attendanceid, date, timein, timeout, profileid, role");
@@ -457,9 +465,12 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
 
     const csv = buildCSV(rows);
 
+    const today = formatDateToISO(new Date());
+    const filenameDate = targetDate || `all_${today}`;
+
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Attendance Export",
-      defaultPath: `attendance_export_${targetDate || "all"}.csv`,
+      defaultPath: `attendance_export_${filenameDate}.csv`,
       filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
@@ -487,9 +498,10 @@ ipcMain.handle("exportAbsence", async (event, date) => {
         lastname,
         firstname,
         middlename,
+        shiftstart,
+        shiftend,
         department:departmentid ( departmentname ),
-        position:positionid ( positionname ),
-        shift:shiftid ( timestart, timeend )
+        position:positionid ( positionname )
       `)
       .order("lastname", { ascending: true });
     if (empErr) throw empErr;
@@ -511,8 +523,8 @@ ipcMain.handle("exportAbsence", async (event, date) => {
       "Middle Name": r.middlename,
       Department: r.department?.departmentname ?? (Array.isArray(r.department) ? r.department[0]?.departmentname : "") ?? "",
       Position: r.position?.positionname ?? (Array.isArray(r.position) ? r.position[0]?.positionname : "") ?? "",
-      "Shift Start": r.shift?.timestart ?? (Array.isArray(r.shift) ? r.shift[0]?.timestart : "") ?? "",
-      "Shift End": r.shift?.timeend ?? (Array.isArray(r.shift) ? r.shift[0]?.timeend : "") ?? "",
+      "Shift Start": r.shiftstart ?? "",
+      "Shift End": r.shiftend ?? "",
       Date: targetDate,
     }));
 
@@ -2375,14 +2387,14 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
 
 ipcMain.handle('logIn', async (event, { email, password }) => {
   try {
-    // 1️⃣ Log in with Supabase Auth
+    // 1️⃣ Log in via Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
 
     const user = data.user;
     if (!user) return { error: 'No user returned from authentication.' };
 
-    // 2️⃣ Find the employee with this user_id
+    // 2️⃣ Get employee record
     const { data: employee, error: empError } = await supabase
       .from('employee')
       .select('employeeid, positionid')
@@ -2390,10 +2402,11 @@ ipcMain.handle('logIn', async (event, { email, password }) => {
       .single();
 
     if (empError || !employee) {
+      // ❌ Immediately revoke session
+      await supabase.auth.signOut();
       return { error: 'No matching employee record found for this user.' };
     }
 
-    // 3️⃣ Get their position name
     const { data: position, error: posError } = await supabase
       .from('position')
       .select('positionname')
@@ -2401,25 +2414,26 @@ ipcMain.handle('logIn', async (event, { email, password }) => {
       .single();
 
     if (posError || !position) {
+      await supabase.auth.signOut();
       return { error: 'Unable to determine position for this employee.' };
     }
 
     const userRole = position.positionname;
 
-    // 4️⃣ Check allowed roles
-    if (!allowedRoles.includes(userRole)) {
+    // 4️⃣ Check access
+    if (!allowedRoles.map(r => r.toLowerCase()).includes(userRole.toLowerCase())) {
+      await supabase.auth.signOut();
       return { error: 'You are not authorized to log in with this account.' };
     }
 
-    // ✅ Successful login and role validated
     return { user, session: data.session, role: userRole };
 
   } catch (err) {
     console.error('Login error:', err.message);
+    await supabase.auth.signOut(); 
     return { error: err.message };
   }
 });
-
 
 ipcMain.handle('logOut', async () => {
   try {

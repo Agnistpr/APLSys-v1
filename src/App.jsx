@@ -164,10 +164,7 @@ useEffect(() => {
 
   useEffect(() => {
     const unsubscribe = window.authAPI.onAuthStateChange((session) => {
-      if (session) {
-        setUser(session.user);
-        setActivePage("Dashboard");
-      } else {
+      if (!session) {
         setUser(null);
         setActivePage("Auth");
       }

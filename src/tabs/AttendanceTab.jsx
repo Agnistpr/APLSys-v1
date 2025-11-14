@@ -269,7 +269,7 @@ const DashboardAttendance = ({ setActivePage, setSelectedEmployeeId, setSelected
           <button className="exportBtn" onClick={() => setShowImportModal(true)}>
             Import
           </button>
-          <button className="exportBtn" onClick={() => window.exportAPI.exportAttendance()}>
+          <button className="exportBtn" onClick={() => window.exportAPI.exportAttendance(selectedDate)}>
             Export
           </button>
         </div>
