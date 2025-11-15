@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { LuEyeClosed, LuEye } from "react-icons/lu";
 import logoIcon from "../assets/logo1.png";
 import Background from "../assets/BG.jpg";
 
@@ -8,8 +9,11 @@ const Auth = ({ onLogin }) => {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
-  // const [keepLoggedIn, setKeepLoggedIn] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // NEW STATES
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     document.body.classList.add("login");
@@ -32,13 +36,8 @@ const Auth = ({ onLogin }) => {
       if (mode === "login") {
         const res = await window.authAPI.login(email, password);
 
-        if (res.error) {
-          throw new Error(res.error);
-        }
-
-        if (!res.session || !res.user) {
-          throw new Error("Invalid login response.");
-        }
+        if (res.error) throw new Error(res.error);
+        if (!res.session || !res.user) throw new Error("Invalid login response.");
 
         await window.authAPI.setSession(res.session);
 
@@ -50,7 +49,8 @@ const Auth = ({ onLogin }) => {
 
         onLogin(res.user);
       } else {
-        if (password !== confirmPassword) throw new Error("Passwords do not match");
+        if (password !== confirmPassword)
+          throw new Error("Passwords do not match");
 
         const res = await window.authAPI.signup(email, password);
         if (res.error) throw new Error(res.error);
@@ -59,7 +59,8 @@ const Auth = ({ onLogin }) => {
         setMode("login");
       }
     } catch (err) {
-      const message = err?.message || String(err) || `${mode === "login" ? "Login" : "Signup"} failed`;
+      const message =
+        err?.message || String(err) || `${mode === "login" ? "Login" : "Signup"} failed`;
       window.toast?.(message, "error");
       console.error(`${mode} error:`, err);
     } finally {
@@ -67,24 +68,63 @@ const Auth = ({ onLogin }) => {
     }
   };
 
+  // ENTER KEY HANDLER
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      handleAuth();
+    }
+  };
+
   return (
     <div className="authContainer" style={{ backgroundImage: `url(${Background})` }}>
-      <div className="loginContainer">
+      <div className="loginContainer" onKeyDown={handleKeyDown}>
         <div className="loginLogo">
           <img src={logoIcon} className="logoIcon" alt="logoIcon" />
         </div>
         <h2>{mode === "login" ? "Log In" : "Create Account"}</h2>
 
         <label htmlFor="email">EMAIL <span className="required">*</span></label>
-        <input type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <input
+          type="email"
+          id="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
 
         <label htmlFor="password">PASSWORD <span className="required">*</span></label>
-        <input type="password" id="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <div className="passwordContainer">
+          <input
+            type={showPassword ? "text" : "password"}
+            id="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <span className="passwordToggleBtn" onClick={() => setShowPassword(!showPassword)}>
+            {showPassword ? <LuEye /> : <LuEyeClosed />}
+          </span>
+        </div>
 
         {mode === "signup" && (
           <>
             <label htmlFor="confirmPassword">CONFIRM PASSWORD <span className="required">*</span></label>
-            <input type="password" id="confirmPassword" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+            <div className="passwordWrapper">
+              <input
+                type={showConfirmPassword ? "text" : "password"}
+                id="confirmPassword"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="passwordToggle"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                {showConfirmPassword ? <LuEye /> : <LuEyeClosed />}
+              </button>
+            </div>
           </>
         )}
 
@@ -114,8 +154,8 @@ const Auth = ({ onLogin }) => {
               ? "Logging in..."
               : "Signing up..."
             : mode === "login"
-              ? "Log In"
-              : "Sign Up"}
+            ? "Log In"
+            : "Sign Up"}
         </button>
 
         <div className="register">

@@ -425,7 +425,7 @@ useEffect(() => {
   };
 
   const sharedProps = {
-    uid: user?.uid,
+    uid: user?.id,
     activePage,
     setActivePage,
     setSelectedEmployeeId,
@@ -434,6 +434,7 @@ useEffect(() => {
     onTaskStart: trackTask,
     onTaskEnd: untrackTask
   };
+  console.log("Rendering App, user:", user?.id);
 
   if (loading) {
     return (

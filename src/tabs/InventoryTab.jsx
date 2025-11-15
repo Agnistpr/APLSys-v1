@@ -280,7 +280,24 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
       <div className="inventoryRow">
         <div className="tabTitleGroup">
           <h2 className="tabTitle">Inventory</h2>
-          <button className="exportBtn" onClick={() => window.exportAPI.exportInventory()}>
+          <button
+            className="exportBtn"
+            onClick={async () => {
+              try {
+                const result = await window.exportAPI.exportInventory(selectedDate);
+                console.log(uid);
+                if (result.success) {
+                  await window.userAPI.logAction(uid, "exported a copy of Inventory records");
+                  window.toast("Inventory exported successfully!", "success");
+                } else {
+                  window.toast(result.message || "Export failed", "error");
+                }
+              } catch (err) {
+                console.error("Export error:", err);
+                window.toast("An error occurred during export", "error");
+              }
+            }}
+          >
             Export
           </button>
         </div>

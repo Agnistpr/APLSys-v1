@@ -262,8 +262,6 @@ const DashboardAttendance = ({ uid, setActivePage, setSelectedEmployeeId, setSel
           totalItems={attendance.length}
           onPageChange={setCurrentPage}
           onItemsPerPageChange={setItemsPerPage}
-          // onImport={() => setShowImportModal(true)}
-          // onExport={() => window.exportAPI.exportAttendance()}
         />
         <div className="actions">
           <button className="exportBtn" onClick={() => setShowImportModal(true)}>
@@ -276,7 +274,7 @@ const DashboardAttendance = ({ uid, setActivePage, setSelectedEmployeeId, setSel
                 const result = await window.exportAPI.exportAttendance(selectedDate);
                 console.log(uid);
                 if (result.success) {
-                  await window.userAPI.logAction(uid, "exported a copy of Attendance");
+                  await window.userAPI.logAction(uid, "exported a copy of Attendance records");
                   window.toast("Attendance exported successfully!", "success");
                 } else {
                   window.toast(result.message || "Export failed", "error");

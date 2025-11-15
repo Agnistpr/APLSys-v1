@@ -34,6 +34,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
   });
   const [showCheckboxes, setShowCheckboxes] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
   const [toasts, setToasts] = useState([]);
   const suggestionRef = useRef(null);
   const [leaveType, setLeaveType] = useState("");
@@ -228,6 +229,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
   const updateLeaveStatus = async (status) => {
     if (!showCheckboxes) {
       setShowCheckboxes(true);
+      setSelectAll(false);
       return;
     }
     if (selectedIds.length === 0) return;
@@ -235,6 +237,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
       await window.attendanceAPI.updateLeaveStatus(selectedIds, status);
       setSelectedIds([]);
       setShowCheckboxes(false);
+      setSelectAll(false);
       fetchOnLeave();
       refreshDashboard();
       addToast(`Leaves ${status.toLowerCase()} successfully!`, "success");
@@ -287,7 +290,20 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
         <table className={`tabTable ${loading ? "skeleton" : ""}`}>
           <thead>
             <tr>
-              {showCheckboxes && <th></th>}
+              {showCheckboxes && (
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={selectAll}
+                    onChange={() => {
+                      setSelectAll(!selectAll);
+                      setSelectedIds(
+                        !selectAll ? paginated.map((row) => row.leaveid) : []
+                      );
+                    }}
+                  />
+                </th>
+              )}
               <th>Date</th>
               <th>Name</th>
               <th>Department</th>
@@ -332,11 +348,15 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
                         type="checkbox"
                         checked={selectedIds.includes(row.leaveid)}
                         onChange={() =>
-                          setSelectedIds((prev) =>
-                            prev.includes(row.leaveid)
+                          setSelectedIds((prev) => {
+                            const updated = prev.includes(row.leaveid)
                               ? prev.filter((x) => x !== row.leaveid)
-                              : [...prev, row.leaveid]
-                          )
+                              : [...prev, row.leaveid];
+
+                            // Update "Select All" state dynamically
+                            setSelectAll(updated.length === paginated.length);
+                            return updated;
+                          })
                         }
                       />
                     </td>

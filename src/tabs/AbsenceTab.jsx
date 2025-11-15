@@ -11,7 +11,7 @@ const getYesterday = () => {
   return d.toISOString().split("T")[0];
 };
 
-const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
+const DashboardAbsence = ({ uid, setActivePage, setSelectedEmployeeId }) => {
   const [absence, setAbsence] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState("fullName");
@@ -200,13 +200,26 @@ const DashboardAbsence = ({ setActivePage, setSelectedEmployeeId }) => {
           totalItems={absence.length}
           onPageChange={setCurrentPage}
           onItemsPerPageChange={setItemsPerPage}
-          onExport={() => window.exportAPI.exportAbsence(selectedDate)}
         />
 
         <div className="actions">
           <button
             className="exportBtn"
-            onClick={() => window.exportAPI.exportAbsence(selectedDate)}
+            onClick={async () => {
+              try {
+                const result = await window.exportAPI.exportAbsence(selectedDate);
+                console.log(uid);
+                if (result.success) {
+                  await window.userAPI.logAction(uid, "exported a copy of Absent records");
+                  window.toast("Absence exported successfully!", "success");
+                } else {
+                  window.toast(result.message || "Export failed", "error");
+                }
+              } catch (err) {
+                console.error("Export error:", err);
+                window.toast("An error occurred during export", "error");
+              }
+            }}
           >
             Export
           </button>

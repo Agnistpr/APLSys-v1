@@ -79,11 +79,13 @@ function buildCSV(rows) {
 
 // LOG ACTION--------------------------------------------------------------------
 async function logUserAction(uid, useraction, description = "") {
+  const now = new Date().toLocaleString("sv-SE").replace(" ", "T");
   const { error } = await supabase.from("userlogs").insert([
     {
       user_id: uid,
       useraction,
       description,
+      dateofaction: now
     },
   ]);
 
