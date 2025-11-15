@@ -1593,12 +1593,20 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, ty
     return JSON.stringify(err);
   };
 
+  if (status === 'Request') {
+    status = 'Pending';
+  }
+
   try {
+    duration = parseInt(duration, 10);
     const targetDate = formatDateToISO(date);
     const startDate = new Date(targetDate);
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + duration - 1);
     const targetEndDate = endDate.toISOString().split('T')[0];
+
+    // console.log('addLeave called with:', { employeeIds, date, reason, duration, type, isPaid, status });
+    // console.log('Computed targetDate and targetEndDate:', { targetDate, targetEndDate });
 
     let inserted = 0;
     let skipped = 0;
@@ -1615,7 +1623,7 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, ty
       const { data: existingAttendance, error: attErr } = await supabase
         .from('attendance')
         .select('attendanceid')
-        .eq('employeeid', id)
+        .eq('profileid', id)
         .gte('date', targetDate)
         .lte('date', targetEndDate)
         .limit(1);

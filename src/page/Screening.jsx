@@ -5,7 +5,7 @@ import FilterPanel from "../components/FilterPanel.jsx";
 import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
 
-const Screening = ({ setActivePage, setSelectedApplicantId, setPreviousPage, activePage, setSelectedResumeFile }) => {
+const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage, activePage, setSelectedResumeFile }) => {
   const [selectedTab, setSelectedTab] = useState("Pending");
   const [applicants, setApplicants] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -234,8 +234,25 @@ const Screening = ({ setActivePage, setSelectedApplicantId, setPreviousPage, act
       <div className="screeningContent">
         <div className="screeningHeader">
           <h1>Applicant Screening Dashboard</h1>
-          <button className="exportBtn" onClick={() => window.exportAPI.exportAllApplicants()}>
-            Export All
+          <button
+            className="exportBtn"
+            onClick={async () => {
+              try {
+                const result = await window.exportAPI.exportAllApplicants();
+                console.log(uid);
+                if (result.success) {
+                  await window.userAPI.logAction(uid, "exported a copy of all Applicant records");
+                  window.toast("Applicants exported successfully!", "success");
+                } else {
+                  window.toast(result.message || "Export failed", "error");
+                }
+              } catch (err) {
+                console.error("Export error:", err);
+                window.toast("An error occurred during export", "error");
+              }
+            }}
+          >
+            Export
           </button>
         </div>
 
@@ -287,12 +304,26 @@ const Screening = ({ setActivePage, setSelectedApplicantId, setPreviousPage, act
             </div>
             <div className="applicantSection">
               <div className="applicantHeader">
-                <button
-                  className="exportBtn"
-                  onClick={() => window.exportAPI.exportApplicants(selectedTab)}
-                >
-                  Export Table
-                </button>
+              <button
+                className="exportBtn"
+                onClick={async () => {
+                  try {
+                    const result = await window.exportAPI.exportApplicants(selectedTab);
+                    console.log(uid);
+                    if (result.success) {
+                      await window.userAPI.logAction(uid, "exported a copy of " + selectedTab + " Applicant records" );
+                      window.toast("Applicants exported successfully!", "success");
+                    } else {
+                      window.toast(result.message || "Export failed", "error");
+                    }
+                  } catch (err) {
+                    console.error("Export error:", err);
+                    window.toast("An error occurred during export", "error");
+                  }
+                }}
+              >
+                Export
+              </button>
                 <div className="applicantControls">
                   <SortDropdown
                     columns={columns}

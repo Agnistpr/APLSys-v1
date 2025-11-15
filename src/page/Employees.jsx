@@ -5,7 +5,7 @@ import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
 import SkeletonLoader from "../components/SkeletonLoader.jsx";
 
-const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activePage }) => {
+const Employee = ({ uid, setActivePage, setSelectedEmployeeId, setPreviousPage, activePage }) => {
   const [employees, setEmployees] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState("employeeid");
@@ -141,9 +141,23 @@ const Employee = ({ setActivePage, setSelectedEmployeeId, setPreviousPage, activ
           <h1>Employees</h1>
           <button
             className="exportBtn"
-            onClick={() => window.exportAPI.exportEmployees()}
+            onClick={async () => {
+              try {
+                const result = await window.exportAPI.exportEmployees();
+                console.log(uid);
+                if (result.success) {
+                  await window.userAPI.logAction(uid, "exported a copy of Employee records");
+                  window.toast("Employees exported successfully!", "success");
+                } else {
+                  window.toast(result.message || "Export failed", "error");
+                }
+              } catch (err) {
+                console.error("Export error:", err);
+                window.toast("An error occurred during export", "error");
+              }
+            }}
           >
-            Export All
+            Export
           </button>
         </div>
 
