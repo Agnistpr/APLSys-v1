@@ -65,7 +65,7 @@ const Sidebar = ({
 
   // DEBUG: log every change
   useEffect(() => {
-    // console.log("📍 Sidebar: processingMap updated:", { processingMap, scannerProcessing, batchProcessing });
+    // console.log("Sidebar: processingMap updated:", { processingMap, scannerProcessing, batchProcessing });
   }, [processingMap, scannerProcessing, batchProcessing]);
 
   const [showEmployees, setShowEmployees] = useState(false);

@@ -339,7 +339,7 @@ export default function ResumeParser
    setPreviousPage,
    activePage,
    selectedResumeFile,
-   setSelectedResumeFile, 
+   setSelectedResumeFile,
    goBack,
    onParsingStateChange }: ResumeParserProps = {}) {
   console.log("DEBUG ResumeTable:", typeof ResumeTable, ResumeTable);
