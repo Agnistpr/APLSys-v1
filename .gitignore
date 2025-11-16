@@ -1,3 +1,27 @@
+# Tryna organize
+
+log.txt
+__package
+.VSCodeCounter
+dist-react
+node_modules
+backups/
+.env
+
+# Old Stuff to be removed || For other dev:
+aplsys_db.sql
+dbd.js
+components.json
+App.css
+new
+
+# Ask other dev if this is still needed | possibly deleted
+ner_api.spec
+
+
+# ------ old stuff ------
+
+
 # Logs
 logs
 *.log
@@ -6,21 +30,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-log.txt
 
-db-data/
-logfile
-log.txt
-backups/
-.VSCodeCounter
 
 *.map
 __tests__/
 
-node_modules
-dist
-# dist-ssr
-dist-react
 *.local
 
 # Editor directories and files

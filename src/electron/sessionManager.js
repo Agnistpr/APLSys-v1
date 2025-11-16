@@ -62,7 +62,14 @@ ipcMain.handle("restoreSession", (_e, session) => restoreSession(null, session))
 ipcMain.handle("getCurrentUser", async () => {
   try {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) return null;
+    if (userError || !user) {
+      console.log("No active user — forcing logout.");
+
+      await supabase.auth.signOut();
+      await clearSession();
+
+      return { logout: true };
+    }
 
     const { data: employee, error: empError } = await supabase
       .from("employee")
@@ -72,8 +79,8 @@ ipcMain.handle("getCurrentUser", async () => {
 
     if (empError || !employee) {
       return {
-        uid: user.id,
-        name: user.user_metadata?.full_name || "Unknown User",
+        id: user.id,
+        name: user.user_metadata?.full_name || "Unknown user",
         role: "N/A",
         image: null,
         email: user.email,
@@ -105,7 +112,7 @@ ipcMain.handle("getCurrentUser", async () => {
     }
 
     return {
-      uid: user.id,
+      id: user.id,
       name: user.user_metadata?.full_name || `${employee.firstname} ${employee.lastname}`,
       role: positionName,
       image: imageUrl,
