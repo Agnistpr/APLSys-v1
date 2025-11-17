@@ -212,7 +212,7 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
       const logRes = await window.inventoryAPI.addInventoryLog(logPayload);
 
       if (!logRes || logRes.success === false) {
-        window.toast("Item updated, but failed to record log.", "warning");
+        window.toast("Item updated, but failed to record log.", "error");
       } else {
         window.toast("Item updated successfully!", "success");
       }
@@ -346,7 +346,29 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
       </div>
 
       <div className="tabHeaderRow">
-        <h2 className="tabTitle">Inventory Logs</h2>
+        <div className="tabTitleGroup">
+          <h2 className="tabTitle">Inventory Logs</h2>
+          <button
+            className="exportBtn"
+            onClick={async () => {
+              try {
+                const result = await window.exportAPI.exportInventoryLogs(selectedDate);
+                console.log(uid);
+                if (result.success) {
+                  await window.userAPI.logAction(uid, "exported a copy of Inventory Logs");
+                  window.toast("Inventory Logs exported successfully!", "success");
+                } else {
+                  window.toast(result.message || "Export failed", "error");
+                }
+              } catch (err) {
+                console.error("Export error:", err);
+                window.toast("An error occurred during export", "error");
+              }
+            }}
+          >
+            Export
+          </button>
+        </div>
         <div className="tabControls">
           <SortDropdown
             columns={columns}

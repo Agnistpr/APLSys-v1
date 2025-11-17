@@ -647,62 +647,99 @@ ipcMain.handle("exportInventory", async () => {
   }
 });
 
-ipcMain.handle("exportInventoryLogs", async (event, date) => {
+ipcMain.handle("exportInventoryLogs", async (event, date = null) => {
   try {
-    const targetDate = date ? formatDateToISO(date) : null;
+    let query = supabase
+      .from("inventorylogs")
+      .select(`
+        logid,
+        itemid,
+        quantity,
+        date,
+        role,
+        profileid,
+        item:itemid ( itemname )
+      `)
+      .order("date", { ascending: true });
 
-    const q = supabase.from("inventorylogs").select("logid, employeeid, itemid, quantity, date").order("date", { ascending: false });
-    let result;
-    if (targetDate) result = await q.eq("date", targetDate);
-    else result = await q;
+    if (date) query = query.eq("date", date);
 
-    if (result.error) throw result.error;
-    const logs = result.data || [];
+    const { data: logsBase, error } = await query;
+    if (error) throw error;
+    if (!logsBase || !logsBase.length) return { success: false, message: "No logs to export" };
 
-    if (logs.length === 0) return { success: false, message: "No inventory log records to export" };
+    const employeeIds = logsBase
+      .filter(l => (l.role || "").toLowerCase() === "employee" && l.profileid)
+      .map(l => l.profileid);
+    const applicantIds = logsBase
+      .filter(l => (l.role || "").toLowerCase() === "applicant" && l.profileid)
+      .map(l => l.profileid);
 
-    const { data: employees } = await supabase.from("employee").select("employeeid, lastname, firstname, middlename, departmentid, positionid");
-    const empMap = new Map((employees || []).map((e) => [e.employeeid, e]));
+    const { data: employees } = await supabase
+      .from("employee")
+      .select("employeeid, firstname, middlename, lastname, departmentid, positionid")
+      .in("employeeid", employeeIds.length ? employeeIds : [-1]);
 
-    const { data: departments } = await supabase.from("department").select("departmentid, departmentname");
-    const deptMap = new Map((departments || []).map((d) => [d.departmentid, d.departmentname]));
+    const { data: applicants } = await supabase
+      .from("applicant")
+      .select("applicantid, firstname, middlename, lastname, departmentid, positionid")
+      .in("applicantid", applicantIds.length ? applicantIds : [-1]);
 
-    const { data: positions } = await supabase.from("position").select("positionid, positionname");
-    const posMap = new Map((positions || []).map((p) => [p.positionid, p.positionname]));
+    const profileMap = new Map();
+    (employees || []).forEach(e => profileMap.set(e.employeeid, e));
+    (applicants || []).forEach(a => profileMap.set(a.applicantid, a));
 
-    const { data: inventory } = await supabase.from("inventory").select("itemid, itemname");
-    const itemMap = new Map((inventory || []).map((i) => [i.itemid, i.itemname]));
+    const deptIds = [...new Set([...employees, ...applicants].map(p => p.departmentid).filter(Boolean))];
+    const posIds = [...new Set([...employees, ...applicants].map(p => p.positionid).filter(Boolean))];
 
-    const rows = logs.map((l) => {
-      const e = empMap.get(l.employeeid) || {};
+    const { data: departments } = await supabase
+      .from("department")
+      .select("departmentid, departmentname")
+      .in("departmentid", deptIds.length ? deptIds : [-1]);
+
+    const { data: positions } = await supabase
+      .from("position")
+      .select("positionid, positionname")
+      .in("positionid", posIds.length ? posIds : [-1]);
+
+    const deptMap = new Map((departments || []).map(d => [d.departmentid, d.departmentname]));
+    const posMap = new Map((positions || []).map(p => [p.positionid, p.positionname]));
+
+    const rows = logsBase.map(l => {
+      const profile = profileMap.get(l.profileid) || {};
+      const name = profile.lastname
+        ? `${profile.lastname}, ${profile.firstname}${profile.middlename ? ` ${profile.middlename[0]}.` : ""}`
+        : "";
+      const department = deptMap.get(profile.departmentid) || "";
+      const position = posMap.get(profile.positionid) || "";
+
       return {
-        ID: e.employeeid || "",
-        "Last Name": e.lastname || "",
-        "First Name": e.firstname || "",
-        "Middle Name": e.middlename || "",
-        Department: deptMap.get(e.departmentid) || "",
-        Position: posMap.get(e.positionid) || "",
-        Item: itemMap.get(l.itemid) || "",
-        Quantity: l.quantity,
+        LogID: l.logid,
         Date: formatDateToISO(l.date),
+        Item: l.item?.itemname || "",
+        Quantity: l.quantity,
+        Role: l.role,
+        ProfileID: l.profileid,
+        FullName: name,
+        Department: department,
+        Position: position
       };
     });
 
     const csv = buildCSV(rows);
+
     const { filePath } = await dialog.showSaveDialog({
-      title: "Save Inventory Export",
-      defaultPath: "inventorylogs.csv",
+      title: "Export Inventory Logs",
+      defaultPath: `inventory_logs${date ? "_" + date : ""}.csv`,
       filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
 
     if (!filePath) return { success: false, message: "Export cancelled" };
 
-    fs.writeFileSync(filePath, csv, "utf8");
-    logMessage?.(`Inventory logs exported to ${filePath}`);
+    await fs.promises.writeFile(filePath, csv, "utf8");
 
-    return { success: true, filePath };
+    return { success: true, filePath, count: rows.length };
   } catch (err) {
-    logMessage?.("Inventory logs export failed: " + err.message);
     return { success: false, error: err.message };
   }
 });
@@ -1912,16 +1949,12 @@ ipcMain.handle("updateItem", async (event, form) => {
 ipcMain.handle("addInventoryLog", async (event, { itemid, profileid, quantity, role }) => {
   try {
     const safeItemId = Number(itemid);
-    const safeQuantity = Number(quantity) || 0;
-    const safeProfileId =
-      profileid === null || profileid === undefined || profileid === ""
-        ? null
-        : Number(profileid);
-
     if (!safeItemId || isNaN(safeItemId)) {
       return { success: false, error: "Invalid itemid" };
     }
 
+    const safeQuantity = Number(quantity) || 0;
+    const safeProfileId = profileid ? Number(profileid) : null;
     const today = new Date().toISOString().split("T")[0];
 
     const { data, error } = await supabase
@@ -1938,13 +1971,18 @@ ipcMain.handle("addInventoryLog", async (event, { itemid, profileid, quantity, r
       .select();
 
     if (error) {
-      logMessage("addInventoryLog supabase error:", error);
-      return { success: false, error: error.message || JSON.stringify(error) };
+      console.error("Supabase insert failed:", JSON.stringify(error, null, 2));
+      return { success: false, error: JSON.stringify(error) };
+    }
+
+    if (!data || !data.length) {
+      console.error("Supabase insert returned no data", { itemid, profileid, quantity, role });
+      return { success: false, error: "No log was created" };
     }
 
     return { success: true, data };
   } catch (err) {
-    logMessage("addInventoryLog unexpected error:", err);
+    console.error("Unexpected addInventoryLog error:", err);
     return { success: false, error: err?.message || String(err) };
   }
 });
