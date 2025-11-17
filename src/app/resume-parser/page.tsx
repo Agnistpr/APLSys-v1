@@ -226,16 +226,18 @@ function ResumePreview({
   if (detectedFileType === 'docx' && fileUrl && /^https?:\/\//i.test(fileUrl)) {
     const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
     return (
-      <div style={{ height: "100%", width: "100%" }}>
+      <div style={{ height: "100%", width: "100%", overflow: "hidden", display: "flex", justifyContent: "center", alignItems: "center", }}>
         <iframe
           title="DOCX preview"
           src={viewerUrl}
           style={{ 
             width: "100%", 
-            height: "100%", 
+            height: "100%",
             border: "none", 
-            minHeight: 1000,
-            display: "block"
+            transform: "scale(1.5)", // Adjust scale as needed
+            transformOrigin: "center",
+            // minHeight: 1000,
+            // display: "block"
           }}
         />
       </div>
@@ -365,6 +367,7 @@ export default function ResumeParser
   const [resumeName, setResumeName] = useState("");
   const [isParsingResume, setIsParsingResume] = useState(false);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  const [showFinalScore, setShowFinalScore] = useState(false);
   // Visual indicator shown when persisted file state is cleared on this session
   const [clearedMessage, setClearedMessage] = useState<string | null>(null);
   //const { addTask, updateTask } = useAnalysisStore();
@@ -687,7 +690,7 @@ export default function ResumeParser
       console.log("Hydrating editableResume from persisted store:", persistedResume);
       setEditableResume(persistedResume);
     }
-  }, [isHydrated, hydrationAttempted]);
+  }, [isHydrated]);
 
   useEffect(() => {
     if (!fileUrl && currentFile?.url) {
@@ -1839,7 +1842,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             >
               Parsing Table
             </button>
-            {parseComplete && (
               <>
                 <button
                   className={`tab-btn ${activeTab === "analysis" ? "active" : ""}`}
@@ -1856,13 +1858,12 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                   Candidate Scoring
                 </button>
               </>
-            )}
            </div>
   
         <div className="tab-content">
           {activeTab === "parsing" ? (
              <div className="resume-table-section">
-               <h2 className="section-title">Resume Parsing Results</h2>
+               <h2 className="section-title">Applicant Information Sheet</h2>
                {/* Always render the editable table (use persisted editableResume or default) */}
                <ResumeTable
                  resume={editableResume || defaultResume}
@@ -1949,12 +1950,20 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             /* activeTab === "scoring" branch */
             <div className="candidate-scoring-section">
               <h2 className="section-title">Candidate Scoring</h2>
-
-              <div className="score-configurator">
-                <h3>Configure Scoring Weights</h3>
-                {Object.keys(scoringWeights).map((key) => (
-                  <div key={key} style={{ marginBottom: 4 }}>
-                    <label style={{ width: 120, display: "inline-block" }}>{key.charAt(0).toUpperCase() + key.slice(1)}:</label>
+              <div style={{
+                display: "flex",
+                gap: "32px",
+                alignItems: "flex-start",
+                marginBottom: "24px"
+              }}>
+                {/* Configure Scoring Weights */}
+                <div style={{ flex: 1 }}>
+                  <h3>Configure Scoring Weights</h3>
+                  {Object.keys(scoringWeights).map((key) => (
+                    <div key={key} style={{ marginBottom: 8 }}>
+                    <label style={{ width: 120, display: "inline-block" }}>
+                      {key.charAt(0).toUpperCase() + key.slice(1)}:
+                    </label>
                     <input
                       type="number"
                       min={0}
@@ -1972,10 +1981,16 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                 <div style={{ fontSize: 12, color: "#888" }}>
                   (Sum should be 1.0 for proper weighting)
                 </div>
-                <h3 className="mt-4">Section Scores</h3>
+              </div>
+
+              {/* Section Scores */}
+              <div style={{ flex: 1 }}>
+                <h3 className="mt-0">Section Scores</h3>
                 {Object.keys(sectionScores).map((key) => (
-                  <div key={key} style={{ marginBottom: 4 }}>
-                    <label style={{ width: 120, display: "inline-block" }}>{key.charAt(0).toUpperCase() + key.slice(1)}:</label>
+                  <div key={key} style={{ marginBottom: 8 }}>
+                    <label style={{ width: 120, display: "inline-block" }}>
+                      {key.charAt(0).toUpperCase() + key.slice(1)}:
+                    </label>
                     <input
                       type="number"
                       min={0}
@@ -1989,36 +2004,36 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                     />
                   </div>
                 ))}
-              </div>
-
-              <div className="mt-4">
-                <label style={{ fontWeight: "bold" }}>Your Score (0-100): </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={userScore ?? ""}
-                  onChange={e => setUserScore(e.target.value === "" ? null : parseInt(e.target.value, 10))}
-                  style={{ width: 80, marginLeft: 8 }}
-                />
-              </div>
-
-              {/* Show AI score if available and final combined score */}
-              {aiScore !== null && userScore !== null && (
-                <div className="mt-2" style={{ fontWeight: "bold", fontSize: "1.2em" }}>
-                  Final Applicant Score: <span style={{ color: "#1976d2" }}>
-                    {Math.round((aiScore + userScore) / 2)} / 100
-                  </span>
+                <div className="mt-4">
+                  <label style={{ fontWeight: "bold" }}>Your Score (0-100): </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={userScore ?? ""}
+                    onChange={e => setUserScore(e.target.value === "" ? null : parseInt(e.target.value, 10))}
+                    style={{ width: 80, marginLeft: 8 }}
+                  />
                 </div>
-              )}
+              </div>
+            </div>
 
+            {/* Calculate Score Button */}
+            <button
+              className="btn-primary"
+              style={{ marginBottom: 16 }}
+              onClick={() => setShowFinalScore(true)}
+            >
+              Calculate Score
+            </button>
 
-
-              {/* Visual score card */}
+            {/* Show score only after button click */}
+            {showFinalScore && (
               <div style={{ marginTop: 12 }}>
                 <CandidateScoreCard sectionScores={sectionScores} scoringWeights={scoringWeights} />
               </div>
-            </div>
+            )}
+          </div>
           )}
          </div>
       </div>
