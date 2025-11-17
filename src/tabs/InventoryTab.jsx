@@ -391,7 +391,7 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={columns.length}>Loading...</td></tr>
+              <tr><td colSpan={columns.length}></td></tr>
             ) : paginated.length === 0 ? (
               <tr><td colSpan={columns.length}>No records found.</td></tr>
             ) : (

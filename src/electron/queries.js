@@ -1593,9 +1593,7 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, ty
     return JSON.stringify(err);
   };
 
-  if (status === 'Request') {
-    status = 'Pending';
-  }
+  if (status === 'Request') status = 'Pending';
 
   try {
     duration = parseInt(duration, 10);
@@ -1604,9 +1602,6 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, ty
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + duration - 1);
     const targetEndDate = endDate.toISOString().split('T')[0];
-
-    // console.log('addLeave called with:', { employeeIds, date, reason, duration, type, isPaid, status });
-    // console.log('Computed targetDate and targetEndDate:', { targetDate, targetEndDate });
 
     let inserted = 0;
     let skipped = 0;
@@ -1639,21 +1634,12 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, ty
           .from('employee')
           .select('leavecredit')
           .eq('employeeid', id)
-          .limit(1)
           .single();
         if (error) throw new Error(normalizeError(error));
-
-        if (!empData) throw new Error(`Employee ${id} not found`);
-        if ((empData.leavecredit || 0) < duration) {
+        if (!empData || (empData.leavecredit || 0) < duration) {
           skipped++;
           continue;
         }
-
-        const { error: updErr } = await supabase
-          .from('employee')
-          .update({ leavecredit: empData.leavecredit - duration })
-          .eq('employeeid', id);
-        if (updErr) throw new Error(normalizeError(updErr));
       }
 
       const { error: insErr } = await supabase
@@ -1666,7 +1652,7 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, ty
             reason,
             type,
             is_paid: isPaid,
-            status, 
+            status,
           },
         ]);
 
@@ -1689,25 +1675,58 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, ty
       inserted,
       skipped,
     };
-
   } catch (err) {
-    logMessage('addLeave error (raw):', err);
-    if (err && err.stack) logMessage('Stack trace:', err.stack);
     return { success: false, error: normalizeError(err) };
   }
 });
 
 ipcMain.handle('updateLeaveStatus', async (event, { ids, status }) => {
   try {
-    if (!Array.isArray(ids) || ids.length === 0) return { success: false, error: 'No IDs provided' };
-    const { error, data } = await supabase.from('leave').update({ status }).in('leaveid', ids);
-    if (error) throw error;
-    return { success: true, changes: (data || []).length };
+    if (!Array.isArray(ids) || ids.length === 0)
+      return { success: false, error: 'No IDs provided' };
+
+    if (status === 'Approved') {
+      for (const leaveId of ids) {
+        const { data: leaveData, error: leaveErr } = await supabase
+          .from('leave')
+          .select('employeeid, start_date, end_date, is_paid')
+          .eq('leaveid', leaveId)
+          .single();
+        if (leaveErr) throw new Error(leaveErr.message);
+
+        if (leaveData.is_paid) {
+          const start = new Date(leaveData.start_date);
+          const end = new Date(leaveData.end_date);
+          const duration = Math.floor((end - start) / 86400000) + 1;
+
+          const { data: empData, error: empErr } = await supabase
+            .from('employee')
+            .select('leavecredit')
+            .eq('employeeid', leaveData.employeeid)
+            .single();
+          if (empErr) throw new Error(empErr.message);
+
+          if ((empData.leavecredit || 0) < duration)
+            return { success: false, error: `Insufficient leave credits for employee ${leaveData.employeeid}` };
+
+          const { error: updErr } = await supabase
+            .from('employee')
+            .update({ leavecredit: empData.leavecredit - duration })
+            .eq('employeeid', leaveData.employeeid);
+          if (updErr) throw new Error(updErr.message);
+        }
+      }
+    }
+
+    const { error } = await supabase.from('leave').update({ status }).in('leaveid', ids);
+    if (error) throw new Error(error.message);
+
+    return { success: true };
   } catch (err) {
-    console.error('updateLeaveStatus error:', err);
     return { success: false, error: err.message };
   }
 });
+
 
 ipcMain.handle("getInventoryLogs", async (event, date) => {
   try {

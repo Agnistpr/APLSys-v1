@@ -93,7 +93,6 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     fetchApplicant();
   }, [applicantId]);
 
-  // After dept/pos list loads, map departmentid/positionid from names (if available)
   useEffect(() => {
     if (!applicant || deptPosList.length === 0) return;
 
@@ -129,6 +128,13 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [needsPositionUpdate]);
 
+  const toInputDate = (val) => {
+    if (!val) return "";
+    const d = new Date(val);
+    if (isNaN(d)) return "";
+    return d.toISOString().split("T")[0];
+  };
+
   const handleEditClick = (field, value) => {
     setEditingField(field);
     if (field === "name") {
@@ -146,7 +152,18 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
   const handleKeyDown = async (e, field, isDate = false) => {
     if (e.key === "Enter") {
       setEditingField(null);
-      let safeValue = isDate ? new Date(fieldValue).toISOString().split("T")[0] : fieldValue.trim();
+      let safeValue;
+
+      if (isDate) {
+        if (!fieldValue) {
+          safeValue = "";
+        } else {
+          const d = new Date(fieldValue);
+          safeValue = !isNaN(d) ? d.toISOString().split("T")[0] : "";
+        }
+      } else {
+        safeValue = fieldValue.trim();
+      }
 
       if (validationRules[field]) {
         const { regex, message } = validationRules[field];
@@ -429,7 +446,7 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
               }
               value={
                 isDate
-                  ? new Date(fieldValue).toISOString().split("T")[0]
+                  ? toInputDate(fieldValue)
                   : field === "contact"
                     ? formatContactNumber(fieldValue)
                     : fieldValue
@@ -448,7 +465,7 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
           <>
             {isDate
               ? applicant[field]
-                ? new Date(applicant[field]).toISOString().split("T")[0]
+                ? toInputDate(applicant[field])
                 : "—"
               : field === "contact"
                 ? formatContactNumber(applicant[field])

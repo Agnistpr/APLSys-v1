@@ -6,7 +6,7 @@ import Pagination from "../components/Pagination.jsx";
 import Toast from "../components/Toast.jsx";
 import DatePicker from "../components/DatePicker.jsx";
 
-const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard, status }) => {
+const DashboardLeave = ({ uid, setActivePage, setSelectedEmployeeId, refreshDashboard, status }) => {
   const [onLeave, setOnLeave] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState("fullName");
@@ -192,57 +192,85 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
 
   const handleConfirmAddLeave = async () => {
     if (!addLeaveDate || selectedEmployeeIds.length === 0) return;
+
     const existing = onLeave.filter(
       (l) => selectedEmployeeIds.includes(l.employeeid) && l.date === addLeaveDate
     );
     const toAdd = selectedEmployeeIds.filter(
       (id) => !existing.some((l) => l.employeeid === id)
     );
+
     if (existing.length > 0)
       addToast(`Leave already exists for:\n${existing.map((e) => e.fullName).join("\n")}`, "error");
-    if (toAdd.length > 0) {
-      try {
-        const result = await window.attendanceAPI.addLeave(
-          toAdd,
-          addLeaveDate,
-          leaveReason,
-          addLeaveDuration,
-          leaveType,
-          isPaidLeave ? true : false,
-          status
-        );
-        if (!result.success) {
-          window.toast(`${result.message}`, `error`);
-          return;
-        }
-        await fetchOnLeave();
-        refreshDashboard();
-        window.toast(`${result.message}`, "success");
-        setLeaveReason("");
-        setShowAddModal(false);
-      } catch (err) {
-        addToast(`Error adding leave: ${err.message}`, "error");
+
+    if (toAdd.length === 0) return;
+
+    try {
+      const result = await window.attendanceAPI.addLeave(
+        toAdd,
+        addLeaveDate,
+        leaveReason,
+        addLeaveDuration,
+        leaveType,
+        isPaidLeave ? true : false,
+        status
+      );
+
+      if (!result.success) {
+        window.toast(result.message, "error");
+        return;
       }
+
+      await window.userAPI.logAction(
+        uid,
+        `requested leave for ${toAdd.length} employee(s)`
+      );
+
+      await fetchOnLeave();
+      refreshDashboard();
+
+      window.toast(result.message, "success");
+
+      setLeaveReason("");
+      setShowAddModal(false);
+    } catch (err) {
+      addToast(`Error adding leave: ${err.message}`, "error");
     }
   };
 
-  const updateLeaveStatus = async (status) => {
+  const updateLeaveStatus = async (statusToUpdate) => {
     if (!showCheckboxes) {
       setShowCheckboxes(true);
       setSelectAll(false);
       return;
     }
+
     if (selectedIds.length === 0) return;
+
     try {
-      await window.attendanceAPI.updateLeaveStatus(selectedIds, status);
+      const result = await window.attendanceAPI.updateLeaveStatus(selectedIds, statusToUpdate);
+
+      if (!result.success) {
+        window.toast(result.error || "Update failed", "error");
+        return;
+      }
+
+      await window.userAPI.logAction(
+        uid,
+        `${statusToUpdate.toLowerCase()} ${selectedIds.length} leave request(s)`
+      );
+
       setSelectedIds([]);
       setShowCheckboxes(false);
       setSelectAll(false);
-      fetchOnLeave();
+
+      await fetchOnLeave();
       refreshDashboard();
-      addToast(`Leaves ${status.toLowerCase()} successfully!`, "success");
+
+      window.toast(`Leaves ${statusToUpdate.toLowerCase()} successfully!`, "success");
     } catch (err) {
-      addToast(`Error updating leaves: ${err.message}`, "error");
+      console.error(err);
+      window.toast(`Error updating leaves: ${err.message}`, "error");
     }
   };
 
@@ -416,6 +444,29 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
           onItemsPerPageChange={setItemsPerPage}
         />
         <div className="actions">
+          <button
+            className="actionBtn exportBtn"
+            onClick={async () => {
+              try {
+                const result = await window.exportAPI.exportLeave(status);
+
+                if (result.success) {
+                  await window.userAPI.logAction(
+                    uid,
+                    `exported ${status === "Approved" ? "Approved" : "Pending"} leave records`
+                  );
+                  window.toast("Leave records exported successfully!", "success");
+                } else {
+                  window.toast(result.message || "Export failed", "error");
+                }
+              } catch (err) {
+                console.error("Export error:", err);
+                window.toast("An error occurred while exporting", "error");
+              }
+            }}
+          >
+            Export {status === "Approved" ? "Approved" : "Pending"} Leaves
+          </button>
           <button className="actionBtn" onClick={openAddModal}>Add</button>
           {status === "Approved" && (
             <button className="actionBtn" onClick={() => updateLeaveStatus("Revoked")}>
@@ -435,7 +486,7 @@ const DashboardLeave = ({ setActivePage, setSelectedEmployeeId, refreshDashboard
         </div>
       </div>
 
-      <Toast toasts={toasts} remockveToast={removeToast} />
+      <Toast toasts={toasts} removeToast={removeToast} />
       {showAddModal && (
         <div
           className="modalOverlay"
