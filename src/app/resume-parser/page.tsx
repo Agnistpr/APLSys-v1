@@ -334,6 +334,18 @@ type ResumeParserProps = {
   setShowAnalyzer?: (visible: boolean) => void;
 };
 
+const getRateLimitRestTime = () => {
+  // Conservative approach: space requests 6-8 seconds apart
+  // This gives buffer to avoid hitting the limit
+  const MIN_REST_MS = 6000;  // 6 seconds minimum
+  const RECOMMENDED_REST_MS = 8000;  // 8 seconds recommended
+  
+  return {
+    min: Math.ceil(MIN_REST_MS / 1000),
+    recommended: Math.ceil(RECOMMENDED_REST_MS / 1000),
+  };
+};
+
 export default function ResumeParser
 ({ setActivePage,
    setSelectedApplicantId,
@@ -1115,14 +1127,13 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       return;
     }
     
-    // Get the actual filename instead of blob URL
     const displayName = currentFile?.name || resumeName || "resume.pdf";
-
     const taskId = `parse-${Date.now()}`;
+    const { recommended } = getRateLimitRestTime();
+    
     setProcessing(true);
     setIsParsingResume(true);
 
-    // Notify parent App (sidebar spinner) that parsing started
     try { onParsingStateChange?.(true, displayName); } catch (e) { console.warn("onParsingStateChange start failed", e); }
 
     addTask({
@@ -1141,6 +1152,14 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       duration: 10000,
     });
 
+    // ✅ NEW: Show rate limit advisory
+    toast.info("Rate limit advisory", {
+      id: "rate-limit-parse",
+      description: `After parsing completes, wait at least ${recommended}s before analyzing to avoid rate limits.`,
+      icon: "⏱️",
+      dismissible: true,
+      duration: 8000,
+    });
 
     try {
       // Initialize with default structure before parsing
@@ -1314,7 +1333,8 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
     const displayName = currentFile?.name || resumeName || "resume.pdf";
     const taskId = `analyze-${Date.now()}`;
-    // Signal global processing (DeepSeek) and notify parent UI
+    const { recommended } = getRateLimitRestTime();
+    
     setProcessing(true);
     try { onParsingStateChange?.(true, displayName); } catch (e) { console.warn("onParsingStateChange start failed", e); }
 
@@ -1330,6 +1350,15 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       description: "Analyzing resume, you can close this while it runs.",
       dismissible: true,
       duration: 10000,
+    });
+
+    // ✅ NEW: Show rate limit advisory
+    toast.info("Rate limit advisory", {
+      id: "rate-limit-analyze",
+      description: `If you parse another resume next, wait at least ${recommended}s after this analysis completes.`,
+      icon: "⏱️",
+      dismissible: true,
+      duration: 8000,
     });
 
     try {
