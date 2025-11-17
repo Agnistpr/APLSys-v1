@@ -484,7 +484,25 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
         shiftStartMin != null &&
         shiftEndMin != null
       ) {
-        arrivalDiff = timeInMin - shiftStartMin;
+        const MINUTES_IN_DAY = 1440;
+
+        let normalizedShiftStart = shiftStartMin;
+        let normalizedShiftEnd = shiftEndMin;
+        if (shiftEndMin <= shiftStartMin) {
+          normalizedShiftEnd += MINUTES_IN_DAY;
+        }
+
+        let normalizedTimeIn = timeInMin;
+        if (normalizedTimeIn < normalizedShiftStart - 300) {
+          normalizedTimeIn += MINUTES_IN_DAY;
+        }
+
+        let normalizedTimeOut = timeOutMin;
+        if (normalizedTimeOut <= normalizedTimeIn) {
+          normalizedTimeOut += MINUTES_IN_DAY;
+        }
+
+        arrivalDiff = normalizedTimeIn - normalizedShiftStart;
         if (Math.abs(arrivalDiff) <= ARRIVAL_TOLERANCE) {
           arrivalDiff = 0;
           arrivalStatus = "On Time";
@@ -492,8 +510,9 @@ ipcMain.handle("exportAttendance", async (event, date = null) => {
           arrivalStatus = arrivalDiff > 0 ? "Late" : "Early";
         }
 
-        const actualDur = timeOutMin - timeInMin;
-        const shiftDur = shiftEndMin - shiftStartMin;
+        const actualDur = normalizedTimeOut - normalizedTimeIn;
+        const shiftDur = normalizedShiftEnd - normalizedShiftStart;
+
         workDiff = actualDur - shiftDur;
         hoursWorked = parseDurationLabel(actualDur);
 
@@ -1260,7 +1279,25 @@ ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate =
         shiftStartMin != null &&
         shiftEndMin != null
       ) {
-        arrivalDiff = timeInMin - shiftStartMin;
+        const MINUTES_IN_DAY = 1440;
+
+        let normalizedShiftStart = shiftStartMin;
+        let normalizedShiftEnd = shiftEndMin;
+        if (shiftEndMin <= shiftStartMin) {
+          normalizedShiftEnd += MINUTES_IN_DAY;
+        }
+
+        let normalizedTimeIn = timeInMin;
+        if (normalizedTimeIn < normalizedShiftStart - 300) {
+          normalizedTimeIn += MINUTES_IN_DAY;
+        }
+
+        let normalizedTimeOut = timeOutMin;
+        if (normalizedTimeOut <= normalizedTimeIn) {
+          normalizedTimeOut += MINUTES_IN_DAY;
+        }
+
+        arrivalDiff = normalizedTimeIn - normalizedShiftStart;
         if (Math.abs(arrivalDiff) <= ARRIVAL_TOLERANCE) {
           arrivalDiff = 0;
           arrivalStatus = "On Time";
@@ -1268,8 +1305,9 @@ ipcMain.handle("getEmployeeAttendance", async (event, employeeId, selectedDate =
           arrivalStatus = arrivalDiff > 0 ? "Late" : "Early";
         }
 
-        const actualDur = timeOutMin - timeInMin;
-        const shiftDur = shiftEndMin - shiftStartMin;
+        const actualDur = normalizedTimeOut - normalizedTimeIn;
+        const shiftDur = normalizedShiftEnd - normalizedShiftStart;
+
         workDiff = actualDur - shiftDur;
         hoursWorked = parseDurationLabel(actualDur);
 
@@ -1458,7 +1496,25 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
         shiftStartMin != null &&
         shiftEndMin != null
       ) {
-        arrivalDiff = timeInMin - shiftStartMin;
+        const MINUTES_IN_DAY = 1440;
+
+        let normalizedShiftStart = shiftStartMin;
+        let normalizedShiftEnd = shiftEndMin;
+        if (shiftEndMin <= shiftStartMin) {
+          normalizedShiftEnd += MINUTES_IN_DAY;
+        }
+
+        let normalizedTimeIn = timeInMin;
+        if (normalizedTimeIn < normalizedShiftStart - 300) {
+          normalizedTimeIn += MINUTES_IN_DAY;
+        }
+
+        let normalizedTimeOut = timeOutMin;
+        if (normalizedTimeOut <= normalizedTimeIn) {
+          normalizedTimeOut += MINUTES_IN_DAY;
+        }
+
+        arrivalDiff = normalizedTimeIn - normalizedShiftStart;
         if (Math.abs(arrivalDiff) <= ARRIVAL_TOLERANCE) {
           arrivalDiff = 0;
           arrivalStatus = "On Time";
@@ -1466,8 +1522,9 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
           arrivalStatus = arrivalDiff > 0 ? "Late" : "Early";
         }
 
-        const actualDur = timeOutMin - timeInMin;
-        const shiftDur = shiftEndMin - shiftStartMin;
+        const actualDur = normalizedTimeOut - normalizedTimeIn;
+        const shiftDur = normalizedShiftEnd - normalizedShiftStart;
+
         workDiff = actualDur - shiftDur;
         hoursWorked = parseDurationLabel(actualDur);
 
@@ -2143,7 +2200,25 @@ ipcMain.handle("getApplicantAttendance", async (event, applicantId, selectedDate
         shiftStartMin != null &&
         shiftEndMin != null
       ) {
-        arrivalDiff = timeInMin - shiftStartMin;
+        const MINUTES_IN_DAY = 1440;
+
+        let normalizedShiftStart = shiftStartMin;
+        let normalizedShiftEnd = shiftEndMin;
+        if (shiftEndMin <= shiftStartMin) {
+          normalizedShiftEnd += MINUTES_IN_DAY;
+        }
+
+        let normalizedTimeIn = timeInMin;
+        if (normalizedTimeIn < normalizedShiftStart - 300) {
+          normalizedTimeIn += MINUTES_IN_DAY;
+        }
+
+        let normalizedTimeOut = timeOutMin;
+        if (normalizedTimeOut <= normalizedTimeIn) {
+          normalizedTimeOut += MINUTES_IN_DAY;
+        }
+
+        arrivalDiff = normalizedTimeIn - normalizedShiftStart;
         if (Math.abs(arrivalDiff) <= ARRIVAL_TOLERANCE) {
           arrivalDiff = 0;
           arrivalStatus = "On Time";
@@ -2151,8 +2226,9 @@ ipcMain.handle("getApplicantAttendance", async (event, applicantId, selectedDate
           arrivalStatus = arrivalDiff > 0 ? "Late" : "Early";
         }
 
-        const actualDur = timeOutMin - timeInMin;
-        const shiftDur = shiftEndMin - shiftStartMin;
+        const actualDur = normalizedTimeOut - normalizedTimeIn;
+        const shiftDur = normalizedShiftEnd - normalizedShiftStart;
+
         workDiff = actualDur - shiftDur;
         hoursWorked = parseDurationLabel(actualDur);
 
