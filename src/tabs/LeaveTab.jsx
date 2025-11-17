@@ -465,7 +465,7 @@ const DashboardLeave = ({ uid, setActivePage, setSelectedEmployeeId, refreshDash
               }
             }}
           >
-            Export {status === "Approved" ? "Approved" : "Pending"} Leaves
+            Export
           </button>
           <button className="actionBtn" onClick={openAddModal}>Add</button>
           {status === "Approved" && (
