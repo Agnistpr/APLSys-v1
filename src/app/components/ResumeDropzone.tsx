@@ -22,22 +22,36 @@ type ResumeDropzoneProps = {
     type: string;
     data?: string;
   };
+  showRemoveButton?: boolean;
 };
 
-export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
-  onFileUrlChange,
-  className,
-  playgroundView = false,
+const ResumeDropzone = ({
   initialFileUrl,
-  initialFileName = "",
+  initialFileName,
   fallbackFileUrl,
+  onFileUrlChange,
   currentFile,
+  showRemoveButton = true,
+  resetSignal,
+  playgroundView = false,
+  className,
+}: {
+  initialFileUrl?: string | null;
+  initialFileName?: string;
+  fallbackFileUrl?: string | null;
+  onFileUrlChange: (url: string, name: string, file?: File) => void;
+  currentFile?: { name?: string; url?: string; type?: string; data?: any } | null;
+  showRemoveButton?: boolean;
+  resetSignal?: number | string;
+  playgroundView?: boolean;
+  className?: string;
 }) => {
   const [file, setFile] = useState(defaultFileState);
   const [isHoveredOnDropzone, setIsHoveredOnDropzone] = useState(false);
   const [hasNonPdfFile, setHasNonPdfFile] = useState(false);
 
-  const hasFile = Boolean(file.name);
+  // Consider an externally-provided file (currentFile / initialFileName) as having file
+  const hasFile = Boolean(file.name || currentFile?.name || initialFileName);
   const displayFileName = currentFile?.name || initialFileName || file.name || "No file chosen";
 
   // cleanup blob URLs - Prevent race conditions by delaying revocation
@@ -86,6 +100,20 @@ export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
       });
     }
   }, [currentFile?.name, currentFile?.url]);
+
+  // If parent signals a reset (or initialFileUrl removed) clear internal file state
+  useEffect(() => {
+    // If parent explicitly cleared initialFileUrl/initialFileName and no currentFile, reset internal file
+    if (!initialFileUrl && !initialFileName && !currentFile) {
+      setFile(defaultFileState);
+      return;
+    }
+
+    // External reset signal forces the dropzone to clear its internal selection
+    if (resetSignal) {
+      setFile(defaultFileState);
+    }
+  }, [resetSignal, initialFileUrl, initialFileName, currentFile]);
 
   const onInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newFile = event.target.files?.[0];
@@ -175,13 +203,15 @@ export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
           </>
         ) : (
           <div className="flex items-center justify-center gap-3">
-            <button
-              type="button"
-              className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-500"
-              onClick={onRemove}
-            >
-              ✕
-            </button>
+            {showRemoveButton && (
+              <button
+                type="button"
+                className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-500"
+                onClick={onRemove}
+              >
+                ✕
+              </button>
+            )}
             <span className="font-semibold text-gray-900">{displayFileName}</span>
           </div>
         )}
@@ -189,3 +219,4 @@ export const ResumeDropzone: React.FC<ResumeDropzoneProps> = ({
     </div>
   );
 };
+export { ResumeDropzone };
