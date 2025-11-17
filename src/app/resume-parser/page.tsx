@@ -331,6 +331,7 @@ type ResumeParserProps = {
   setSelectedResumeFile?: any;
   goBack?: any;
   onParsingStateChange?: (isParsingResume: boolean, fileName: string) => void;
+  setShowAnalyzer?: (visible: boolean) => void;
 };
 
 export default function ResumeParser
@@ -341,7 +342,8 @@ export default function ResumeParser
    selectedResumeFile,
    setSelectedResumeFile,
    goBack,
-   onParsingStateChange }: ResumeParserProps = {}) {
+   onParsingStateChange,
+  setShowAnalyzer }: ResumeParserProps = {}) {
   console.log("DEBUG ResumeTable:", typeof ResumeTable, ResumeTable);
   console.log("DEBUG CandidateScoreCard:", typeof CandidateScoreCard, CandidateScoreCard);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
@@ -394,6 +396,83 @@ export default function ResumeParser
   const [isLoading, setIsLoading] = useState(false);
 
   const lastBlobUrlRef = useRef<string | null>(null);
+  // signal to reset the embedded dropzone's internal state
+  const [dropzoneResetSignal, setDropzoneResetSignal] = useState<number>(0);
+
+  // Place handleFileChange BEFORE handleClosePreview to avoid TDZ / circular init
+  const handleFileChange = useCallback(async (fileUrl: string, fileName: string, fileObj?: File) => {
+     // Always preview the local blob immediately
+     setFileUrl(fileUrl);
+     setResumeName(fileName);
+ 
+     if (fileObj) setFileType(fileObj.type);
+ 
+     // If fileUrl is empty, user clicked the x button to remove the file
+     if (!fileUrl) {
+       setCurrentFile(null);
+       return;
+     }
+ 
+     if (!fileObj) return;
+ 
+    // show preview/upload spinner while we persist the file (Supabase or conversion)
+    try { setPdfLoading(true); } catch (_) {}
+     try {
+       const publicUrl = rendererSupabase ? await uploadFileToSupabase(fileObj) : null;
+ 
+       if (publicUrl) {
+         setCurrentFile({ url: publicUrl, name: fileObj.name, type: fileObj.type, data: undefined });
+         setFileUrl(publicUrl);
+         setResumeName(fileObj.name);
+         setEditableResume({ ...defaultResume });
+       } else {
+         try {
+           const base64 = await fileToBase64(fileObj);
+           setCurrentFile({
+             url: undefined,
+             name: fileObj.name,
+             type: fileObj.type || "application/pdf",
+             data: base64,
+           });
+         } catch (e) {
+           setCurrentFile({ url: undefined, name: fileObj.name, type: fileObj.type || "application/pdf", data: undefined });
+         }
+       }
+     } catch (err) {
+       setCurrentFile({ url: undefined, name: fileName, type: fileObj?.type || "application/pdf", data: undefined });
+     } finally {
+      try { setPdfLoading(false); } catch (_) {}
+     }
+ 
+     if (fileObj) {
+       setParsed(false);
+       setEditableResume({ ...defaultResume });
+     }
+   }, [setCurrentFile, setEditableResume, setParsed]);
+
+  const handleClosePreview = useCallback(() => {
+    try {
+      if (lastBlobUrlRef.current && lastBlobUrlRef.current.startsWith("blob:")) {
+        try { URL.revokeObjectURL(lastBlobUrlRef.current); } catch {}
+        lastBlobUrlRef.current = null;
+      }
+
+      setFileUrl(null);
+      setResumeName("");
+      setFileType(null);
+      setCurrentFile(null);
+      setParsed(false);
+      setEditableResume({ ...defaultResume });
+
+      try { setSelectedResumeFile?.(null); } catch (_) {}
+
+      // safe reset of dropzone UI: call handleFileChange and bump reset signal so ResumeDropzone clears
+      try { handleFileChange("", ""); } catch (_) {}
+      try { setDropzoneResetSignal(Date.now()); } catch (_) {}
+    } catch (err) {
+      console.warn("handleClosePreview failed:", err);
+    }
+  }, [setCurrentFile, setEditableResume, setParsed, setSelectedResumeFile, handleFileChange]);
 
   // Group related state
   const [fileState, setFileState] = useState({
@@ -517,87 +596,6 @@ export default function ResumeParser
         setCurrentPage(currentPage - 1);
       }
   };
-
-const handleFileChange = useCallback(async (fileUrl: string, fileName: string, fileObj?: File) => {
-  // Always preview the local blob immediately
-  setFileUrl(fileUrl);
-  setResumeName(fileName);
-
-  // ✅ Add this line to set fileType from the File object
-  if (fileObj) {
-    setFileType(fileObj.type);
-  }
-
-  // If fileUrl is empty, user clicked the x button to remove the file
-  if (!fileUrl) {
-    // Clear the persisted currentFile from the store immediately
-    setCurrentFile(null);
-    return;
-  }
-
-  if (!fileObj) return;
-
-
-  try {
-    // Upload to Supabase for persistence
-    const publicUrl = rendererSupabase ? await uploadFileToSupabase(fileObj) : null;
-
-    if (publicUrl) {
-      console.log("Uploaded to Supabase ->", publicUrl);
-      // Persist a stable HTTP(S) URL and no base64 blob
-      setCurrentFile({
-        url: publicUrl,
-        name: fileObj.name, // Use actual File object name
-        type: fileObj.type,
-        data: undefined,
-      });
-      setFileUrl(publicUrl); // Switch preview to Supabase URL once ready
-      setResumeName(fileObj.name); // Use actual filename
-      setEditableResume({ ...defaultResume });
-    } else {
-      console.warn("Supabase upload failed or disabled, persisting base64 (not blob:) and using blob preview only.");
-      // Persist base64 data instead of storing the transient blob: URL
-      try {
-        const base64 = await fileToBase64(fileObj); // returns data:<mime>;base64,...
-        setCurrentFile({
-          url: undefined,
-          name: fileObj.name, // Use actual File object name
-          type: fileObj.type || "application/pdf",
-          data: base64,
-        });
-      } catch (e) {
-        // Fallback: persist metadata only, do NOT persist blob URL
-        console.warn("Failed to convert file to base64 for persistence:", e);
-        setCurrentFile({
-          url: undefined,
-          name: fileObj.name, // Use actual File object name
-          type: fileObj.type || "application/pdf",
-          data: undefined,
-        });
-      }
-    }
-
-    // Note: we intentionally DO NOT persist or set a blob: URL in currentFile.url.
-    // Keep the immediate preview as a blob URL in component state (fileUrl) only.
-  } catch (err) {
-    console.error("Upload to Supabase failed:", err);
-    // Persist metadata only; do not persist blob: url
-    setCurrentFile({
-      url: undefined,
-      name: fileName, // Use passed filename
-      type: fileObj.type || "application/pdf",
-      data: undefined,
-    });
-  }
-
-  // Only reset parse state when a NEW file is actually being processed
-  // (i.e., a File object was provided). This preserves previously parsed results
-  // when just previewing an already-uploaded file.
-  if (fileObj) {
-    setParsed(false);
-    setEditableResume({ ...defaultResume });
-  }
-}, [setCurrentFile, setEditableResume, setParsed]);
 
   // Initialize from persisted state
   useEffect(() => {
@@ -1024,77 +1022,91 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
     if (selectedResumeFile && selectedResumeFile.data) {
       console.log('selectedResumeFile preview:', selectedResumeFile.data.slice(0, 50));
     }
-
+ 
     if (!(selectedResumeFile && selectedResumeFile.data && selectedResumeFile.type)) return;
-
+ 
     let didCancel = false;
-
+ 
     (async () => {
-      try {
-        // Prefer Supabase public URL if client configured
-        let previewUrl: string | null = null;
-        if (rendererSupabase && selectedResumeFile.name) {
-          try {
-            const uploaded = await findSupabasePublicUrl(selectedResumeFile.name, "Resumes");
-            if (uploaded) {
-              previewUrl = uploaded;
-              console.log("Found existing Supabase file for selectedResumeFile ->", previewUrl);
-            }
-            else {
-              console.log('Supabase upload returned null, falling back to blob URL');
-            }
-            } catch (e) {
-            console.warn('Supabase upload attempt failed, falling back to blob URL', e);
-          }
+     try {
+      // indicate we are preparing/uploading the preview
+      try { setPdfLoading(true); } catch (_) {}
+ 
+       // Convert base64 to blob immediately
+       const base64String = selectedResumeFile.data;
+        
+        // Remove data URL prefix if present
+        let cleanBase64 = base64String;
+        if (base64String.includes(',')) {
+          cleanBase64 = base64String.split(',')[1];
         }
 
-        // 2) If not found on Supabase, attempt to upload only if a File object was passed from UI
-        if (!previewUrl && selectedResumeFile.file instanceof File && rendererSupabase) {
-          try {
-            previewUrl = await uploadFileToSupabase(selectedResumeFile.file, "Resumes");
-            if (previewUrl) console.log("Uploaded File object to Supabase ->", previewUrl);
-          } catch (e) {
-            console.warn("Uploading File object to Supabase failed, will fallback to blob:", e);
-            previewUrl = null;
-          }
+        // Decode and create blob
+        const binaryString = atob(cleanBase64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: selectedResumeFile.type || 'application/pdf' });
+        
+        // ✅ Try to upload to Supabase first
+        let publicUrl: string | null = null;
+        try {
+          const file = new File([blob], selectedResumeFile.name || 'uploaded_resume.pdf', { 
+            type: selectedResumeFile.type || 'application/pdf' 
+          });
+          publicUrl = await uploadFileToSupabase(file);
+        } catch (uploadErr) {
+          console.warn("Failed to upload to Supabase, will use blob URL:", uploadErr);
         }
 
-        // fallback to blob URL
-        // let createdBlobUrl: string | null = null;
-        // if (!previewUrl) {
-        //   createdBlobUrl = URL.createObjectURL(blob);
-        //   previewUrl = createdBlobUrl;
-        //   console.log('Hydrated file to base64 -> new blob url:', previewUrl);
-        // }
+        // Use public URL if available, otherwise create blob URL
+        const previewUrl = publicUrl || URL.createObjectURL(blob);
 
-        // if (didCancel) {
-        //   if (createdBlobUrl) URL.revokeObjectURL(createdBlobUrl);
-        //   return;
-        // }
+        if (didCancel) {
+          if (!publicUrl) URL.revokeObjectURL(previewUrl);
+          return;
+        }
 
-        if (previewUrl) {
+        // Set preview immediately
         setFileUrl(previewUrl);
         setResumeName(selectedResumeFile.name || 'uploaded_resume.pdf');
-        // Ensure the fileType is recorded for preview detection
-        if (selectedResumeFile.type) setFileType(selectedResumeFile.type);
-        setFileState(prev => ({ ...prev, fileUrl: previewUrl, resumeName: selectedResumeFile.name || 'uploaded_resume.pdf' }));
+        setFileType(selectedResumeFile.type || 'application/pdf');
 
-        setCurrentFile({ 
-          url: previewUrl, 
-          name: selectedResumeFile.name || 'uploaded_resume.pdf', 
-          type: selectedResumeFile.type, 
-          data: selectedResumeFile.data });
+        console.log('File preview loaded from selectedResumeFile:', {
+          name: selectedResumeFile.name,
+          type: selectedResumeFile.type,
+          fileUrl: previewUrl,
+          isPublicUrl: !!publicUrl
+        });
 
-        // Ensure editable resume exists
-        setEditableResume({ ...defaultResume });
-        }
-      } catch (e) {
-        console.error('Failed to process selectedResumeFile:', e);
-      }
-    })();
+        // Persist to store for consistency
+        setCurrentFile({
+          url: publicUrl,  //Store public URL if available
+          name: selectedResumeFile.name || 'uploaded_resume.pdf',
+          type: selectedResumeFile.type || 'application/pdf',
+          data: publicUrl ? undefined : selectedResumeFile.data,  // Only persist base64 if no public URL
+      });
 
-    return () => { didCancel = true; };
-  }, [selectedResumeFile, setCurrentFile, setEditableResume]);
+      // Reset parse state to allow fresh parsing
+      setEditableResume({ ...defaultResume });
+      setParsed(false);
+
+    } catch (e) {
+      console.error('Failed to process selectedResumeFile:', e);
+      toast.error('Failed to load uploaded file', {
+        description: 'Please try uploading again',
+        duration: 3000
+      });
+    } finally {
+      try { setPdfLoading(false); } catch (_) {}
+     }
+   })();
+ 
+   return () => { 
+     didCancel = true;
+   };
+ }, [selectedResumeFile, setCurrentFile, setEditableResume, setParsed]);
 
   // New function to handle manual parsing
   const handleParseResume = async () => {
@@ -1574,17 +1586,74 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
           {fileUrl ? (
             <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 0 }}>
               {/* Scrollable PDF/Image/DOCX area */}
-              <div style={{ flex: 1, overflow: "auto", border: "1px solid #ddd", borderRadius: "6px" }}>
-                <ResumePreview 
-                fileUrl={fileUrl}
-                fileType={fileType}
-                currentPage={currentPage}
-                setCurrentPage={setCurrentPage}
-                totalPages={totalPages}
-                setTotalPages={setTotalPages}
-                isLoading={isLoading}
-                setIsLoading={setIsLoading}
-                />
+              <div style={{ position: "relative", flex: 1, overflow: "auto", border: "1px solid #ddd", borderRadius: "6px" }}>
+                {/* Close (clear) button positioned top-right of preview box */}
+                  <button
+                    onClick={handleClosePreview}
+                    aria-label="Close preview"
+                    title="Clear uploaded file"
+                    style={{
+                      position: "absolute",
+                      top: 8,
+                      right: 8,
+                      zIndex: 20,
+                      background: "#ffffff",
+                      color: "#981b1b",
+                      border: "1px solid #981b1b",
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      boxShadow: "0 1px 4px rgba(0,0,0,0.08)"
+                    }}
+                  >
+                    ×
+                  </button>
+
+                  {/* Loading overlay shown while preview is rendering */}
+                  {(isLoading || pdfLoading) && (
+                    <div
+                      aria-hidden={!isLoading && !pdfLoading}
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background: "rgba(255,255,255,0.9)",
+                        zIndex: 10,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexDirection: "column",
+                        gap: 10,
+                        padding: 12,
+                        pointerEvents: "none"
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 52,
+                          height: 52,
+                          border: "6px solid #eee",
+                          borderTop: "6px solid #981b1b",
+                          borderRadius: "50%",
+                          animation: "spin 1s linear infinite",
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
+                        }}
+                      />
+                      <div style={{ color: "#333", fontWeight: 600 }}>Loading preview…</div>
+                      <div style={{ color: "#666", fontSize: 12 }}>This may take a few seconds</div>
+                    </div>
+                  )}
+
+                  <ResumePreview 
+                    fileUrl={fileUrl}
+                    fileType={fileType}
+                    currentPage={currentPage}
+                    setCurrentPage={setCurrentPage}
+                    totalPages={totalPages}
+                    setTotalPages={setTotalPages}
+                    isLoading={isLoading}
+                    setIsLoading={setIsLoading}
+                  />
               </div>
               
               <div style={{
@@ -1689,6 +1758,8 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             fallbackFileUrl={null}
             onFileUrlChange={handleFileChange}
             currentFile={currentFile}
+            showRemoveButton={false}           // hide the small ✕ in this context
+            resetSignal={dropzoneResetSignal}
           />
           <button
             onClick={handleParseResume}
@@ -1701,41 +1772,51 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         </div>
 
         <div className="tab-header">
-          <button
-            className={`tab-btn ${activeTab === "parsing" ? "active" : ""}`}
-            onClick={() => setActiveTab("parsing")}
-          >
-            Parsing Table
-          </button>
-          {parseComplete && (
             <button
-              className={`tab-btn ${activeTab === "analysis" ? "active" : ""}`}
-              onClick={() => setActiveTab("analysis")}
+              className={`tab-btn ${activeTab === "parsing" ? "active" : ""}`}
+              onClick={() => setActiveTab("parsing")}
             >
-              Resume Analysis
+              Parsing Table
             </button>
-          )}
-        </div>
+            {parseComplete && (
+              <>
+                <button
+                  className={`tab-btn ${activeTab === "analysis" ? "active" : ""}`}
+                  onClick={() => setActiveTab("analysis")}
+                >
+                  Resume Analysis
+                </button>
 
+                {/* New tab for isolated candidate scoring */}
+                <button
+                  className={`tab-btn ${activeTab === "scoring" ? "active" : ""}`}
+                  onClick={() => setActiveTab("scoring")}
+                >
+                  Candidate Scoring
+                </button>
+              </>
+            )}
+           </div>
+  
         <div className="tab-content">
           {activeTab === "parsing" ? (
-            <div className="resume-table-section">
-              <h2 className="section-title">Resume Parsing Results</h2>
-              {/* Always render the editable table (use persisted editableResume or default) */}
-              <ResumeTable
-                resume={editableResume || defaultResume}
-                onFieldChange={handleFieldPathChange}
-              />
-              <button
-                onClick={handleAddApplicantClick}
-                className="btn-secondary mt-2"
-                disabled={isAddingApplicant}
-                title={!editableResume ? "Preparing resume editor..." : "Add applicant from this resume data"}
-              >
-                ➕ Add Applicant
-              </button>
-            </div>
-          ) : (
+             <div className="resume-table-section">
+               <h2 className="section-title">Resume Parsing Results</h2>
+               {/* Always render the editable table (use persisted editableResume or default) */}
+               <ResumeTable
+                 resume={editableResume || defaultResume}
+                 onFieldChange={handleFieldPathChange}
+               />
+               <button
+                 onClick={handleAddApplicantClick}
+                 className="btn-secondary mt-2"
+                 disabled={isAddingApplicant}
+                 title={!editableResume ? "Preparing resume editor..." : "Add applicant from this resume data"}
+               >
+                 ➕ Add Applicant
+               </button>
+             </div>
+          ) : activeTab === "analysis" ? (
             <div className="resume-analysis-section">
               <h2 className="section-title">Resume Analysis</h2>
 
@@ -1782,6 +1863,32 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                     Use default description for {selectedJobRole}
                   </button>
                 )}
+
+              <button
+                onClick={handleAnalyzeResume}
+                className="btn-primary mt-4"
+                disabled={loadingAnalysis || isProcessing}
+              >
+                {loadingAnalysis || isProcessing ? "Analyzing..." : "Analyze Resume"}
+              </button>
+
+              {analysisResult && analysisResult.trim() !== "Failed to analyze resume" ? (
+                <div className="analysis-cards mt-4">
+                  {renderAnalysisSections(analysisResult)}
+                </div>
+              ) : (
+                <div className="analysis-card mt-4">
+                  {analysisResult === "Failed to analyze resume"
+                    ? "Failed to analyze resume."
+                    : "No analysis yet. Click 'Analyze Resume' to start."}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* activeTab === "scoring" branch */
+            <div className="candidate-scoring-section">
+              <h2 className="section-title">Candidate Scoring</h2>
+
               <div className="score-configurator">
                 <h3>Configure Scoring Weights</h3>
                 {Object.keys(scoringWeights).map((key) => (
@@ -1834,6 +1941,8 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                   style={{ width: 80, marginLeft: 8 }}
                 />
               </div>
+
+              {/* Show AI score if available and final combined score */}
               {aiScore !== null && userScore !== null && (
                 <div className="mt-2" style={{ fontWeight: "bold", fontSize: "1.2em" }}>
                   Final Applicant Score: <span style={{ color: "#1976d2" }}>
@@ -1842,167 +1951,88 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                 </div>
               )}
 
-              <button
-                onClick={handleAnalyzeResume}
-                className="btn-primary mt-4"
-                disabled={loadingAnalysis || isProcessing}
-              >
-                {loadingAnalysis || isProcessing ? "Analyzing..." : "Analyze Resume"}
-              </button>
-
-              {analysisResult && analysisResult.trim() !== "Failed to analyze resume" ? (
-                <>
-                  <CandidateScoreCard sectionScores={sectionScores} scoringWeights={scoringWeights} />
-                  <div className="analysis-cards mt-4">
-                    {renderAnalysisSections(analysisResult)}
-                  </div>
-                </>
-              ) : (
-                <div className="analysis-card mt-4">
-                  {analysisResult === "Failed to analyze resume"
-                    ? "Failed to analyze resume."
-                    : "No analysis yet. Click 'Analyze Resume' to start."}
-                </div>
-              )}
-              {/* <BatchResumeAnalyzer 
-              jobRole={selectedJobRole}
-              jobDescription={customJobDescription}
-              jobCategory={selectedCategory}  /> */}
+              {/* Visual score card */}
+              <div style={{ marginTop: 12 }}>
+                <CandidateScoreCard sectionScores={sectionScores} scoringWeights={scoringWeights} />
+              </div>
             </div>
           )}
-        </div>
+         </div>
       </div>
     </div>
           {/* ADD APPLICANT MODAL */}
       {showAddApplicantModal && (
-    <div
-      className="modalOverlay"
-      onClick={(e) => {
-        if (e.target instanceof Element && e.target.classList.contains("modalOverlay")) {
-          setShowAddApplicantModal(false);
-        }
-      }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 9999,
-      }}
-    >
-      <div
-        style={{
-          background: "white",
-          borderRadius: "8px",
-          padding: "24px",
-          width: "90%",
-          maxWidth: "400px",
-          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
-        }}
-      >
-        <h3 style={{ marginTop: 0, marginBottom: "16px", fontSize: "18px", fontWeight: "600" }}>
-          Add Applicant
-        </h3>
-
-        <div style={{ marginBottom: "16px" }}>
-          <label style={{ display: "block", marginBottom: "8px", fontWeight: "500" }}>
-            Job Category <span style={{ color: "red" }}>*</span>
-          </label>
-          <select
-            value={modalCategory}
-            onChange={(e) => {
-              setModalCategory(e.target.value);
-              setModalJobRole(""); // Reset job role when category changes
-            }}
-            style={{
-              width: "100%",
-              padding: "8px",
-              borderRadius: "4px",
-              border: "1px solid #ddd",
-              fontSize: "14px",
-            }}
-          >
-            <option value="">Select a category</option>
-            {Object.keys(JOB_ROLES).map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ marginBottom: "20px" }}>
-          <label style={{ display: "block", marginBottom: "8px", fontWeight: "500" }}>
-            Job Role <span style={{ color: "red" }}>*</span>
-          </label>
-          <select
-            value={modalJobRole}
-            onChange={(e) => setModalJobRole(e.target.value)}
-            disabled={!modalCategory}
-            style={{
-              width: "100%",
-              padding: "8px",
-              borderRadius: "4px",
-              border: "1px solid #ddd",
-              fontSize: "14px",
-              opacity: !modalCategory ? 0.5 : 1,
-              cursor: !modalCategory ? "not-allowed" : "pointer",
-            }}
-          >
-          <option value="">Select a role</option>
-            {modalCategory &&
-              Object.keys(JOB_ROLES[modalCategory] || {}).map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
-          </select>
-        </div>
-
         <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: "12px",
-          }}
+          className="modalOverlay"
+          onClick={(e) =>
+            e.target instanceof Element && e.target.classList.contains("modalOverlay") && setShowAddApplicantModal(false)
+          }
         >
-          <button
-            onClick={() => setShowAddApplicantModal(false)}
-            style={{
-              padding: "8px 16px",
-              borderRadius: "4px",
-              border: "1px solid #ddd",
-              background: "white",
-              cursor: "pointer",
-              fontSize: "14px",
-              fontWeight: "500",
-            }}
-            disabled={isAddingApplicant}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirmAddApplicant}
-            disabled={!modalCategory || !modalJobRole || isAddingApplicant}
-            style={{
-              padding: "8px 16px",
-              borderRadius: "4px",
-              border: "none",
-              background: !modalCategory || !modalJobRole ? "#ccc" : "#1976d2",
-              color: "white",
-              cursor: !modalCategory || !modalJobRole || isAddingApplicant ? "not-allowed" : "pointer",
-              fontSize: "14px",
-              fontWeight: "500",
-            }}
-          >
-            {isAddingApplicant ? "Adding..." : "Confirm"}
-          </button>
+          <div className="modalContent" role="dialog" aria-modal="true">
+            <div className="modalHeader">
+              <h3>Add Applicant</h3>
+              <button className="closeBtn" onClick={() => setShowAddApplicantModal(false)}>
+                ×
+              </button>
+            </div>
+
+            <hr className="modalDivider" />
+
+            <div className="modalBody" style={{ display: "grid", gap: 12 }}>
+              <div>
+                <label style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>Job Category</label>
+                <select
+                  value={modalCategory}
+                  onChange={(e) => setModalCategory(e.target.value)}
+                  className="input"
+                >
+                  <option value="">Select a category</option>
+                  {Object.keys(JOB_ROLES).map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>
+                  Job Role <span style={{ color: "red" }}>*</span>
+                </label>
+                <select
+                  value={modalJobRole}
+                  onChange={(e) => setModalJobRole(e.target.value)}
+                  disabled={!modalCategory}
+                  className="input"
+                >
+                  <option value="">Select a role</option>
+                  {modalCategory &&
+                    Object.keys(JOB_ROLES[modalCategory] || {}).map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="modalFooter" style={{ marginTop: 14 }}>
+              <button
+                className="cancelBtn"
+                onClick={() => setShowAddApplicantModal(false)}
+                disabled={isAddingApplicant}
+              >
+                Cancel
+              </button>
+              <button
+                className="actionBtn"
+                onClick={handleConfirmAddApplicant}
+                disabled={!modalCategory || !modalJobRole || isAddingApplicant}
+              >
+                {isAddingApplicant ? "Adding..." : "Confirm"}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-  )}
+      )}
     </>
   );
 }
