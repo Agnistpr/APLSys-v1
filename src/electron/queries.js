@@ -1014,34 +1014,40 @@ ipcMain.handle("exportLogs", async (event, date) => {
     if (!date) {
       logsRes = await supabase
         .from("userlogs")
-        .select("userlogid, userid, useraction, description, dateofaction")
+        .select("userlogid, user_id, useraction, description, dateofaction")
         .order("dateofaction", { ascending: false });
     } else {
       const targetDate = formatDateToISO(date);
       logsRes = await supabase
         .from("userlogs")
-        .select("userlogid, userid, useraction, description, dateofaction")
+        .select("userlogid, user_id, useraction, description, dateofaction")
         .eq("dateofaction", targetDate)
         .order("dateofaction", { ascending: false });
     }
 
     if (logsRes.error) throw logsRes.error;
-    const logs = logsRes.data || [];
-    if (logs.length === 0) return { success: false, message: "No logs to export" };
 
-    const userIds = [...new Set(logs.map((l) => l.userid))];
-    const { data: users } = await supabase.from("users").select("userid, username").in("userid", userIds);
-    const userMap = new Map((users || []).map((u) => [u.userid, u.username]));
+    const logsRaw = logsRes.data || [];
+    if (logsRaw.length === 0) return { success: false, message: "No logs to export" };
 
-    const rows = logs.map((l) => ({
+    const userIds = [...new Set(logsRaw.map((l) => l.user_id))];
+    const { data: users } = await supabase
+      .from("users")
+      .select("userid, username")
+      .in("userid", userIds);
+
+    const userMap = Object.fromEntries((users || []).map((u) => [u.userid, u.username]));
+
+    const rows = logsRaw.map((l) => ({
       "Log ID": l.userlogid,
-      Username: userMap.get(l.userid) || "",
+      Username: userMap[l.user_id] || "",
       Action: l.useraction,
       Description: l.description,
       Date: formatDateToISO(l.dateofaction),
     }));
 
     const csv = buildCSV(rows);
+
     const { filePath } = await dialog.showSaveDialog({
       title: "Save Logs Export",
       defaultPath: "logs.csv",
@@ -1051,11 +1057,11 @@ ipcMain.handle("exportLogs", async (event, date) => {
     if (!filePath) return { success: false, message: "Export cancelled" };
 
     fs.writeFileSync(filePath, csv, "utf8");
-    logMessage?.(`Logs exported to ${filePath}`);
+    logMessage(`Logs exported to ${filePath}`);
 
     return { success: true, filePath };
   } catch (err) {
-    logMessage?.("Logs export failed: " + err.message);
+    logMessage("Logs export failed: " + err.message);
     return { success: false, error: err.message };
   }
 });

@@ -7,6 +7,8 @@ dist-react
 node_modules
 backups/
 .env
+dist/
+dist-react/
 
 # Old Stuff to be removed || For other dev:
 aplsys_db.sql

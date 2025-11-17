@@ -284,6 +284,7 @@ const Training = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage,
                         <tr 
                           key={idx}
                           onDoubleClick={() => {
+                            uid,
                             setSelectedApplicantId(row.applicantid);
                             setPreviousPage(activePage);
                             setActivePage("ApplicantInformation");

@@ -6,7 +6,7 @@ import FilterPanel from "../components/FilterPanel.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ConfirmModal from "../components/ConfirmModal.jsx";
 
-const EmployeeInformation = ({ employeeId, goBack }) => {
+const EmployeeInformation = ({ uid, employeeId, goBack }) => {
   const [employee, setEmployee] = useState(null);
   const [attendance, setAttendance] = useState([]);
   const [editingField, setEditingField] = useState(null);
@@ -207,54 +207,62 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
     if (!pendingChange) return;
     const { field, value } = pendingChange;
 
-    let dbField = field;
-    let dbValue = value;
-
-    if (field === "department") dbField = "departmentid";
-    if (field === "position") dbField = "positionid";
-    if (field === "name") {
-      const { firstname, middlename, lastname } = value;
-
-      await Promise.all([
-        window.employeeAPI.updateEmployee(employeeId, "firstname", firstname.trim()),
-        window.employeeAPI.updateEmployee(employeeId, "middlename", middlename.trim()),
-        window.employeeAPI.updateEmployee(employeeId, "lastname", lastname.trim()),
-      ]);
-
-      setEmployee((prev) => ({
-        ...prev,
-        firstname,
-        middlename,
-        lastname,
-      }));
-
-      window.toast("Name updated successfully", "success");
-    }
     try {
-      await window.employeeAPI.updateEmployee(employeeId, dbField, dbValue);
+      if (field === "name") {
+        const oldFullName = `${employee.firstname || ""} ${employee.middlename || ""} ${employee.lastname || ""}`
+          .replace(/\s+/g, " ")
+          .trim();
+        const { firstname, middlename, lastname } = value;
+        
+        await Promise.all([
+          window.employeeAPI.updateEmployee(employeeId, "firstname", firstname.trim()),
+          window.employeeAPI.updateEmployee(employeeId, "middlename", middlename.trim()),
+          window.employeeAPI.updateEmployee(employeeId, "lastname", lastname.trim()),
+        ]);
 
-      if (field === "department") {
-        await window.employeeAPI.updateEmployee(employeeId, "positionid", null);
+        setEmployee((prev) => ({
+          ...prev,
+          firstname,
+          middlename,
+          lastname,
+        }));
+
+        window.toast("Name updated successfully", "success");
+
+        const newFullName = `${firstname} ${middlename || ""} ${lastname}`.replace(/\s+/g, " ").trim();
+        await window.userAPI.logAction(uid, `updated ${oldFullName}`, `Changed name to ${newFullName}`);
+      } else {
+        let dbField = field;
+        let dbValue = value;
+
+        if (field === "department") dbField = "departmentid";
+        if (field === "position") dbField = "positionid";
+
+        await window.employeeAPI.updateEmployee(employeeId, dbField, dbValue);
+
+        setEmployee((prev) => {
+          const newState = { ...prev };
+          if (field === "department") {
+            newState.positionid = null;
+            newState.position = "---";
+            newState.departmentid = value;
+          } else if (field === "position") {
+            newState.positionid = value;
+            const posObj = deptPosList.find(
+              (d) => d.departmentid === prev.departmentid && d.positionid == value
+            );
+            newState.position = posObj?.positionname || "---";
+          } else {
+            newState[field] = value;
+          }
+          return newState;
+        });
+
+        window.toast("Change saved successfully", "success");
+
+        const fullName = `${employee.firstname || ""} ${employee.middlename || ""} ${employee.lastname || ""}`.replace(/\s+/g, " ").trim();
+        await window.userAPI.logAction(uid, `updated ${fullName}`, `${field} changed to ${value}`);
       }
-
-      setEmployee((prev) => {
-        const newState = { ...prev };
-        if (field === "department") {
-          newState.positionid = null;
-          newState.position = "---";
-          newState.departmentid = value;
-        } else if (field === "position") {
-          newState.positionid = value;
-          const posObj = deptPosList
-            .find((d) => d.departmentid === prev.departmentid && d.positionid == value);
-          newState.position = posObj?.positionname || "---";
-        } else {
-          newState[field] = value;
-        }
-        return newState;
-      });
-
-      window.toast("Change saved successfully", "success");
     } catch (err) {
       console.error("Update failed:", err);
       window.toast("Database update failed.", "error");
@@ -295,6 +303,8 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
         }
         return newState;
       });
+      const fullName = `${employee.firstname || ""} ${employee.middlename || ""} ${employee.lastname || ""}`.replace(/\s+/g, ' ').trim();
+      await window.userAPI.logAction(uid, `updated ${fullName}`, `Changed ${field} to ${newValue}`);
     } catch (err) {
       console.error("Update failed:", err);
       window.toast("Update failed.", "error");
@@ -325,6 +335,8 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
       if (res.success) {
         setEmployee(prev => ({ ...prev, employeeimage: res.imageUrl }));
         window.toast("Profile image updated.", "success");
+        const fullName = `${employee.firstname || ""} ${employee.middlename || ""} ${employee.lastname || ""}`.replace(/\s+/g, ' ').trim();
+        await window.userAPI.logAction(uid, `updated ${fullName}`, `Updated their profile image`);
         setIsError(false);
       } else {
         window.toast("Something went wrong.", "error");
@@ -479,6 +491,8 @@ const EmployeeInformation = ({ employeeId, goBack }) => {
           if (res.success) {
             setEmployee((prev) => ({ ...prev, employeeimage: res.imageUrl }));
             window.toast("Profile image updated.", "success");
+            const fullName = `${employee.firstname || ""} ${employee.middlename || ""} ${employee.lastname || ""}`.replace(/\s+/g, ' ').trim();
+            await window.userAPI.logAction(uid, `updated ${fullName}`, `Updated their profile image`);
           } else {
             window.toast("Upload failed.", "error");
           }

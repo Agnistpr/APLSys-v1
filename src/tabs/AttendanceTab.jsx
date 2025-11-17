@@ -210,10 +210,12 @@ const DashboardAttendance = ({ uid, setActivePage, setSelectedEmployeeId, setSel
                   onDoubleClick={() => {
                     switch (row.role) {
                       case "Employee":
+                        uid,
                         setSelectedEmployeeId(row.profileid);
                         setActivePage("EmployeeInformation");
                         break;
                       case "Applicant":
+                        uid,
                         setSelectedApplicantId(row.profileid);
                         // setPreviousPage(activePage);
                         setActivePage("ApplicantInformation");

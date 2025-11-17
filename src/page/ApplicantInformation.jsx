@@ -6,7 +6,7 @@ import FilterPanel from "../components/FilterPanel.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ConfirmModal from "../components/ConfirmModal.jsx";
 
-const ApplicantInformation = ({ applicantId, goBack }) => {
+const ApplicantInformation = ({ uid, applicantId, goBack }) => {
   const [applicant, setApplicant] = useState(null);
   const [attendance, setAttendance] = useState([]);
   const [editingField, setEditingField] = useState(null);
@@ -138,7 +138,6 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
   const handleEditClick = (field, value) => {
     setEditingField(field);
     if (field === "name") {
-      // populate three inputs
       setFieldValue({
         firstname: value?.firstname || applicant?.firstname || "",
         middlename: value?.middlename || applicant?.middlename || "",
@@ -238,8 +237,11 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
 
     try {
       if (field === "name") {
+        const oldFullName = `${applicant.firstname || ""} ${applicant.middlename || ""} ${applicant.lastname || ""}`
+          .replace(/\s+/g, " ")
+          .trim();
         const { firstname, middlename, lastname } = value;
-        // update three name fields via applicantAPI
+        
         await Promise.all([
           window.applicantAPI.updateApplicant(applicantId, "firstname", firstname.trim()),
           window.applicantAPI.updateApplicant(applicantId, "middlename", middlename.trim()),
@@ -254,6 +256,9 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
         }));
 
         window.toast("Name updated successfully", "success");
+
+        const newFullName = `${firstname} ${middlename || ""} ${lastname}`.replace(/\s+/g, " ").trim();
+        await window.userAPI.logAction(uid, `updated ${oldFullName}`, `Changed name to ${newFullName}`);
       } else {
         let dbField = field;
         let dbValue = value;
@@ -282,7 +287,11 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
         });
 
         window.toast("Change saved successfully", "success");
+
+        const fullName = `${applicant.firstname || ""} ${applicant.middlename || ""} ${applicant.lastname || ""}`.replace(/\s+/g, " ").trim();
+        await window.userAPI.logAction(uid, `updated ${fullName}`, `${field} changed to ${value}`);
       }
+
     } catch (err) {
       console.error("Update failed:", err);
       window.toast("Database update failed.", "error");
@@ -323,6 +332,8 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
         }
         return newState;
       });
+      const fullName = `${applicant.firstname || ""} ${applicant.middlename || ""} ${applicant.lastname || ""}`.replace(/\s+/g, ' ').trim();
+      await window.userAPI.logAction(uid, `updated ${fullName}`, `Changed ${field} to ${newValue}`);
     } catch (err) {
       console.error("Update failed:", err);
       window.toast("Update failed.", "error");
@@ -559,6 +570,8 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
         if (res.success) {
           setApplicant(prev => ({ ...prev, applicantimage: res.imageUrl }));
           window.toast("Profile image updated.", "success");
+          const fullName = `${applicant.firstname || ""} ${applicant.middlename || ""} ${applicant.lastname || ""}`.replace(/\s+/g, ' ').trim();
+          await window.userAPI.logAction(uid, `updated ${fullName}`, `Updated their profile image`);
         } else {
           window.toast("Upload failed.", "error");
         }
@@ -578,6 +591,8 @@ const ApplicantInformation = ({ applicantId, goBack }) => {
       if (res.success) {
         setApplicant(prev => ({ ...prev, applicantimage: res.imageUrl }));
         window.toast("Profile image updated.", "success");
+        const fullName = `${applicant.firstname || ""} ${applicant.middlename || ""} ${applicant.lastname || ""}`.replace(/\s+/g, ' ').trim();
+        await window.userAPI.logAction(uid, `updated ${fullName}`, `Updated their profile image`);
         setIsError(false);
       } else {
         window.toast("Something went wrong.", "error");

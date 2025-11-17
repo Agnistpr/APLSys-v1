@@ -250,11 +250,12 @@ useEffect(() => {
       case "Management":
         return <Management {...sharedProps} />;
       case "Logs":
-        return <Logs />;
+        return <Logs  {...sharedProps} />;
       case "EmployeeInformation":
         return (
           <EmployeeInformation
             employeeId={selectedEmployeeId}
+            uid={user?.id}
             goBack={() => {
               setSelectedEmployeeId(null);
               if (previousPage === "Dashboard") {
@@ -271,6 +272,7 @@ useEffect(() => {
         return (
           <ApplicantInformation
             setShowApplicantInfo
+            uid={user?.id}
             showApplicantInfo
             applicantId={selectedApplicantId}
             goBack={() => {

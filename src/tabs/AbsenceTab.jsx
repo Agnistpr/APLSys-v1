@@ -167,6 +167,7 @@ const DashboardAbsence = ({ uid, setActivePage, setSelectedEmployeeId }) => {
                 <tr
                   key={idx}
                   onDoubleClick={() => {
+                    uid,
                     setSelectedEmployeeId(row.employeeid);
                     setActivePage("EmployeeInformation");
                   }}

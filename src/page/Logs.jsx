@@ -6,7 +6,8 @@ import FilterPanel from "../components/FilterPanel.jsx";
 import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
 
-const Logs = () => {
+const Logs = ({uid}) => {
+  console.log("test", uid);
   const [logs, setLogs] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -120,7 +121,26 @@ const Logs = () => {
       <div className="logsHeaderRow">
         <div className="logsHeader">
           <h1>Logs</h1>
-          <button className="exportBtn" onClick={() => window.exportAPI.exportLogs()}>
+          <button
+            className="exportBtn"
+            onClick={async () => {
+              try {
+                const result = await window.exportAPI.exportLogs(selectedDate);
+                console.log(uid);
+                if (result.success) {
+                  await window.userAPI.logAction(uid, "exported a copy of Logs");
+                  window.toast("Logs exported successfully!", "success");
+                  const data = await window.utilityAPI.getLogs(selectedDate);
+                  setLogs(data || []);
+                } else {
+                  window.toast(result.message || "Export failed", "error");
+                }
+              } catch (err) {
+                console.error("Export error:", err);
+                window.toast("An error occurred during export", "error");
+              }
+            }}
+          >
             Export
           </button>
         </div>

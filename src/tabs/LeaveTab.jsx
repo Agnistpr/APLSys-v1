@@ -365,6 +365,7 @@ const DashboardLeave = ({ uid, setActivePage, setSelectedEmployeeId, refreshDash
                   key={row.leaveid}
                   onDoubleClick={() => {
                     if (!showCheckboxes) {
+                      uid,
                       setSelectedEmployeeId(row.employeeid);
                       setActivePage("EmployeeInformation");
                     }

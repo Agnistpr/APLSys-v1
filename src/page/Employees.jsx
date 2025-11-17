@@ -220,6 +220,7 @@ const Employee = ({ uid, setActivePage, setSelectedEmployeeId, setPreviousPage, 
                 <tr
                   key={emp.employeeid}
                   onDoubleClick={() => {
+                    uid,
                     setSelectedEmployeeId(emp.employeeid);
                     setPreviousPage(activePage);
                     setActivePage("EmployeeInformation");
