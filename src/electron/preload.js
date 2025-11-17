@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('userAPI', {
 
 contextBridge.exposeInMainWorld('exportAPI', {
   exportAbsence: (date) => ipcRenderer.invoke('exportAbsence', date),
+  exportLeave: (status) => ipcRenderer.invoke('exportLeave', status),
   exportAllApplicants: () => ipcRenderer.invoke('exportAllApplicants'),
   exportAllTrainees: () => ipcRenderer.invoke('exportAllTrainees'),
   exportApplicants: (status) => ipcRenderer.invoke('exportApplicants', status),

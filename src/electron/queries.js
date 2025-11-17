@@ -322,6 +322,72 @@ ipcMain.handle("exportEmployees", async () => {
   }
 });
 
+ipcMain.handle("exportLeave", async (event, status) => {
+  try {
+    const { data, error } = await supabase
+      .from("leave")
+      .select(`
+        leaveid,
+        employeeid,
+        start_date,
+        end_date,
+        reason,
+        status,
+        type,
+        is_paid,
+        employee:employeeid (
+          firstname,
+          middlename,
+          lastname,
+          positionid,
+          departmentid
+        )
+      `)
+      .eq("status", status)
+      .order("leaveid", { ascending: true });
+
+    if (error) throw error;
+
+    const rowsRaw = data || [];
+    if (rowsRaw.length === 0) return { success: false, message: "No leave records to export" };
+
+    const rows = rowsRaw.map((r) => {
+      const emp = r.employee ?? (Array.isArray(r.employee) ? r.employee[0] : {}) ?? {};
+      const fullName = `${emp.lastname}, ${emp.firstname}${emp.middlename ? ` ${emp.middlename[0]}.` : ""}`;
+
+      return {
+        leaveid: r.leaveid,
+        employeeid: r.employeeid,
+        name: fullName,
+        start_date: formatDateToISO(r.start_date),
+        end_date: formatDateToISO(r.end_date),
+        reason: r.reason,
+        status: r.status,
+        type: r.type,
+        paid: r.is_paid ? "Yes" : "No",
+      };
+    });
+
+    const csv = buildCSV(rows);
+
+    const { filePath } = await dialog.showSaveDialog({
+      title: `Export ${status} Leave Records`,
+      defaultPath: `leave_${status.toLowerCase()}.csv`,
+      filters: [{ name: "CSV Files", extensions: ["csv"] }],
+    });
+
+    if (!filePath) return { success: false, message: "Export cancelled" };
+
+    fs.writeFileSync(filePath, csv, "utf8");
+    logMessage(`Leave records exported to ${filePath}`);
+
+    return { success: true, filePath };
+  } catch (err) {
+    logMessage("Leave export failed: " + err.message);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle("exportAttendance", async (event, date = null) => {
   try {
     // logMessage("Starting exportAttendance...");

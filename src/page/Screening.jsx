@@ -439,7 +439,7 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
                   totalItems={applicants.length}
                   onPageChange={setCurrentPage}
                   onItemsPerPageChange={setItemsPerPage}
-                  onExport={() => window.exportAPI.exportApplicants(selectedTab)}
+                  // onExport={() => window.exportAPI.exportApplicants(selectedTab)}
                 />
 
                 <div className="actions">
