@@ -55,6 +55,9 @@ const Sidebar = ({
   // Subscribe to processingMap
   const processingMap = useOcrStore(state => state.processingMap || {});
 
+  //Pages
+  const applicantPages = showAnalyzer ? ["Screening", "Training", "Analyzer"] : ["Screening", "Training"];
+
   // Derive flags
   const scannerProcessing = Boolean(
     Object.keys(processingMap).find(k => String(k).startsWith('scanner:'))
@@ -222,7 +225,7 @@ const Sidebar = ({
 
           {showApplicants && (
             <div className="subNavList">
-              {["Screening", "Training", "Analyzer"].map((page) => (
+              {applicantPages.map((page) => (
                 <div
                   key={page}
                   className={`subNavItem ${activePage === page ? "activeSubTab" : ""}`}
