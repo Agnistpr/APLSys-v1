@@ -384,7 +384,7 @@ export const DocumentScanner: React.FC = () => {
                     { id: 'ocr', icon: FileText, label: 'OCR' },
                     { id: 'tags', icon: Settings, label: 'Tags' },
                     //{ id: 'export', icon: Download, label: 'Export' },
-                    {id: 'docupload', icon: Upload, label: 'Doc Parse'},
+                    //{id: 'docupload', icon: Upload, label: 'Doc Parse'},
                     //{ id: 'batch', icon: Upload, label: 'Batch OCR' },
                     //{id: 'parse', icon: Upload, label: 'Parse'}
                     //{ id: 'metadata', icon: FileText, label: 'Metadata'},
@@ -449,9 +449,9 @@ export const DocumentScanner: React.FC = () => {
                   {/* {activePanel === 'batch' && (
                     <BatchOCRPanel />
                   )} */}
-                  {activePanel === 'docupload' && (
+                  {/* {activePanel === 'docupload' && (
                     <DocumentUploadOCRPanel />
-                  )}
+                  )} */}
                   {/* {activePanel === 'metadata' && (
                     <MetadataExtractorPanel file={currentFile} fileUrl={currentFileUrl} />
                   )} */}

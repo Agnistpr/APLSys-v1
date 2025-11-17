@@ -1211,22 +1211,27 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         throw new Error(nerResult.error);
       }
 
-      //Persist to store
-      await persistGeminiAnalysisResult(nerResult); //persistGemini ang other fallback
+      //First, manually update the local state BEFORE persisting
+      const mappedResume = mapNERToResumeFormat(nerResult);
+      setEditableResume(mappedResume);  // Update UI immediately
+      setParsed(true);  // Mark as parsed
 
-      // Wait for zustand persistence to reflect in memory/localStorage.
-      // Poll store until parseComplete is true and editableResume has profile data.
-      const waitForPersist = async (timeoutMs = 10000, intervalMs = 100) => { // increased timeout
+      // Then persist to store
+      await persistGeminiAnalysisResult(nerResult);
+
+      // Reduce timeout since we already synced UI
+      const waitForPersist = async (timeoutMs = 3000, intervalMs = 50) => {
          const start = Date.now();
          while (Date.now() - start < timeoutMs) {
            const st = useAnalysisStore.getState();
-           if (st.parseComplete && st.editableResume && st.editableResume.profile && Object.keys(st.editableResume.profile).length > 0) {
+           if (st.parseComplete && st.editableResume?.profile && Object.keys(st.editableResume.profile).length > 0) {
              return st;
            }
-           // allow browser work to flush writes
            await new Promise((r) => setTimeout(r, intervalMs));
          }
-         throw new Error("Timed out waiting for persisted parsed resume");
+         // If we already updated the UI, don't fail on timeout
+         const st = useAnalysisStore.getState();
+         return st;
        };
  
        try {
@@ -1950,6 +1955,8 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                   </span>
                 </div>
               )}
+
+
 
               {/* Visual score card */}
               <div style={{ marginTop: 12 }}>
