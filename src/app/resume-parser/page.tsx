@@ -1756,23 +1756,50 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             {clearedMessage}
           </div>
         )}
-        <div className="toolbar">
+        <div className="toolbar" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <ResumeDropzone
             initialFileUrl={fileUrl}
             initialFileName={resumeName}
             fallbackFileUrl={null}
             onFileUrlChange={handleFileChange}
             currentFile={currentFile}
-            showRemoveButton={false}           // hide the small ✕ in this context
+            showRemoveButton={false}
             resetSignal={dropzoneResetSignal}
           />
+          
+          <div style={{ display: "flex", gap: "8px", justifyContent: "center", flex: 1 }}>
+            <button
+              onClick={handleParseResume}
+              className="btn-primary"
+              disabled={isParsingResume || isProcessing}
+              title="Parse Uploaded Resume"
+            >
+              {isParsingResume || isProcessing ? "Parsing..." : "Parse Resume"}
+            </button>
+          </div>
+
           <button
-            onClick={handleParseResume}
-            className="btn-primary ml-2"
-            disabled={isParsingResume || isProcessing}
-            title="Parse Uploaded Resume"
+            onClick={() => {
+              try { goBack?.(); } catch (e) { console.warn("goBack failed:", e); }
+              try { setShowAnalyzer?.(false); } catch (e) { console.warn("setShowAnalyzer failed:", e); }
+            }}
+            className="btn-primary"
+            style={{
+              background: "#6c757d",
+              borderColor: "#6c757d",
+              marginLeft: "auto"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#5a6268";
+              e.currentTarget.style.borderColor = "#5a6268";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#6c757d";
+              e.currentTarget.style.borderColor = "#6c757d";
+            }}
+            title="Go back to Screening"
           >
-            {isParsingResume || isProcessing ? "Parsing..." : "Parse Resume"}
+            Close
           </button>
         </div>
 
