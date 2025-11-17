@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { generateResumeAnalysisPrompt, analyzeResumeWithGemini } from "../../../conn/genAnalysis";
+import { generateResumeAnalysisPrompt, analyzeResumeWithDS } from "../../../conn/genAnalysis";
 import { readPdf } from "../lib/parse-resume-from-pdf/read-pdf"; // adjust path if needed
 import { JOB_ROLES } from "../data/jobRoles";
 

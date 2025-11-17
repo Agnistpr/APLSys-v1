@@ -12,7 +12,8 @@ import {
   Copy,
   Eye,
   EyeOff,
-  FileText
+  FileText,
+  ChevronDown
 } from 'lucide-react';
 import type { ExtractedText } from './DocumentScanner';
 import { toast } from 'sonner';
@@ -44,6 +45,8 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
   const [visibleExtractions, setVisibleExtractions] = useState<Set<string>>(
     new Set(safeExtractedData.map(item => item.id))
   );
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [tagSearch, setTagSearch] = useState('');
 
   // Helper to convert base64 to Blob
   const base64ToBlob = (base64: string) => {
@@ -255,18 +258,105 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
                 </div>
               </div>
             ) : (
-              <div>
-                <p className="font-semibold text-foreground mb-1">{item.text}</p>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="space-y-3">
+                <p className="font-semibold text-foreground">{item.text}</p>
+                
+                {/* Tag selector dropdown */}
+                <div className="relative">
+                  <label className="text-xs text-muted-foreground block mb-1">Tags</label>
+                  <button
+                    onClick={() => setOpenDropdownId(openDropdownId === item.id ? null : item.id)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded bg-surface hover:bg-muted text-foreground text-left flex items-center justify-between transition-colors"
+                  >
+                    <span className="truncate">
+                      {item.tags.length > 0 
+                        ? item.tags.join(', ') 
+                        : 'Select tags...'}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 flex-shrink-0 transition-transform ${
+                      openDropdownId === item.id ? 'rotate-180' : ''
+                    }`} />
+                  </button>
+
+                  {/* Dropdown menu */}
+                  {openDropdownId === item.id && (
+                    <div className="absolute top-full left-0 right-0 mt-1 border border-border rounded bg-surface shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {/* Search input */}
+                      <div className="sticky top-0 p-2 bg-surface border-b">
+                        <input
+                          type="text"
+                          placeholder="Search tags..."
+                          value={tagSearch}
+                          onChange={(e) => setTagSearch(e.target.value)}
+                          className="w-full px-2 py-1 text-sm border border-border rounded bg-muted text-foreground"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+
+                      {/* Tags list */}
+                      {availableTags
+                        .filter(tag => tag.toLowerCase().includes(tagSearch.toLowerCase()))
+                        .map((tag) => (
+                          <button
+                            key={tag}
+                            onClick={() => {
+                              const newTags = item.tags.includes(tag)
+                                ? item.tags.filter((t) => t !== tag)
+                                : [...item.tags, tag];
+                              onUpdateExtraction(item.id, { tags: newTags });
+                              setTagSearch('');
+                            }}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${
+                              item.tags.includes(tag) ? 'bg-primary-soft' : ''
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={item.tags.includes(tag)}
+                              onChange={() => {}}
+                              className="w-4 h-4 cursor-pointer"
+                              tabIndex={-1}
+                            />
+                            <span className={item.tags.includes(tag) ? 'text-primary font-medium' : ''}>
+                              {tag}
+                            </span>
+                          </button>
+                        ))
+                      }
+                      
+                      {availableTags.filter(tag => tag.toLowerCase().includes(tagSearch.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                          No tags found
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Current tags display */}
+                {item.tags.length > 0 && (
                   <div className="flex gap-1 flex-wrap">
                     {item.tags.map((tag, idx) => (
-                      <Badge key={idx} variant="secondary" className="text-xs">{tag}</Badge>
+                      <Badge 
+                        key={idx} 
+                        variant="secondary" 
+                        className="text-xs flex items-center gap-1 cursor-pointer hover:opacity-75"
+                        onClick={() => {
+                          const newTags = item.tags.filter(t => t !== tag);
+                          onUpdateExtraction(item.id, { tags: newTags });
+                        }}
+                      >
+                        {tag}
+                        <X className="w-3 h-3" />
+                      </Badge>
                     ))}
                   </div>
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => handleStartEdit(item)}>Edit</Button>
-                    <Button size="sm" variant="ghost" onClick={() => onDeleteExtraction(item.id)}>Delete</Button>
-                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => handleStartEdit(item)}>Edit</Button>
+                  <Button size="sm" variant="ghost" onClick={() => onDeleteExtraction(item.id)}>Delete</Button>
                 </div>
               </div>
             )}

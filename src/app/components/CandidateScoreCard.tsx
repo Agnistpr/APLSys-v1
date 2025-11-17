@@ -3,10 +3,17 @@ import { calculateCandidateScore } from '../resume-parser/utils';
 interface CandidateScoreCardProps {
   sectionScores: Record<string, number>;
   scoringWeights: Record<string, number>;
+  userScore: number | null; // Include user's score
 }
 
-export function CandidateScoreCard({ sectionScores, scoringWeights }: CandidateScoreCardProps) {
-  const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
+export function CandidateScoreCard({ sectionScores, scoringWeights, userScore }: CandidateScoreCardProps) {
+  // Calculate the weighted score
+  const weightedScore = calculateCandidateScore(sectionScores, scoringWeights);
+
+  // Incorporate user's score into the final result
+  const finalScore = userScore !== null
+    ? Math.round((weightedScore + userScore) / 2) // Average of weighted score and user's score
+    : weightedScore; // Fallback to weighted score if userScore is not provided
 
   return (
     <div className="candidate-score-card rounded-lg border border-gray-200 p-4 bg-white shadow-sm">

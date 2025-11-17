@@ -226,16 +226,18 @@ function ResumePreview({
   if (detectedFileType === 'docx' && fileUrl && /^https?:\/\//i.test(fileUrl)) {
     const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
     return (
-      <div style={{ height: "100%", width: "100%" }}>
+      <div style={{ height: "100%", width: "100%", overflow: "hidden", display: "flex", justifyContent: "center", alignItems: "center", }}>
         <iframe
           title="DOCX preview"
           src={viewerUrl}
           style={{ 
             width: "100%", 
-            height: "100%", 
+            height: "100%",
             border: "none", 
-            minHeight: 1000,
-            display: "block"
+            transform: "scale(1.5)", // Adjust scale as needed
+            transformOrigin: "center",
+            // minHeight: 1000,
+            // display: "block"
           }}
         />
       </div>
@@ -334,6 +336,18 @@ type ResumeParserProps = {
   setShowAnalyzer?: (visible: boolean) => void;
 };
 
+const getRateLimitRestTime = () => {
+  // Conservative approach: space requests 6-8 seconds apart
+  // This gives buffer to avoid hitting the limit
+  const MIN_REST_MS = 6000;  // 6 seconds minimum
+  const RECOMMENDED_REST_MS = 10000;  // 8 seconds recommended
+  
+  return {
+    min: Math.ceil(MIN_REST_MS / 1000),
+    recommended: Math.ceil(RECOMMENDED_REST_MS / 1000),
+  };
+};
+
 export default function ResumeParser
 ({ setActivePage,
    setSelectedApplicantId,
@@ -353,6 +367,7 @@ export default function ResumeParser
   const [resumeName, setResumeName] = useState("");
   const [isParsingResume, setIsParsingResume] = useState(false);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  const [showFinalScore, setShowFinalScore] = useState(false); // Track whether the final score is displayed
   // Visual indicator shown when persisted file state is cleared on this session
   const [clearedMessage, setClearedMessage] = useState<string | null>(null);
   //const { addTask, updateTask } = useAnalysisStore();
@@ -675,7 +690,7 @@ export default function ResumeParser
       console.log("Hydrating editableResume from persisted store:", persistedResume);
       setEditableResume(persistedResume);
     }
-  }, [isHydrated, hydrationAttempted]);
+  }, [isHydrated]);
 
   useEffect(() => {
     if (!fileUrl && currentFile?.url) {
@@ -707,9 +722,8 @@ export default function ResumeParser
   const [scoringWeights, setScoringWeights] = useState({
     skills: 0.3,
     experience: 0.4,
-    education: 0.15,
+    education: 0.2,
     achievements: 0.1,
-    formatting: 0.05,
   });
 
   const [sectionScores, setSectionScores] = useState({
@@ -717,13 +731,27 @@ export default function ResumeParser
     experience: 90,
     education: 75,
     achievements: 60,
-    formatting: 80,
   });
 
-const [aiScore, setAiScore] = useState<number | null>(null);
-const [userScore, setUserScore] = useState<number | null>(null);
+  const [userScore, setUserScore] = useState<number | null>(null);
 
-const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
+  // Clear the final score whenever weights or section scores change
+  const handleWeightChange = (key: string, value: number) => {
+    setScoringWeights((prev) => ({ ...prev, [key]: value }));
+    setShowFinalScore(false); // Clear the final score
+  };
+
+  const handleScoreChange = (key: string, value: number) => {
+    setSectionScores((prev) => ({ ...prev, [key]: value }));
+    setShowFinalScore(false); // Clear the final score
+  };
+
+  const handleUserScoreChange = (value: number | null) => {
+    setUserScore(value);
+    setShowFinalScore(false); // Clear the final score
+  };
+
+  const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
   const jobDescription = selectedCategory && selectedJobRole ? JOB_ROLES[selectedCategory][selectedJobRole]?.description : "";
   const requiredSkills = selectedCategory && selectedJobRole ? JOB_ROLES[selectedCategory][selectedJobRole]?.required_skills : [];
@@ -1115,14 +1143,13 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       return;
     }
     
-    // Get the actual filename instead of blob URL
     const displayName = currentFile?.name || resumeName || "resume.pdf";
-
     const taskId = `parse-${Date.now()}`;
+    const { recommended } = getRateLimitRestTime();
+    
     setProcessing(true);
     setIsParsingResume(true);
 
-    // Notify parent App (sidebar spinner) that parsing started
     try { onParsingStateChange?.(true, displayName); } catch (e) { console.warn("onParsingStateChange start failed", e); }
 
     addTask({
@@ -1141,6 +1168,14 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       duration: 10000,
     });
 
+    // ✅ NEW: Show rate limit advisory
+    toast.info("Rate limit advisory", {
+      id: "rate-limit-parse",
+      description: `After parsing completes, wait at least ${recommended}s before analyzing to avoid rate limits.`,
+      icon: "⏱️",
+      dismissible: true,
+      duration: 8000,
+    });
 
     try {
       // Initialize with default structure before parsing
@@ -1211,22 +1246,27 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
         throw new Error(nerResult.error);
       }
 
-      //Persist to store
-      await persistGeminiAnalysisResult(nerResult); //persistGemini ang other fallback
+      //First, manually update the local state BEFORE persisting
+      const mappedResume = mapNERToResumeFormat(nerResult);
+      setEditableResume(mappedResume);  // Update UI immediately
+      setParsed(true);  // Mark as parsed
 
-      // Wait for zustand persistence to reflect in memory/localStorage.
-      // Poll store until parseComplete is true and editableResume has profile data.
-      const waitForPersist = async (timeoutMs = 10000, intervalMs = 100) => { // increased timeout
+      // Then persist to store
+      await persistGeminiAnalysisResult(nerResult);
+
+      // Reduce timeout since we already synced UI
+      const waitForPersist = async (timeoutMs = 3000, intervalMs = 50) => {
          const start = Date.now();
          while (Date.now() - start < timeoutMs) {
            const st = useAnalysisStore.getState();
-           if (st.parseComplete && st.editableResume && st.editableResume.profile && Object.keys(st.editableResume.profile).length > 0) {
+           if (st.parseComplete && st.editableResume?.profile && Object.keys(st.editableResume.profile).length > 0) {
              return st;
            }
-           // allow browser work to flush writes
            await new Promise((r) => setTimeout(r, intervalMs));
          }
-         throw new Error("Timed out waiting for persisted parsed resume");
+         // If we already updated the UI, don't fail on timeout
+         const st = useAnalysisStore.getState();
+         return st;
        };
  
        try {
@@ -1309,7 +1349,8 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
     const displayName = currentFile?.name || resumeName || "resume.pdf";
     const taskId = `analyze-${Date.now()}`;
-    // Signal global processing (DeepSeek) and notify parent UI
+    const { recommended } = getRateLimitRestTime();
+    
     setProcessing(true);
     try { onParsingStateChange?.(true, displayName); } catch (e) { console.warn("onParsingStateChange start failed", e); }
 
@@ -1325,6 +1366,15 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
       description: "Analyzing resume, you can close this while it runs.",
       dismissible: true,
       duration: 10000,
+    });
+
+    // ✅ NEW: Show rate limit advisory
+    toast.info("Rate limit advisory", {
+      id: "rate-limit-analyze",
+      description: `If you parse another resume next, wait at least ${recommended}s after this analysis completes.`,
+      icon: "⏱️",
+      dismissible: true,
+      duration: 8000,
     });
 
     try {
@@ -1751,23 +1801,50 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             {clearedMessage}
           </div>
         )}
-        <div className="toolbar">
+        <div className="toolbar" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <ResumeDropzone
             initialFileUrl={fileUrl}
             initialFileName={resumeName}
             fallbackFileUrl={null}
             onFileUrlChange={handleFileChange}
             currentFile={currentFile}
-            showRemoveButton={false}           // hide the small ✕ in this context
+            showRemoveButton={false}
             resetSignal={dropzoneResetSignal}
           />
+          
+          <div style={{ display: "flex", gap: "8px", justifyContent: "center", flex: 1 }}>
+            <button
+              onClick={handleParseResume}
+              className="btn-primary"
+              disabled={isParsingResume || isProcessing}
+              title="Parse Uploaded Resume"
+            >
+              {isParsingResume || isProcessing ? "Parsing..." : "Parse Resume"}
+            </button>
+          </div>
+
           <button
-            onClick={handleParseResume}
-            className="btn-primary ml-2"
-            disabled={isParsingResume || isProcessing}
-            title="Parse Uploaded Resume"
+            onClick={() => {
+              try { goBack?.(); } catch (e) { console.warn("goBack failed:", e); }
+              try { setShowAnalyzer?.(false); } catch (e) { console.warn("setShowAnalyzer failed:", e); }
+            }}
+            className="btn-primary"
+            style={{
+              background: "#6c757d",
+              borderColor: "#6c757d",
+              marginLeft: "auto"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#5a6268";
+              e.currentTarget.style.borderColor = "#5a6268";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#6c757d";
+              e.currentTarget.style.borderColor = "#6c757d";
+            }}
+            title="Go back to Screening"
           >
-            {isParsingResume || isProcessing ? "Parsing..." : "Parse Resume"}
+            Close
           </button>
         </div>
 
@@ -1778,7 +1855,6 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             >
               Parsing Table
             </button>
-            {parseComplete && (
               <>
                 <button
                   className={`tab-btn ${activeTab === "analysis" ? "active" : ""}`}
@@ -1795,13 +1871,12 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                   Candidate Scoring
                 </button>
               </>
-            )}
            </div>
   
         <div className="tab-content">
           {activeTab === "parsing" ? (
              <div className="resume-table-section">
-               <h2 className="section-title">Resume Parsing Results</h2>
+               <h2 className="section-title">Applicant Information Sheet</h2>
                {/* Always render the editable table (use persisted editableResume or default) */}
                <ResumeTable
                  resume={editableResume || defaultResume}
@@ -1888,74 +1963,83 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             /* activeTab === "scoring" branch */
             <div className="candidate-scoring-section">
               <h2 className="section-title">Candidate Scoring</h2>
-
-              <div className="score-configurator">
-                <h3>Configure Scoring Weights</h3>
-                {Object.keys(scoringWeights).map((key) => (
-                  <div key={key} style={{ marginBottom: 4 }}>
-                    <label style={{ width: 120, display: "inline-block" }}>{key.charAt(0).toUpperCase() + key.slice(1)}:</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={scoringWeights[key]}
-                      onChange={e => {
-                        const val = parseFloat(e.target.value);
-                        setScoringWeights(w => ({ ...w, [key]: isNaN(val) ? 0 : val }));
-                      }}
-                      style={{ width: 60 }}
-                    />
+              <div style={{
+                display: "flex",
+                gap: "32px",
+                alignItems: "flex-start",
+                marginBottom: "24px"
+              }}>
+                {/* Configure Scoring Weights */}
+                <div style={{ flex: 1 }}>
+                  <h3>Configure Scoring Weights</h3>
+                  {Object.keys(scoringWeights).map((key) => (
+                    <div key={key} style={{ marginBottom: 8 }}>
+                      <label style={{ width: 120, display: "inline-block" }}>
+                        {key.charAt(0).toUpperCase() + key.slice(1)}:
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={scoringWeights[key]}
+                        onChange={(e) => handleWeightChange(key, parseFloat(e.target.value) || 0)}
+                        style={{ width: 60 }}
+                      />
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 12, color: "#888" }}>
+                    (Sum should be 1.0 for proper weighting)
                   </div>
-                ))}
-                <div style={{ fontSize: 12, color: "#888" }}>
-                  (Sum should be 1.0 for proper weighting)
                 </div>
-                <h3 className="mt-4">Section Scores</h3>
-                {Object.keys(sectionScores).map((key) => (
-                  <div key={key} style={{ marginBottom: 4 }}>
-                    <label style={{ width: 120, display: "inline-block" }}>{key.charAt(0).toUpperCase() + key.slice(1)}:</label>
+
+                <div style={{ flex: 1 }}>
+                  <h3 className="mt-0">Section Scores</h3>
+                  {Object.keys(sectionScores).map((key) => (
+                    <div key={key} style={{ marginBottom: 8 }}>
+                      <label style={{ width: 120, display: "inline-block" }}>
+                        {key.charAt(0).toUpperCase() + key.slice(1)}:
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={sectionScores[key]}
+                        onChange={(e) => handleScoreChange(key, parseInt(e.target.value, 10) || 0)}
+                        style={{ width: 60 }}
+                      />
+                    </div>
+                  ))}
+                  <div className="mt-4">
+                    <label style={{ fontWeight: "bold" }}>Your Score (0-100): </label>
                     <input
                       type="number"
                       min={0}
                       max={100}
-                      value={sectionScores[key]}
-                      onChange={e => {
-                        const val = parseInt(e.target.value, 10);
-                        setSectionScores(s => ({ ...s, [key]: isNaN(val) ? 0 : val }));
-                      }}
-                      style={{ width: 60 }}
+                      value={userScore ?? ""}
+                      onChange={(e) => handleUserScoreChange(e.target.value === "" ? null : parseInt(e.target.value, 10))}
+                      style={{ width: 80, marginLeft: 8 }}
                     />
                   </div>
-                ))}
-              </div>
-
-              <div className="mt-4">
-                <label style={{ fontWeight: "bold" }}>Your Score (0-100): </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={userScore ?? ""}
-                  onChange={e => setUserScore(e.target.value === "" ? null : parseInt(e.target.value, 10))}
-                  style={{ width: 80, marginLeft: 8 }}
-                />
-              </div>
-
-              {/* Show AI score if available and final combined score */}
-              {aiScore !== null && userScore !== null && (
-                <div className="mt-2" style={{ fontWeight: "bold", fontSize: "1.2em" }}>
-                  Final Applicant Score: <span style={{ color: "#1976d2" }}>
-                    {Math.round((aiScore + userScore) / 2)} / 100
-                  </span>
                 </div>
-              )}
-
-              {/* Visual score card */}
-              <div style={{ marginTop: 12 }}>
-                <CandidateScoreCard sectionScores={sectionScores} scoringWeights={scoringWeights} />
               </div>
-            </div>
+
+            {/* Calculate Score Button */}
+            <button
+              className="btn-primary"
+              style={{ marginBottom: 16 }}
+              onClick={() => setShowFinalScore(true)}
+            >
+              Calculate Score
+            </button>
+
+            {/* Show score only after button click */}
+            {showFinalScore && (
+              <div style={{ marginTop: 12 }}>
+                <CandidateScoreCard sectionScores={sectionScores} scoringWeights={scoringWeights} userScore={userScore} />
+              </div>
+            )}
+          </div>
           )}
          </div>
       </div>

@@ -46,74 +46,26 @@ export async function persistGeminiAnalysisResult(geminiResult: any, analysisTex
     if (!geminiResult) throw new Error("Empty Gemini result");
     if (geminiResult?.error) throw new Error(geminiResult.error);
 
-    // Gemini already returns the right shape, so normalize minimally
-    const mapped = {
+    const mappedResume = {
       ...defaultResume,
-      profile: {
-        ...defaultResume.profile,
-        firstName: geminiResult.profile?.firstName || "",
-        middleName: geminiResult.profile?.middleName || "",
-        lastName: geminiResult.profile?.lastName || "",
-        email: geminiResult.profile?.email || "",
-        phone: geminiResult.profile?.phone || "",
-        location: geminiResult.profile?.location || "",
-        summary: geminiResult.profile?.summary || "",
-        name: [
-          geminiResult.profile?.firstName,
-          geminiResult.profile?.middleName,
-          geminiResult.profile?.lastName
-        ].filter(Boolean).join(" ") || "",
-      },
-      educations: (geminiResult.educations || []).map((edu: any) => ({
-        school: edu.school || "",
-        degree: edu.degree || "",
-        gpa: edu.gpa || "",
-        date: edu.date || "",
-        descriptions: edu.descriptions || [],
-      })),
-      workExperiences: (geminiResult.workExperiences || []).map((work: any) => ({
-        company: work.company || "",
-        jobTitle: work.jobTitle || "",
-        date: work.date || "",
-        descriptions: Array.isArray(work.descriptions) ? work.descriptions : [],
-      })),
-      projects: geminiResult.projects || defaultResume.projects,
-      skills: {
-        featuredSkills: (geminiResult.skills || []).map((skill: string | any) =>
-          typeof skill === "string" ? { skill, rating: 3 } : skill
-        ),
-        descriptions: geminiResult.skills_descriptions || [],
-      },
-      custom: geminiResult.custom || defaultResume.custom,
+      profile: geminiResult.profile || {},
+      educations: geminiResult.educations || [],
+      workExperiences: geminiResult.workExperiences || [],
+      skills: geminiResult.skills || { featuredSkills: [], descriptions: [] },
+      custom: geminiResult.custom || { descriptions: [] },
     };
 
     const store = useAnalysisStore.getState();
-    if (typeof store.setEditableResume === "function") store.setEditableResume(mapped);
-    if (analysisText && typeof store.setAnalysisResult === "function") store.setAnalysisResult(analysisText);
-    if (typeof store.setParsed === "function") store.setParsed(true);
+    store.setEditableResume(mappedResume); // Update state
+    store.setParsed(true); // Mark parsing as complete
 
-    // allow zustand/persist to flush and then mirror snapshot to localStorage
-    await new Promise((r) => setTimeout(r, 80));
-    try {
-      const key = "resume-analysis-store";
-      const snapshot = useAnalysisStore.getState();
-      try { localStorage.setItem(key, JSON.stringify(snapshot)); }
-      catch (_) { try { localStorage.setItem(key, JSON.stringify({ state: snapshot })); } catch (__) {} }
-    } catch (e) {
-      console.warn("Failed to flush persistGeminiAnalysisResult snapshot:", e);
-    }
-
-    console.log("✅ persistGeminiAnalysisResult -> stored:", useAnalysisStore.getState().editableResume);
-    return mapped;
+    // Force persistence to localStorage
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    localStorage.setItem("resume-analysis-store", JSON.stringify(useAnalysisStore.getState()));
   } catch (err) {
-    console.error("❌ persistGeminiAnalysisResult failed:", err);
-    const store = useAnalysisStore.getState();
-    if (typeof store.setEditableResume === "function") {
-      store.setEditableResume({ ...defaultResume });
-    }
-    if (typeof store.setParsed === "function") {
-      store.setParsed(false);
-    }
+    console.error("Failed to persist Gemini result:", err);
+    useAnalysisStore.getState().setEditableResume({ ...defaultResume });
+    useAnalysisStore.getState().setParsed(false);
     throw err;
   }
 }

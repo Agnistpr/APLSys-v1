@@ -119,7 +119,7 @@ export async function analyzeResumeWithDS(payload: {
         // Prefer server-suggested retry delay if present
         const suggested = await parseRetryDelayFromError(err);
         const wait = suggested ?? backoff;
-        console.warn(`gemini server error: ${status}. retrying in ${wait}ms (attempt ${attempt}/${maxRetries})`);
+        console.warn(`gemini/deepseek server error: ${status}. retrying in ${wait}ms (attempt ${attempt}/${maxRetries})`);
         await sleep(wait);
         backoff *= 2; 
         continue;

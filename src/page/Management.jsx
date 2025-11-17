@@ -203,9 +203,9 @@ useEffect(() => {
         });
         setDocs(updatedDocs);
         //Notify as done
-        toast.success(`${fileName} parsed successfully.`, {
+        toast.success(`${filename} parsed successfully.`, {
             id: taskId,
-            description: `${fileName} has been scanned successfully.`,
+            description: `${filename} has been scanned successfully.`,
             icon: "✅",
             dismissible: true,
             duration: 10000,
@@ -243,9 +243,9 @@ useEffect(() => {
           if (parent && next[parent]) delete next[parent];
           return next;
         });
-        toast(`${fileName} failed to extract.`, {
+        toast(`${filename} failed to extract.`, {
             id: taskId,
-            description: `${fileName} was not scanned correctly. Please try again later.`,
+            description: `${filename} was not scanned correctly. Please try again later.`,
             icon: "❌",
             dismissible: true,
             duration: 10000,
@@ -561,14 +561,49 @@ useEffect(() => {
       <div className="managementHeaderRow">
         <div className="managementHeader">
           <h1>Documents</h1>
-             <button 
+             {/* Button: open/select folder */}
+            <button 
                 className="openFolderBtn" 
-                onClick={() => {
-                    if (docs.length > 0) {
-                    window.fileAPI.openFolder(docs[0].path);
+                onClick={async () => {
+                  try {
+                    // Prefer explicit folder picker if preload exposes it
+                    if (typeof window.fileAPI.selectFolder === "function") {
+                      const picked = await window.fileAPI.selectFolder();
+                      if (picked) {
+                        // open the folder in the OS file manager if available
+                        if (typeof window.fileAPI.openFolder === "function") {
+                          window.fileAPI.openFolder(picked);
+                        }
+                        toast.success(`Folder selected: ${picked}`);
+                      }
+                      return;
                     }
+
+                    // Fallback: open the containing folder of the first document (if present)
+                    if (docs.length > 0 && docs[0].path) {
+                      // If path is a file, strip filename to get containing folder
+                      const p = String(docs[0].path);
+                      const folder = p.replace(/[/\\][^/\\]+$/, "");
+                      if (folder) {
+                        if (typeof window.fileAPI.openFolder === "function") {
+                          window.fileAPI.openFolder(folder);
+                          toast.success(`Opened folder: ${folder}`);
+                        }
+                        return;
+                      }
+                    }
+
+                    // As a last resort, call openFolder without args (if implemented as a picker)
+                    if (typeof window.fileAPI.openFolder === "function") {
+                      const result = await window.fileAPI.openFolder();
+                      if (result) toast.success(`Opened: ${result}`);
+                    }
+                  } catch (err) {
+                    console.error("openFolder failed:", err);
+                    toast.error("Failed to open/select folder");
+                  }
                 }}
-                >
+              >
                 <FaFolderOpen />
                 {/* Open Folder */}
             </button>
