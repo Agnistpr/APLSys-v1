@@ -340,7 +340,7 @@ const getRateLimitRestTime = () => {
   // Conservative approach: space requests 6-8 seconds apart
   // This gives buffer to avoid hitting the limit
   const MIN_REST_MS = 6000;  // 6 seconds minimum
-  const RECOMMENDED_REST_MS = 8000;  // 8 seconds recommended
+  const RECOMMENDED_REST_MS = 10000;  // 8 seconds recommended
   
   return {
     min: Math.ceil(MIN_REST_MS / 1000),
@@ -367,7 +367,7 @@ export default function ResumeParser
   const [resumeName, setResumeName] = useState("");
   const [isParsingResume, setIsParsingResume] = useState(false);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
-  const [showFinalScore, setShowFinalScore] = useState(false);
+  const [showFinalScore, setShowFinalScore] = useState(false); // Track whether the final score is displayed
   // Visual indicator shown when persisted file state is cleared on this session
   const [clearedMessage, setClearedMessage] = useState<string | null>(null);
   //const { addTask, updateTask } = useAnalysisStore();
@@ -722,9 +722,8 @@ export default function ResumeParser
   const [scoringWeights, setScoringWeights] = useState({
     skills: 0.3,
     experience: 0.4,
-    education: 0.15,
+    education: 0.2,
     achievements: 0.1,
-    formatting: 0.05,
   });
 
   const [sectionScores, setSectionScores] = useState({
@@ -732,13 +731,27 @@ export default function ResumeParser
     experience: 90,
     education: 75,
     achievements: 60,
-    formatting: 80,
   });
 
-const [aiScore, setAiScore] = useState<number | null>(null);
-const [userScore, setUserScore] = useState<number | null>(null);
+  const [userScore, setUserScore] = useState<number | null>(null);
 
-const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
+  // Clear the final score whenever weights or section scores change
+  const handleWeightChange = (key: string, value: number) => {
+    setScoringWeights((prev) => ({ ...prev, [key]: value }));
+    setShowFinalScore(false); // Clear the final score
+  };
+
+  const handleScoreChange = (key: string, value: number) => {
+    setSectionScores((prev) => ({ ...prev, [key]: value }));
+    setShowFinalScore(false); // Clear the final score
+  };
+
+  const handleUserScoreChange = (value: number | null) => {
+    setUserScore(value);
+    setShowFinalScore(false); // Clear the final score
+  };
+
+  const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
 
   const jobDescription = selectedCategory && selectedJobRole ? JOB_ROLES[selectedCategory][selectedJobRole]?.description : "";
   const requiredSkills = selectedCategory && selectedJobRole ? JOB_ROLES[selectedCategory][selectedJobRole]?.required_skills : [];
@@ -1961,62 +1974,55 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
                   <h3>Configure Scoring Weights</h3>
                   {Object.keys(scoringWeights).map((key) => (
                     <div key={key} style={{ marginBottom: 8 }}>
-                    <label style={{ width: 120, display: "inline-block" }}>
-                      {key.charAt(0).toUpperCase() + key.slice(1)}:
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={scoringWeights[key]}
-                      onChange={e => {
-                        const val = parseFloat(e.target.value);
-                        setScoringWeights(w => ({ ...w, [key]: isNaN(val) ? 0 : val }));
-                      }}
-                      style={{ width: 60 }}
-                    />
+                      <label style={{ width: 120, display: "inline-block" }}>
+                        {key.charAt(0).toUpperCase() + key.slice(1)}:
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={scoringWeights[key]}
+                        onChange={(e) => handleWeightChange(key, parseFloat(e.target.value) || 0)}
+                        style={{ width: 60 }}
+                      />
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 12, color: "#888" }}>
+                    (Sum should be 1.0 for proper weighting)
                   </div>
-                ))}
-                <div style={{ fontSize: 12, color: "#888" }}>
-                  (Sum should be 1.0 for proper weighting)
                 </div>
-              </div>
 
-              {/* Section Scores */}
-              <div style={{ flex: 1 }}>
-                <h3 className="mt-0">Section Scores</h3>
-                {Object.keys(sectionScores).map((key) => (
-                  <div key={key} style={{ marginBottom: 8 }}>
-                    <label style={{ width: 120, display: "inline-block" }}>
-                      {key.charAt(0).toUpperCase() + key.slice(1)}:
-                    </label>
+                <div style={{ flex: 1 }}>
+                  <h3 className="mt-0">Section Scores</h3>
+                  {Object.keys(sectionScores).map((key) => (
+                    <div key={key} style={{ marginBottom: 8 }}>
+                      <label style={{ width: 120, display: "inline-block" }}>
+                        {key.charAt(0).toUpperCase() + key.slice(1)}:
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={sectionScores[key]}
+                        onChange={(e) => handleScoreChange(key, parseInt(e.target.value, 10) || 0)}
+                        style={{ width: 60 }}
+                      />
+                    </div>
+                  ))}
+                  <div className="mt-4">
+                    <label style={{ fontWeight: "bold" }}>Your Score (0-100): </label>
                     <input
                       type="number"
                       min={0}
                       max={100}
-                      value={sectionScores[key]}
-                      onChange={e => {
-                        const val = parseInt(e.target.value, 10);
-                        setSectionScores(s => ({ ...s, [key]: isNaN(val) ? 0 : val }));
-                      }}
-                      style={{ width: 60 }}
+                      value={userScore ?? ""}
+                      onChange={(e) => handleUserScoreChange(e.target.value === "" ? null : parseInt(e.target.value, 10))}
+                      style={{ width: 80, marginLeft: 8 }}
                     />
                   </div>
-                ))}
-                <div className="mt-4">
-                  <label style={{ fontWeight: "bold" }}>Your Score (0-100): </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={userScore ?? ""}
-                    onChange={e => setUserScore(e.target.value === "" ? null : parseInt(e.target.value, 10))}
-                    style={{ width: 80, marginLeft: 8 }}
-                  />
                 </div>
               </div>
-            </div>
 
             {/* Calculate Score Button */}
             <button
@@ -2030,7 +2036,7 @@ const finalScore = calculateCandidateScore(sectionScores, scoringWeights);
             {/* Show score only after button click */}
             {showFinalScore && (
               <div style={{ marginTop: 12 }}>
-                <CandidateScoreCard sectionScores={sectionScores} scoringWeights={scoringWeights} />
+                <CandidateScoreCard sectionScores={sectionScores} scoringWeights={scoringWeights} userScore={userScore} />
               </div>
             )}
           </div>
