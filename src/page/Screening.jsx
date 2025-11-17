@@ -5,7 +5,7 @@ import FilterPanel from "../components/FilterPanel.jsx";
 import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
 
-const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage, activePage, setSelectedResumeFile }) => {
+const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage, activePage, setSelectedResumeFile, setShowAnalyzer }) => {
   const [selectedTab, setSelectedTab] = useState("Pending");
   const [applicants, setApplicants] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -61,9 +61,21 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
   const handleFile = async (filePath) => {
     try {
       const ext = filePath.split(".").pop().toLowerCase();
-      if (ext !== "pdf") return null;
+      const allowed = ["pdf", "docx", "doc", "jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"];
+      if (!allowed.includes(ext)) return null;
       const fileData = await window.fileAPI.readFileAsBase64(filePath);
-      return { name: filePath.split(/[\\/]/).pop(), data: fileData, type: "application/pdf" };
+      let mime = "application/octet-stream";
+      if (ext === "pdf") mime = "application/pdf";
+      else if (ext === "docx") mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      else if (ext === "doc") mime = "application/msword";
+      else if (["jpg", "jpeg"].includes(ext)) mime = "image/jpeg";
+      else if (ext === "png") mime = "image/png";
+      else if (ext === "gif") mime = "image/gif";
+      else if (ext === "bmp") mime = "image/bmp";
+      else if (ext === "tiff") mime = "image/tiff";
+      else if (ext === "webp") mime = "image/webp";
+
+      return { name: filePath.split(/[\\\/]/).pop(), data: fileData, type: mime };
     } catch {
       return null;
     }
@@ -71,7 +83,7 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
 
   const filePicker = async () => {
     try {
-      const filePaths = await window.fileAPI.selectFile({ type: "pdf", multi: false });
+      const filePaths = await window.fileAPI.selectFile({ type: ["pdf", "docx", "image"], multi: false });
       if (Array.isArray(filePaths) && filePaths.length > 0) {
         const results = [];
         for (const filePath of filePaths) {
@@ -84,6 +96,7 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
           setSelectedResumeFile(results[0]);
           setSelectedApplicantId(true);
           setPreviousPage(activePage);
+          try {setShowAnalyzer?.(true);} catch(_) {}
           setActivePage("Analyzer");
           setIsError(false);
         } else {
@@ -280,7 +293,7 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
               <div className="uploadIcon">📄</div>
               <p className="uploadText">Upload Resume</p>
               <p className="uploadHint">Click to select a file from your system</p>
-              <p className="uploadTypes">Supports only PDF Files</p>
+              <p className="uploadTypes">Supports PDF, Word(DOCx) and Image Files</p>
             </div>
             <button
               className="uploadButton"
@@ -288,6 +301,7 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
                 setSelectedResumeFile(null);
                 setSelectedApplicantId(true);
                 setPreviousPage(activePage);
+                try {setShowAnalyzer?.(true);} catch(_) {}
                 setActivePage("Analyzer");
               }}
             >
@@ -591,11 +605,21 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
                         ))}
                     </select>
                     <label>Resume: <span className="required">*</span></label>
-                    <input type="file" accept=".pdf" onChange={async (e) => {
+                    <input type="file" accept=".pdf,.doc,.docx,image/*" onChange={async (e) => {
                       const file = e.target.files[0];
                       if (file) {
                         const base64 = await window.fileAPI.readFileAsBase64(file.path);
-                        setResumeFiles([{ name: file.name, data: base64, type: "application/pdf" }]);
+                        // determine mime from extension
+                        const fext = file.name.split('.').pop().toLowerCase();
+                        let ftype = file.type || "application/octet-stream";
+                        if (!ftype) {
+                          if (fext === 'pdf') ftype = 'application/pdf';
+                          else if (fext === 'docx') ftype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                          else if (fext === 'doc') ftype = 'application/msword';
+                          else if (['jpg','jpeg'].includes(fext)) ftype = 'image/jpeg';
+                          else if (fext === 'png') ftype = 'image/png';
+                        }
+                        setResumeFiles([{ name: file.name, data: base64, type: ftype }]);
                       }
                     }} required />
                     <label>Image: </label>
