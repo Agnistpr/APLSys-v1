@@ -23,7 +23,7 @@ process.on("unhandledRejection", (reason, p) => {
 
 // --------------------------------------------------------------------
 // Permissions for now
-const allowedRoles = ['Finance', 'President', 'HR Generalist', 'IT'];
+const allowedRoles = ['IT', 'President', 'HR Generalist/DICC Officer', 'Design & Development IT', 'Accounting Staff'];
 // --------------------------------------------------------------------
 
 // FORMATTING --------------------------------------------------------------------

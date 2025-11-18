@@ -142,10 +142,10 @@ const Sidebar = ({
               alt="User"
               className="avatarImg"
               style={{
-                minWidth: '3rem',
-                minHeight: '3rem',
-                maxWidth: '3rem',
-                maxHeight: '3rem',
+                minWidth: '2.5rem',
+                minHeight: '2.5rem',
+                maxWidth: '2.5rem',
+                maxHeight: '2.5rem',
                 borderRadius: '50%',
                 objectFit: 'cover'
               }}

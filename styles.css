@@ -731,8 +731,12 @@ input {
 }
 
 .avatarPlaceholder {
-  width: 40px;
-  height: 40px;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  max-width: 2.5rem;
+  max-height: 2.5rem;
+  border-radius: 50%;
+  object-fit: cover;
   background-color: #d3d3d3;
   border-radius: 50%;
 }

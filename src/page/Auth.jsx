@@ -109,7 +109,7 @@ const Auth = ({ onLogin }) => {
         {mode === "signup" && (
           <>
             <label htmlFor="confirmPassword">CONFIRM PASSWORD <span className="required">*</span></label>
-            <div className="passwordWrapper">
+            <div className="passwordContainer">
               <input
                 type={showConfirmPassword ? "text" : "password"}
                 id="confirmPassword"
@@ -117,13 +117,9 @@ const Auth = ({ onLogin }) => {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
               />
-              <button
-                type="button"
-                className="passwordToggle"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              >
+              <span className="passwordToggleBtn" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
                 {showConfirmPassword ? <LuEye /> : <LuEyeClosed />}
-              </button>
+              </span>
             </div>
           </>
         )}
