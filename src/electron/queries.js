@@ -120,6 +120,56 @@ ipcMain.handle("getAttendanceColumns", async () => {
   }
 });
 
+ipcMain.handle("checkAttendanceDuplicates", async (event, { entries }) => {
+  try {
+    if (!Array.isArray(entries)) {
+      return { error: "Invalid payload" };
+    }
+
+    // Extract unique profile/date pairs
+    const pairs = entries.map(e => ({
+      profileid: Number(e.profileid),
+      date: e.date
+    }));
+
+    // Remove anything malformed
+    const filtered = pairs.filter(p => p.profileid && p.date);
+    if (!filtered.length) return { duplicates: [] };
+
+    // Query supabase for matching attendance rows
+    const { data, error } = await supabase
+      .from("attendance")
+      .select("profileid, date")
+      .in(
+        "profileid",
+        filtered.map(p => p.profileid)
+      )
+      .in(
+        "date",
+        filtered.map(p => p.date)
+      );
+
+    if (error) throw error;
+
+    // Convert returned rows into a lookup set
+    const duplicateSet = new Set(
+      (data || []).map(
+        d => `${d.profileid}_${d.date}`
+      )
+    );
+
+    // Return only duplicates that exist on server
+    const duplicates = filtered.filter(
+      p => duplicateSet.has(`${p.profileid}_${p.date}`)
+    );
+
+    return { duplicates };
+  } catch (err) {
+    console.error("checkAttendanceDuplicates error:", err);
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle("importAttendance", async (event, { rows }) => {
   if (!Array.isArray(rows)) return { error: "Invalid rows payload" };
 

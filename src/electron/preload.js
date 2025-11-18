@@ -103,6 +103,7 @@ contextBridge.exposeInMainWorld('utilityAPI', {
   getDeptPos: () => ipcRenderer.invoke("getDeptPos"),
   getLogs: (date) => ipcRenderer.invoke('getLogs', date),
   getDashboardCardData: () => ipcRenderer.invoke('getDashboardCardData'),
+  checkAttendanceDuplicates: (entries) => ipcRenderer.invoke("checkAttendanceDuplicates", { entries }),
   importAttendance: (rows) => ipcRenderer.invoke("importAttendance", { rows }),
 });
 
