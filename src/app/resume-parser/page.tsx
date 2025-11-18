@@ -521,6 +521,24 @@ export default function ResumeParser
     }
   }, [setEditableResume]);
 
+  // Utility function to format names in camel-case style
+  const formatName = (name: string): string => {
+    return name
+      .toLowerCase()
+      .split(/\s+/) // Split by spaces
+      .map((word) => {
+        if (word.includes(",")) {
+          const [lastName, firstName] = word.split(",");
+          return `${lastName.charAt(0).toUpperCase() + lastName.slice(1)}, ${
+            firstName.charAt(0).toUpperCase() + firstName.slice(1)
+          }`;
+        }
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      })
+      .join(" ");
+  };
+
+
   const handleAddApplicantClick = () => {
     setShowAddApplicantModal(true);
     setModalCategory("");
@@ -552,11 +570,14 @@ export default function ResumeParser
       const added = await window.applicantAPI.addApplicant(applicantData);
 
       // Build applicant full name
-      const fullName = [
+      const fullName = formatName(
+        [
         applicantData.profile?.firstName || "",
         applicantData.profile?.middleName || "",
         applicantData.profile?.lastName || ""
-      ].filter(Boolean).join(" ");
+        ].filter(Boolean)
+      .join(" ")
+      );
 
       // Log action
       const description = `
