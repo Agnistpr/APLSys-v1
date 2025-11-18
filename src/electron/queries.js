@@ -2558,12 +2558,15 @@ ipcMain.handle('updateApplicantsStatus', async (event, ids, options) => {
           employeeimage: applicant.applicantimage,
           type: 'Regular',
           leavecredit: 0.00,
-          shiftid: 1,
+          // shiftid: 1,
           hiredate: nowISO,
         };
+        // console.log("Payload for new employee:", employeePayload);
         await supabase.from('employee').insert([employeePayload]);
       }
     }
+
+    // console.log(`Updated applicants: ${JSON.stringify(data, null, 2)}`);  
 
     return { success: true };
   } catch (err) {
@@ -2599,8 +2602,12 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
     const { data: employee, error: empError } = await supabase
       .from('employee')
       .select('employeeid, firstname, middlename, lastname, positionid')
-      .filter('email', 'ilike', email.trim())
+      .filter('email', 'ilike', email)
       .single();
+
+      console.log("employee: ", employee)
+      
+    console.log("email: ", email)
 
     if (empError || !employee) {
       logMessage(`Employee not found for ${email}`);

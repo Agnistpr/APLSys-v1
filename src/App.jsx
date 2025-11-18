@@ -436,7 +436,7 @@ useEffect(() => {
     onTaskStart: trackTask,
     onTaskEnd: untrackTask
   };
-  console.log("Rendering App, user:", user?.id);
+  // console.log("Rendering App, user:", user?.id);
 
   if (loading) {
     return (

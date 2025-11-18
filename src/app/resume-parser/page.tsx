@@ -558,20 +558,18 @@ export default function ResumeParser
 
     setIsAddingApplicant(true);
 
-
-    
-      // Build applicant full name
-      const fullName = formatName(
-        [
+    // Format the full name
+    const fullName = formatName(
+      [
         editableResume.profile?.firstName || "",
         editableResume.profile?.middleName || "",
-        editableResume.profile?.lastName || ""
-        ].filter(Boolean)
-      .join(" ")
-      );
+        editableResume.profile?.lastName || "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
 
-
-        // Update the editableResume with the formatted full name
+    // Update the editableResume with the formatted full name
     const updatedResume = {
       ...editableResume,
       profile: {
@@ -580,8 +578,7 @@ export default function ResumeParser
       },
     };
 
-    setEditableResume(updatedResume)
-
+    // Create applicantData **after** updating editableResume
     const applicantData = {
       ...updatedResume,
       departmentName: modalCategory,
@@ -605,7 +602,7 @@ export default function ResumeParser
       `.trim();
 
       await window.userAPI.logAction(
-        uid, // replace with actual userid later
+        uid,
         `added applicant "${fullName}"`,
         description
       );
@@ -613,6 +610,10 @@ export default function ResumeParser
       toast.success(`Applicant added! ID: ${added.applicantid}`, {
         duration: 3000,
       });
+
+      // Reset the editableResume to default after adding the applicant
+      setEditableResume({ ...defaultResume });
+
       setShowAddApplicantModal(false);
       goBack();
     } catch (err) {
