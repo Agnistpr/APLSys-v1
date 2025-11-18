@@ -325,6 +325,7 @@ function ResumePreview({
 }
 
 type ResumeParserProps = {
+  uid?: any;
   setActivePage?: any;
   setSelectedApplicantId?: any;
   setPreviousPage?: any;
@@ -349,7 +350,7 @@ const getRateLimitRestTime = () => {
 };
 
 export default function ResumeParser
-({ setActivePage,
+({ uid, setActivePage,
    setSelectedApplicantId,
    setPreviousPage,
    activePage,
@@ -373,6 +374,7 @@ export default function ResumeParser
   //const { addTask, updateTask } = useAnalysisStore();
   const [hydrationAttempted, setHydrationAttempted] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  console.log("Uid: ", uid);
 
   // for applicant adding:
 
@@ -547,7 +549,7 @@ export default function ResumeParser
     console.log("Adding applicant:", applicantData);
 
     try {
-      const added = await window.fileAPI.addApplicant(applicantData);
+      const added = await window.applicantAPI.addApplicant(applicantData);
 
       // Build applicant full name
       const fullName = [
@@ -565,8 +567,8 @@ export default function ResumeParser
         Position: ${applicantData.positionName}
       `.trim();
 
-      await window.fileAPI.logAction(
-        1, // replace with actual userid later
+      await window.userAPI.logAction(
+        uid, // replace with actual userid later
         `added applicant "${fullName}"`,
         description
       );
