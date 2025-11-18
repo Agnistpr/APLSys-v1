@@ -79,6 +79,22 @@ ipcMain.handle("file:saveToFolder", async (event, { sourcePath, customDir }) => 
   return destination;
 });
 
+
+//Move to Folder
+
+ipcMain.handle("file:moveToFolder", async (event, { sourcePath, targetDir }) => {
+  try {
+    const fileName = path.basename(sourcePath);
+    const destination = path.join(targetDir, fileName);
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.copyFileSync(sourcePath, destination); // Use copy for safety; use fs.renameSync for move
+    return { success: true, path: destination };
+  } catch (err) {
+    console.error("Failed to move file:", err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('file:saveUploadedFile', async (event, { fileName, base64Data }) => {
   try {
     const baseDir = getDocumentsFolder();

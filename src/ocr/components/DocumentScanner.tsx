@@ -102,6 +102,7 @@ export const DocumentScanner: React.FC = () => {
   const setStoredExtractedData = useOcrStore(s => s.setCurrentExtractedData);
   const isOcrProcessing = useOcrStore(s => s.isProcessing);
   const setOcrProcessing = useOcrStore(s => s.setProcessing);
+  const selectedFolder = useOcrStore(s => s.selectedFolder);
 
   // Load persisted state on mount
   useEffect(() => {
@@ -284,6 +285,56 @@ export const DocumentScanner: React.FC = () => {
     customTags,
     timestamp: new Date().toISOString()
   };
+
+  const handleSaveUploadedFile = useCallback(async () => {
+    if (!currentFile || !currentFile.name) {
+      toast.error("No file to save");
+      return;
+    }
+
+    try {
+      toast.loading("Saving file to documents...", { id: "save-file" });
+
+      // Save file to default documents folder first
+      const response = await window.fileAPI.saveUploadedFile({
+        fileName: currentFile.name,
+        base64Data: currentFileData?.split(",")[1] // Remove data: prefix
+      });
+
+      if (response.success && selectedFolder) {
+        // Move/copy file to user-selected folder
+        const moveResult = await window.fileAPI.moveFileToFolder(response.path, selectedFolder);
+        if (moveResult.success) {
+          toast.success("File moved to selected folder", {
+            id: "save-file",
+            description: `${currentFile.name} has been moved`,
+            duration: 4000
+          });
+        } else {
+          toast.error("Failed to move file", {
+            id: "save-file",
+            description: moveResult.error || "Unknown error"
+          });
+        }
+      } else if (response.success) {
+        toast.success("File saved to documents", {
+          id: "save-file",
+          description: `${currentFile.name} has been saved`,
+          duration: 4000
+        });
+      } else {
+        toast.error("Failed to save file", {
+          id: "save-file",
+          description: response.error || "Unknown error"
+        });
+      }
+    } catch (err) {
+      toast.error("Failed to save/move file", {
+        id: "save-file",
+        description: err instanceof Error ? err.message : "Unknown error"
+      });
+    }
+  }, [currentFile, currentFileData, selectedFolder]);
 
   // Cleanup on unmount
   useEffect(() => {

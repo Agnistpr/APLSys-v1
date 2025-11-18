@@ -9,6 +9,7 @@ backups/
 .env
 dist/
 dist-react/
+documents/
 
 # Old Stuff to be removed || For other dev:
 aplsys_db.sql

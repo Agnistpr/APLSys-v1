@@ -570,10 +570,7 @@ useEffect(() => {
                     if (typeof window.fileAPI.selectFolder === "function") {
                       const picked = await window.fileAPI.selectFolder();
                       if (picked) {
-                        // open the folder in the OS file manager if available
-                        if (typeof window.fileAPI.openFolder === "function") {
-                          window.fileAPI.openFolder(picked);
-                        }
+                        useOcrStore.getState().setSelectedFolder(picked);
                         toast.success(`Folder selected: ${picked}`);
                       }
                       return;

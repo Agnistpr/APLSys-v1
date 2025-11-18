@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('fileAPI', {
   readDirectory: (path) => ipcRenderer.invoke('file:readDirectory', path),
   readFile: (path) => ipcRenderer.invoke('file:readFile', path),
   writeFile: (path, content) => ipcRenderer.invoke('file:writeFile', path, content),
+  moveFileToFolder: (sourcePath, targetDir) => ipcRenderer.invoke('file:moveToFolder', { sourcePath, targetDir }),
   startBatchOcr: (opts) => ipcRenderer.invoke('ocr:startBatch', opts),
   onOcrProgress: (cb) => {
     const listener = (_event, data) => cb(data);

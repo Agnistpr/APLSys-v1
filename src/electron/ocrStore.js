@@ -13,6 +13,7 @@ export const useOcrStore = create(
       currentFileData: null, // ← ADD THIS
       currentExtractedData: [],
       ocrMatches: {},
+      selectedFolder: null,
 
       // Action methods to update state
       setProcessingMap: (mapOrFn) => {
@@ -29,6 +30,7 @@ export const useOcrStore = create(
       setCurrentFileData: (data) => set({ currentFileData: data }), // ← ADD THIS
       setCurrentExtractedData: (data) => set({ currentExtractedData: data }),
       setOcrMatches: (matches) => set({ ocrMatches: matches }),
+      setSelectedFolder: (folder) => set({ selectedFolder: folder }),
       
       // Optional persistence helpers
       addResult: (result) => set(state => ({
