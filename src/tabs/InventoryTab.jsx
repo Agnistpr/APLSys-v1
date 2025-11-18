@@ -200,19 +200,26 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
 
       const oldQty = Number(editForm.originalQuantity);
       const newQty = Number(editForm.quantity);
-      const qtyChange = oldQty - newQty;
+      const qtyDiff = newQty - oldQty;
 
-      const logPayload = {
-        itemid: payload.itemid,
-        profileid: editForm.profileid || null,
-        quantity: qtyChange,
-        role: editForm.role || "Employee",
-      };
+      const shouldWriteLog = qtyDiff < 0 && editForm.profileid;
 
-      const logRes = await window.inventoryAPI.addInventoryLog(logPayload);
+      if (shouldWriteLog) {
+        const logPayload = {
+          itemid: payload.itemid,
+          profileid: editForm.profileid,
+          quantity: Math.abs(qtyDiff),
+          role: editForm.role || "Employee",
+        };
 
-      if (!logRes || logRes.success === false) {
-        window.toast("Item updated, but failed to record log.", "error");
+        const logRes = await window.inventoryAPI.addInventoryLog(logPayload);
+
+        if (!logRes || logRes.success === false) {
+          window.toast("Item updated, but failed to record log.", "error");
+        } else {
+          window.toast("Item updated successfully!", "success");
+        }
+
       } else {
         window.toast("Item updated successfully!", "success");
       }
@@ -329,6 +336,7 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
                     setEditForm({
                       itemname: row.itemname,
                       quantity: row.quantity,
+                      originalQuantity: row.quantity,
                       itemid: row.itemid,
                       profileid: "",
                       role: "Employee",
