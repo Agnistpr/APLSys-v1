@@ -558,8 +558,32 @@ export default function ResumeParser
 
     setIsAddingApplicant(true);
 
-    const applicantData = {
+
+    
+      // Build applicant full name
+      const fullName = formatName(
+        [
+        editableResume.profile?.firstName || "",
+        editableResume.profile?.middleName || "",
+        editableResume.profile?.lastName || ""
+        ].filter(Boolean)
+      .join(" ")
+      );
+
+
+        // Update the editableResume with the formatted full name
+    const updatedResume = {
       ...editableResume,
+      profile: {
+        ...editableResume.profile,
+        name: fullName, // Add the formatted full name
+      },
+    };
+
+    setEditableResume(updatedResume)
+
+    const applicantData = {
+      ...updatedResume,
       departmentName: modalCategory,
       positionName: modalJobRole,
     };
@@ -569,15 +593,7 @@ export default function ResumeParser
     try {
       const added = await window.applicantAPI.addApplicant(applicantData);
 
-      // Build applicant full name
-      const fullName = formatName(
-        [
-        applicantData.profile?.firstName || "",
-        applicantData.profile?.middleName || "",
-        applicantData.profile?.lastName || ""
-        ].filter(Boolean)
-      .join(" ")
-      );
+      console.log("Formatted full name:", fullName); // Debug log
 
       // Log action
       const description = `
