@@ -418,10 +418,16 @@ const handleApplyFix = async () => {
   if (mode !== "kiosk") return;
 
   const valid = kioskRows.filter(r => !r._incomplete && r.timeout && r.timein && r.fullname);
-  const rows = valid.map(r => {
+
+  if (valid.length === 0) {
+    window.toast("No valid rows to import", "error");
+    return;
+  }
+
+  // Prepare rows for import
+  const rowsToSend = valid.map(r => {
     const isNextDay = /\(Next Day\)/i.test(r.timeout || "");
     const cleanTimeout = (r.timeout || "").replace(/\s*\(Next Day\)/i, "").trim();
-
     return {
       fullname: r.fullname?.trim(),
       date: r.date,
@@ -431,13 +437,9 @@ const handleApplyFix = async () => {
     };
   });
 
-  if (rows.length === 0) {
-    window.toast("No valid rows to import", "error");
-    return;
-  }
-
   try {
-    const result = await window.utilityAPI.importAttendance(rows);
+    // Call backend to map fullname -> profileid
+    const result = await window.utilityAPI.importAttendance(rowsToSend);
 
     if (result.error) {
       window.toast(`Import failed: ${result.error}`, "error");
@@ -452,12 +454,13 @@ const handleApplyFix = async () => {
       }
     }
 
-    if (onImportComplete) await onImportComplete(rows);
+    if (onImportComplete) await onImportComplete(rowsToSend);
   } catch (err) {
     console.error(err);
     window.toast("Failed to import attendance", "error");
   }
 };
+
 
   if (!show) return null;
 

@@ -120,6 +120,56 @@ ipcMain.handle("getAttendanceColumns", async () => {
   }
 });
 
+ipcMain.handle("checkAttendanceDuplicates", async (event, { entries }) => {
+  try {
+    if (!Array.isArray(entries)) {
+      return { error: "Invalid payload" };
+    }
+
+    // Extract unique profile/date pairs
+    const pairs = entries.map(e => ({
+      profileid: Number(e.profileid),
+      date: e.date
+    }));
+
+    // Remove anything malformed
+    const filtered = pairs.filter(p => p.profileid && p.date);
+    if (!filtered.length) return { duplicates: [] };
+
+    // Query supabase for matching attendance rows
+    const { data, error } = await supabase
+      .from("attendance")
+      .select("profileid, date")
+      .in(
+        "profileid",
+        filtered.map(p => p.profileid)
+      )
+      .in(
+        "date",
+        filtered.map(p => p.date)
+      );
+
+    if (error) throw error;
+
+    // Convert returned rows into a lookup set
+    const duplicateSet = new Set(
+      (data || []).map(
+        d => `${d.profileid}_${d.date}`
+      )
+    );
+
+    // Return only duplicates that exist on server
+    const duplicates = filtered.filter(
+      p => duplicateSet.has(`${p.profileid}_${p.date}`)
+    );
+
+    return { duplicates };
+  } catch (err) {
+    console.error("checkAttendanceDuplicates error:", err);
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle("importAttendance", async (event, { rows }) => {
   if (!Array.isArray(rows)) return { error: "Invalid rows payload" };
 
@@ -142,7 +192,6 @@ ipcMain.handle("importAttendance", async (event, { rows }) => {
 
     const findProfile = (fullname) => {
       if (!fullname) return { id: null, role: null };
-
       const [lastRaw, firstRaw] = fullname.split(",").map(normalize);
       if (!lastRaw || !firstRaw) return { id: null, role: null };
 
@@ -199,13 +248,11 @@ ipcMain.handle("importAttendance", async (event, { rows }) => {
         : { id: null, role: null };
     };
 
+    // Clean and map profile IDs
     rows = rows.filter(
       (r) => r.fullname && r.date && r.timein && r.timeout && r.timein.trim() && r.timeout.trim()
     );
-
-    if (!rows.length) {
-      return { error: "All rows were incomplete or missing fields" };
-    }
+    if (!rows.length) return { error: "All rows were incomplete or missing fields" };
 
     const cleaned = rows.map((r) => {
       if (r.profileid && Number(r.profileid) > 0) {
@@ -228,23 +275,36 @@ ipcMain.handle("importAttendance", async (event, { rows }) => {
     });
 
     const validRows = cleaned.filter((r) => r.profileid != null);
-    if (!validRows.length) {
-      logMessage(`❌ No matches found. Example input: ${JSON.stringify(rows[0])}`);
-      return { error: "No valid rows with matched profile IDs" };
-    }
+    if (!validRows.length) return { error: "No valid rows with matched profile IDs" };
 
     logMessage(`🟢 Ready to import ${validRows.length} attendance records`);
-    logMessage(`Sample record: ${JSON.stringify(validRows[0], null, 2)}`);
 
-    const { data, error } = await supabase.from("attendance").insert(validRows);
+    // --- Check for existing duplicates in the DB ---
+    const { data: existing } = await supabase
+      .from("attendance")
+      .select("profileid, date")
+      .in("profileid", validRows.map(r => r.profileid))
+      .in("date", validRows.map(r => r.date));
+
+    const existingKeys = new Set(existing.map(r => `${r.profileid}-${r.date}`));
+
+    const rowsToInsert = validRows.filter(r => !existingKeys.has(`${r.profileid}-${r.date}`));
+    const skipped = validRows.length - rowsToInsert.length;
+
+    if (rowsToInsert.length === 0) {
+      return { inserted: 0, skipped };
+    }
+
+    const { data, error } = await supabase.from("attendance").insert(rowsToInsert);
     if (error) throw error;
 
-    return { success: true, inserted: data?.length ?? 0 };
+    return { inserted: data?.length ?? 0, skipped };
   } catch (err) {
     console.error("❌ importAttendance error:", err);
     return { error: err.message };
   }
 });
+
 
 // -----too bothered to organize for now---
 
