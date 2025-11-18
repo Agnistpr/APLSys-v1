@@ -73,7 +73,7 @@ ipcMain.handle("getCurrentUser", async () => {
 
     const { data: employee, error: empError } = await supabase
       .from("employee")
-      .select("employeeid, firstname, lastname, middlename, positionid, employeeimage")
+      .select("employeeid, firstname, lastname, positionid, employeeimage")
       .eq("user_id", user.id)
       .single();
 
@@ -100,7 +100,6 @@ ipcMain.handle("getCurrentUser", async () => {
     let imageUrl = null;
 
     if (employee.employeeimage) {
-      // Only call getPublicUrl if it's a relative path, not a full URL
       if (employee.employeeimage.startsWith("http")) {
         imageUrl = employee.employeeimage;
       } else {
@@ -113,7 +112,7 @@ ipcMain.handle("getCurrentUser", async () => {
 
     return {
       id: user.id,
-      name: user.user_metadata?.full_name || `${employee.firstname} ${employee.lastname}`,
+      name: `${employee.firstname} ${employee.lastname}`,
       role: positionName,
       image: imageUrl,
       email: user.email,

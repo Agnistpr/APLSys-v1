@@ -279,26 +279,51 @@ ipcMain.handle("importAttendance", async (event, { rows }) => {
 
     logMessage(`🟢 Ready to import ${validRows.length} attendance records`);
 
-    // --- Check for existing duplicates in the DB ---
+    const profileIds = validRows.map(r => r.profileid);
     const { data: existing } = await supabase
       .from("attendance")
       .select("profileid, date")
-      .in("profileid", validRows.map(r => r.profileid))
-      .in("date", validRows.map(r => r.date));
+      .in("profileid", profileIds);
 
-    const existingKeys = new Set(existing.map(r => `${r.profileid}-${r.date}`));
+    const formatDateKey = (d) => {
+      if (!d) return "";
+      const dt = new Date(d);
+      if (isNaN(dt)) return "";
+      return dt.toISOString().slice(0, 10); // YYYY-MM-DD
+    };
 
-    const rowsToInsert = validRows.filter(r => !existingKeys.has(`${r.profileid}-${r.date}`));
-    const skipped = validRows.length - rowsToInsert.length;
+    // Build set of existing keys
+    const existingKeys = new Set(
+      existing.map(r => `${r.profileid}-${formatDateKey(r.date)}`)
+    );
+
+    // Separate rows to insert vs skipped
+    const rowsToInsert = [];
+    const skippedRows = [];
+    for (const r of validRows) {
+      const key = `${r.profileid}-${formatDateKey(r.date)}`;
+      if (existingKeys.has(key)) {
+        skippedRows.push(r);
+      } else {
+        rowsToInsert.push(r);
+      }
+    }
+
+    // Log skipped rows for debugging
+    if (skippedRows.length > 0) {
+      console.log("⚠️ Skipped rows (duplicates):", skippedRows);
+    }
 
     if (rowsToInsert.length === 0) {
-      return { inserted: 0, skipped };
+      return { inserted: 0, skipped: skippedRows.length };
     }
 
     const { data, error } = await supabase.from("attendance").insert(rowsToInsert);
     if (error) throw error;
 
-    return { inserted: data?.length ?? 0, skipped };
+    console.log(`✅ Imported ${data?.length ?? 0} attendance records, skipped ${skippedRows.length} duplicates.`);
+
+    return { inserted: data?.length ?? 0, skipped: skippedRows.length };
   } catch (err) {
     console.error("❌ importAttendance error:", err);
     return { error: err.message };
@@ -2562,6 +2587,7 @@ ipcMain.handle('updateApplicantsStatus', async (event, ids, options) => {
           hiredate: nowISO,
         };
         // console.log("Payload for new employee:", employeePayload);
+        console.log('Inserting new employee:', employeePayload);
         await supabase.from('employee').insert([employeePayload]);
       }
     }
@@ -2602,19 +2628,13 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
     const { data: employee, error: empError } = await supabase
       .from('employee')
       .select('employeeid, firstname, middlename, lastname, positionid')
-      .filter('email', 'ilike', email)
+      .eq('email', email.trim())
       .single();
 
-      console.log("employee: ", employee)
-      
-    console.log("email: ", email)
-
     if (empError || !employee) {
-      logMessage(`Employee not found for ${email}`);
       return { error: 'Email not found in employee records.' };
     }
 
-    // 2️⃣ Check employee’s position
     const { data: position, error: posError } = await supabase
       .from('position')
       .select('positionname')
@@ -2631,7 +2651,6 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
       return { error: 'Only certain positions can create an account.' };
     }
 
-    // 3️⃣ Signup the user in Supabase Auth
     const fullName = `${employee.lastname}, ${employee.firstname} ${employee.middlename || ''}`.trim();
 
     const { data, error } = await supabase.auth.signUp({
@@ -2646,15 +2665,17 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
       },
     });
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
-    // 4️⃣ Link the auth user to employee record
     if (data.user) {
-      await supabase
+      const updateRes = await supabase
         .from('employee')
         .update({ user_id: data.user.id })
         .eq('employeeid', employee.employeeid);
     }
+
 
     return {
       user: data.user,

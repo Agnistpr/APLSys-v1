@@ -86,19 +86,17 @@ const Sidebar = ({
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const user = await window.authAPI.getCurrentUser(); // ✅ calls queries.js
+        const user = await window.authAPI.getCurrentUser();
         if (user) {
           setUserName(user.name);
           setUserRole(user.role);
 
           if (user.image) {
             try {
-              // Fetch the image from Supabase public URL
               const res = await fetch(user.image);
               if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
               const blob = await res.blob();
 
-              // Convert to base64
               const reader = new FileReader();
               reader.onload = () => setUserImage(reader.result); // base64 string
               reader.readAsDataURL(blob);
