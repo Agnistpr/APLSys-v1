@@ -1,5 +1,6 @@
 export {};
 
+// Utility file to export API functions from preload to here in /app
 declare global {
   interface File{
     path?: string; // Added by Electron's file dialog
@@ -30,6 +31,25 @@ declare global {
       onOcrProgress: (
         cb: (data: any) => void
       ) => () => void; // returns unsubscribe fn
+    },
+    applicantAPI: {
+      getApplicant: (applicantId: any) => Promise<any>;
+      updateApplicant: (applicantId: any, field: string, value: any) => Promise<any>;
+      getApplicants: (status?: any) => Promise<any[]>;
+      addApplicant: (resume: any) => Promise<any>;
+      updateApplicantsStatus: (ids: any[], options?: any) => Promise<any>;
+      getTrainees: (status?: any) => Promise<any[]>;
+    },
+    utilityAPI: {
+      getDeptPos: () => Promise<Array<{ departmentid: number; departmentname: string; positionid: number; positionname: string }>>;
+      getLogs: (date?: string) => Promise<any[]>;
+      getDashboardCardData: () => Promise<any>;
+      checkAttendanceDuplicates: (entries: any[]) => Promise<any>;
+      importAttendance: (rows: any[]) => Promise<any>;
+    },
+    userAPI: {
+      getUser: (username: string, password: string) => Promise<any>;
+      logAction: (uid: any, useraction: string, description?: string) => Promise<any>;
     };
   }
 }

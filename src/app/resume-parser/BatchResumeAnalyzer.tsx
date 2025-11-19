@@ -40,7 +40,7 @@ export const BatchResumeAnalyzer = ({ jobRole,jobDescription, jobCategory }) => 
         job_description: jobRoleObj?.description || jobDescription || "",
       };
 
-      const result = await analyzeResumeWithGemini(payload);
+      const result = await analyzeResumeWithDS(payload);
       setResults(prev => [...prev, { name: file.name, result }]);
       setProgress(i + 1);
     }

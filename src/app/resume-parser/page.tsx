@@ -382,6 +382,22 @@ export default function ResumeParser
   const [modalCategory, setModalCategory] = useState("");
   const [modalJobRole, setModalJobRole] = useState("");
   const [isAddingApplicant, setIsAddingApplicant] = useState(false);
+  // department/position list loaded from DB
+  const [deptPosList, setDeptPosList] = useState<any[]>([]);
+  const [deptLoading, setDeptLoading] = useState(false);
+
+  const loadDeptPos = useCallback(async () => {
+    try {
+      setDeptLoading(true);
+      const rows = await (window.utilityAPI?.getDeptPos?.() ?? []);
+      setDeptPosList(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      console.error("Failed to load departments/positions:", e);
+      setDeptPosList([]);
+    } finally {
+      setDeptLoading(false);
+    }
+  }, []);
 
   const currentFile = useAnalysisStore(state => state.currentFile);
   const editableResume = useAnalysisStore(state => state.editableResume);
@@ -543,6 +559,8 @@ export default function ResumeParser
     setShowAddApplicantModal(true);
     setModalCategory("");
     setModalJobRole("");
+    // load departments & positions from main process so the modal shows DB values
+    loadDeptPos();
   };
 
   const handleConfirmAddApplicant = async () => {
@@ -2112,12 +2130,13 @@ export default function ResumeParser
                 <label style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>Job Category</label>
                 <select
                   value={modalCategory}
-                  onChange={(e) => setModalCategory(e.target.value)}
+                  onChange={(e) => { setModalCategory(e.target.value); setModalJobRole(""); }}
                   className="input"
                 >
                   <option value="">Select a category</option>
-                  {Object.keys(JOB_ROLES).map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
+                  {deptLoading && <option value="">Loading...</option>}
+                  {!deptLoading && deptPosList && Array.from(new Set(deptPosList.map(d => d.departmentname))).map((dept) => (
+                    <option key={dept} value={dept}>{dept}</option>
                   ))}
                 </select>
               </div>
@@ -2133,21 +2152,21 @@ export default function ResumeParser
                   className="input"
                 >
                   <option value="">Select a role</option>
-                  {modalCategory &&
-                    Object.keys(JOB_ROLES[modalCategory] || {}).map((role) => (
-                      <option key={role} value={role}>
-                        {role}
-                      </option>
-                    ))}
+                  {modalCategory && deptPosList && Array.from(new Set(deptPosList.filter(d => d.departmentname === modalCategory).map(d => d.positionname))).map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
             <div className="modalFooter" style={{ marginTop: 14 }}>
               <button
-                className="cancelBtn"
+                className="actionBtn"
                 onClick={() => setShowAddApplicantModal(false)}
                 disabled={isAddingApplicant}
+                style={{ marginRight: 8 }}
               >
                 Cancel
               </button>
