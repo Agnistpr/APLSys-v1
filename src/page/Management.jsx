@@ -25,9 +25,11 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   const [showJumpInput, setShowJumpInput] = useState(false);
   const [jumpPage, setJumpPage] = useState("");
   const filterRef = useRef(null);
+  const isOpeningFolder = useRef(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const columnLabelMap = { type: "Type" };
   const PROCESSING_STATE_KEY = "documentProcessingState";
+  const OPEN_FOLDER_TOAST = "open-folder";
 
   // helper to call backend create-task
   const createServerTask = async (payload) => {
@@ -42,6 +44,61 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
    }
    return resp.json();
 };
+
+  const handleFolderOpen = async () => {
+    if (isOpeningFolder.current) return;
+    isOpeningFolder.current = true;
+
+    try {
+      const picked = await window.fileAPI.openFolder();
+      if (!picked) return;
+
+      // normalize path
+      let pickedPath = "";
+      if (typeof picked === "string") pickedPath = picked;
+      else if (Array.isArray(picked)) pickedPath = picked[0];
+      else if (picked?.filePaths?.length) pickedPath = picked.filePaths[0];
+      else if (picked?.path) pickedPath = picked.path;
+      else pickedPath = String(picked);
+
+      // freeze folderName NOW to avoid stale closures
+      const folderName = (() => {
+        const parts = String(pickedPath).split(/[\\/]/);
+        return parts[parts.length - 1] ?? "";
+      })();
+
+      toast.dismiss(OPEN_FOLDER_TOAST);
+      toast.loading(`Opening ${folderName}. Please wait`, {
+        id: OPEN_FOLDER_TOAST,
+        icon: "⏳",
+        dismissible: true
+      });
+
+      // update store now
+      useOcrStore.getState().setSelectedFolder(pickedPath);
+
+      await new Promise(r => setTimeout(r, 50));
+
+      const newDocs = await window.fileAPI.listDocuments();
+      setDocs(newDocs);
+
+      toast.success(`Opened: ${folderName}`, {
+        id: OPEN_FOLDER_TOAST,
+        description: pickedPath,
+        icon: "✅",
+        dismissible: true,
+        duration: 10000
+      });
+
+    } catch (err) {
+      toast.error("Failed to open folder", {
+        id: OPEN_FOLDER_TOAST,
+        description: String(err)
+      });
+    } finally {
+      isOpeningFolder.current = false;
+    }
+  };
 
   useEffect(() => {
     const fetchDocs = async () => {
@@ -564,42 +621,7 @@ useEffect(() => {
              {/* Button: open/select folder */}
             <button 
                 className="openFolderBtn" 
-                onClick={async () => {
-                  try {
-                    // Prefer explicit folder picker if preload exposes it
-                    if (typeof window.fileAPI.selectFolder === "function") {
-                      const picked = await window.fileAPI.selectFolder();
-                      if (picked) {
-                        useOcrStore.getState().setSelectedFolder(picked);
-                        toast.success(`Folder selected: ${picked}`);
-                      }
-                      return;
-                    }
-
-                    // Fallback: open the containing folder of the first document (if present)
-                    if (docs.length > 0 && docs[0].path) {
-                      // If path is a file, strip filename to get containing folder
-                      const p = String(docs[0].path);
-                      const folder = p.replace(/[/\\][^/\\]+$/, "");
-                      if (folder) {
-                        if (typeof window.fileAPI.openFolder === "function") {
-                          window.fileAPI.openFolder(folder);
-                          toast.success(`Opened folder: ${folder}`);
-                        }
-                        return;
-                      }
-                    }
-
-                    // As a last resort, call openFolder without args (if implemented as a picker)
-                    if (typeof window.fileAPI.openFolder === "function") {
-                      const result = await window.fileAPI.openFolder();
-                      if (result) toast.success(`Opened: ${result}`);
-                    }
-                  } catch (err) {
-                    console.error("openFolder failed:", err);
-                    toast.error("Failed to open/select folder");
-                  }
-                }}
+                onClick={handleFolderOpen}
               >
                 <FaFolderOpen />
                 {/* Open Folder */}
