@@ -558,27 +558,33 @@ export default function ResumeParser
 
     setIsAddingApplicant(true);
 
-    // Format the full name
-    const fullName = formatName(
-      [
-        editableResume.profile?.firstName || "",
-        editableResume.profile?.middleName || "",
-        editableResume.profile?.lastName || "",
-      ]
-        .filter(Boolean)
-        .join(" ")
-    );
+    // Format each name part and the full name
+    const rawFirst = editableResume.profile?.firstName || "";
+    const rawMiddle = editableResume.profile?.middleName || "";
+    const rawLast = editableResume.profile?.lastName || "";
 
-    // Update the editableResume with the formatted full name
+    const formattedFirst = rawFirst ? formatName(rawFirst) : "";
+    const formattedMiddle = rawMiddle ? formatName(rawMiddle) : "";
+    const formattedLast = rawLast ? formatName(rawLast) : "";
+
+    const fullName = [formattedFirst, formattedMiddle, formattedLast].filter(Boolean).join(" ");
+
+    // Update the editableResume with formatted name parts AND the combined name
     const updatedResume = {
       ...editableResume,
       profile: {
         ...editableResume.profile,
-        name: fullName, // Add the formatted full name
+        firstName: formattedFirst,
+        middleName: formattedMiddle,
+        lastName: formattedLast,
+        name: fullName,
       },
     };
 
-    // Create applicantData **after** updating editableResume
+    // persist into store so UI and downstream code use formatted parts
+    setEditableResume(updatedResume);
+
+    // Create applicantData after updating editableResume
     const applicantData = {
       ...updatedResume,
       departmentName: modalCategory,
@@ -589,7 +595,6 @@ export default function ResumeParser
 
     try {
       const added = await window.applicantAPI.addApplicant(applicantData);
-
       console.log("Formatted full name:", fullName); // Debug log
 
       // Log action
@@ -1951,7 +1956,7 @@ export default function ResumeParser
                 value={selectedJobRole}
                 onChange={(e) => {
                   setSelectedJobRole(e.target.value);
-                  // Description will be updated by the effect above
+                  // Description will be updated by the effect above               
                 }}
                 className="input"
               >
