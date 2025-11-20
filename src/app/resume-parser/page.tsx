@@ -1231,15 +1231,6 @@ export default function ResumeParser
       duration: 10000,
     });
 
-    // ✅ NEW: Show rate limit advisory
-    toast.info("Rate limit advisory", {
-      id: "rate-limit-parse",
-      description: `After parsing completes, wait at least ${recommended}s before analyzing to avoid rate limits.`,
-      icon: "⏱️",
-      dismissible: true,
-      duration: 8000,
-    });
-
     try {
       // Initialize with default structure before parsing
       setEditableResume({...defaultResume});
@@ -1346,8 +1337,20 @@ export default function ResumeParser
             description: "You may now return to the analyzer tab to see the results",
             icon: "✅",
             dismissible: true,
-            duration: 10000,
+            duration: 3000,
           });
+
+          setTimeout(() => {
+            //Show rate limit advisory
+            toast.info("Rate limit advisory", {
+              id: "rate-limit-parse",
+              description: `After parsing completes, wait at least ${recommended}s before analyzing to avoid rate limits.`,
+              icon: "⏱️",
+              dismissible: true,
+              duration: 3000,
+            });
+          }, 4000)
+
         } catch (waitErr) {
           // If waiting failed, still attempt to use what's in the store and notify parent
           console.warn("Waiting for persisted state timed out, falling back to immediate sync:", waitErr);
@@ -1429,15 +1432,6 @@ export default function ResumeParser
       description: "Analyzing resume, you can close this while it runs.",
       dismissible: true,
       duration: 10000,
-    });
-
-    // ✅ NEW: Show rate limit advisory
-    toast.info("Rate limit advisory", {
-      id: "rate-limit-analyze",
-      description: `If you parse another resume next, wait at least ${recommended}s after this analysis completes.`,
-      icon: "⏱️",
-      dismissible: true,
-      duration: 8000,
     });
 
     try {
@@ -1588,8 +1582,19 @@ export default function ResumeParser
           id: taskId,
           description: "Results will be reflected in a few seconds. You may now return to the analyzer tab.",
           dismissible: true,
-          duration: 10000,
+          duration: 3000,
         });
+
+        setTimeout(() => {
+          //Show rate limit advisory
+          toast.info("Rate limit advisory", {
+            id: "rate-limit-analyze",
+            description: `If you parse another resume next, wait at least ${recommended}s after this analysis completes.`,
+            icon: "⏱️",
+            dismissible: true,
+            duration: 3000,
+          });
+        }, 4000)
       } catch (waitErr) {
         // fallback: use immediate store snapshot and warn
         console.warn("Timed out waiting for analysis persistence:", waitErr);
@@ -1659,7 +1664,7 @@ export default function ResumeParser
         </div>
       )}
 
-      {/* PDF LOADING OVERLAY */}
+      {/* RESUME LOADING OVERLAY */}
       {pdfLoading && (
         <div
           style={{
@@ -1689,7 +1694,7 @@ export default function ResumeParser
               animation: "spin 1s linear infinite",
               margin: "0 auto 8px"
             }} />
-            <p style={{ margin: 0, fontSize: "14px", color: "#666" }}>Loading PDF...</p>
+            <p style={{ margin: 0, fontSize: "14px", color: "#666" }}>Loading Resume...</p>
           </div>
         </div>
       )}

@@ -51,21 +51,26 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
 
     try {
       const picked = await window.fileAPI.openFolder();
-      if (!picked) return;
 
-      // normalize path
+      // Electron dialog: if cancelled, picked may be { canceled: true }
+      if (!picked || (picked && picked.canceled === true)) {
+        isOpeningFolder.current = false;
+        return;
+      }
+
       let pickedPath = "";
-      if (typeof picked === "string") pickedPath = picked;
-      else if (Array.isArray(picked)) pickedPath = picked[0];
+      if (typeof picked === "string" && picked) pickedPath = picked;
+      else if (Array.isArray(picked) && picked.length > 0) pickedPath = picked[0];
       else if (picked?.filePaths?.length) pickedPath = picked.filePaths[0];
       else if (picked?.path) pickedPath = picked.path;
-      else pickedPath = String(picked);
 
-      // freeze folderName NOW to avoid stale closures
-      const folderName = (() => {
-        const parts = String(pickedPath).split(/[\\/]/);
-        return parts[parts.length - 1] ?? "";
-      })();
+      // If user cancelled, pickedPath will be empty or falsy
+      if (!pickedPath) {
+        isOpeningFolder.current = false;
+        return;
+      }
+
+      const folderName = String(pickedPath).split(/[\\/]/).pop() || pickedPath;
 
       toast.dismiss(OPEN_FOLDER_TOAST);
       toast.loading(`Opening ${folderName}. Please wait`, {
