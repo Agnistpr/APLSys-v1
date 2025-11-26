@@ -19,6 +19,7 @@ declare global {
       deleteFile: (filePath: string) => Promise<any>;
       openDocument: (filePath: string) => Promise<any>;
       openFolder: (filePath: string) => Promise<any>;
+      moveFileToFolder: (sourcePath: string, targetDir: string) => Promise<any>;
 
       // === Directory Operations ===
       createDirectory: (path: string) => Promise<any>;

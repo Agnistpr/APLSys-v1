@@ -19,7 +19,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocumentScanner } from "./ocr/components/DocumentScanner.tsx";
 import ocrCssPath from './ocr/ocrstyles.css?url';
 import { useOcrStore } from './electron/ocrStore';
-import { useAnalysisStore } from './electron/aiStore';
+import { useAnalysisStore, defaultResume } from './electron/aiStore';
 import {API_BASE_URL} from './config';
 
 const Analyzer = lazy(() => import('./app/resume-parser/page.tsx'));
@@ -402,10 +402,34 @@ useEffect(() => {
 
     // NEW: clear previous parsing/analysis results on cold start
     try {
-      const analysisStore = useAnalysisStore.getState();
-      if (typeof analysisStore.reset === "function") {
-        console.warn("App init: resetting resume-analysis-store to clear previous parsing/analysis results");
-        analysisStore.reset();
+      useAnalysisStore.setState({
+      editableResume: defaultResume,
+      analysisResult: "",
+      parseComplete: false,
+      isHydrated: false,
+      selectedCategory: "",
+      selectedJobRole: "",
+      customJobDescription: "",
+      currentFile: null,
+      tasks: []
+    });
+    } catch (e) { /* noop */ }
+
+    // One-time cleanup: if there's stray analysisResult but parseComplete is false,
+    // clear the analysisResult and reset editableResume so the UI doesn't show a ghost card.
+    try {
+      const st = useAnalysisStore.getState();
+      const hasStrayAnalysis = typeof st.analysisResult === "string" && st.analysisResult.trim().length > 0;
+      if (!st.parseComplete && hasStrayAnalysis) {
+        console.warn("App init: clearing stray analysisResult because parseComplete=false");
+        useAnalysisStore.setState({
+          analysisResult: "",
+          editableResume: { ...defaultResume }
+        });
+        // Force-write snapshot so persisted store and hydration reflect the cleanup
+        try {
+          localStorage.setItem("resume-analysis-store", JSON.stringify(useAnalysisStore.getState()));
+        } catch (_) { /* ignore */ }
       }
     } catch (e) { /* noop */ }
   }, []);

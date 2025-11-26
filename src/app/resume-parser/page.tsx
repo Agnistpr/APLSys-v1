@@ -9,7 +9,7 @@ import { analyzeResumeWithDS } from "../../../conn/genAnalysis";
 import { persistNERResult } from "./aiActions";
 import { JOB_ROLES } from "../data/jobRoles";
 import axios from "axios";
-import { API_BASE_URL } from '../../../config';
+import { API_BASE_URL, PARSING_SERVICE_URL } from '../../../config';
 import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
 import * as pdfjsLib from "pdfjs-dist";
 import {
@@ -777,9 +777,17 @@ export default function ResumeParser
   }, [fileUrl, currentFile]);
 
   useEffect(() => {
-    if (isHydrated && useAnalysisStore.getState().analysisResult) {
-      setHasAnalyzed(true);
-    }
+    if (!isHydrated) return;
+      // Only mark "hasAnalyzed" when the persisted store reports a completed analysis
+      // (avoid showing ghost analysis cards from stray/partial persisted text)
+      const st = useAnalysisStore.getState();
+      const persistedAnalysis = String(st.analysisResult || "").trim();
+      const persistedComplete = Boolean(st.parseComplete);
+      if (persistedComplete && persistedAnalysis.length > 20) {
+        setHasAnalyzed(true);
+      } else {
+        setHasAnalyzed(false);
+      }
   }, [isHydrated]);
 
   const [scoringWeights, setScoringWeights] = useState({
@@ -1289,25 +1297,87 @@ export default function ResumeParser
 
       
       // Extract text first
-      const extractedText = await extractResumeText(file);
-      
-      // Then process with NER
-      const nerResult = await geminiExtractResumeProfile(extractedText); //NERResumeProfile(extractedText);
-      console.log("DEBUG NER result:", nerResult);
-      
-      // Check for Gemini error response
-      if (nerResult?.error) {
-        throw new Error(nerResult.error);
+      // Decide parsing path: images -> existing flow; pdf/docx -> new parsing service
+      let nerResult: any = null;
+      let usedStructuredService = false;
+
+      if (file.type && file.type.toLowerCase().startsWith("image")) {
+        // Image: keep existing flow (extract -> Gemini NER)
+        const extractedText = await extractResumeText(file);
+        const gResult = await geminiExtractResumeProfile(extractedText);
+        if (gResult?.error) throw new Error(gResult.error);
+        nerResult = gResult;
+      } else {
+          // PDF/DOCX: use external parsing service first
+          try {
+            const base64 = await fileToBase64(file);
+            const resp = await axios.post(`${PARSING_SERVICE_URL}/api/parse-resume`, {
+              base64,
+              fileName: file.name,
+              mimeType: file.type,
+            }, { headers: { "Content-Type": "application/json" } });
+
+            const parsed = resp.data || {};
+
+            // If parsing service returned a structured object, use it directly
+            if (parsed.structured && Object.keys(parsed.structured).length > 0) {
+              // Use structured result from the parsing service and persist it
+              const structuredResume = parsed.structured;
+              // Update UI immediately with structured resume
+              setEditableResume(structuredResume);
+              setParsed(true);
+
+              // Persist the structured resume + any parsed text returned
+              try {
+                await persistAnalysisResult({
+                  resume: structuredResume,
+                  analysis: parsed.parsedText || ""
+                });
+                usedStructuredService = true;
+              } catch (persistErr) {
+                console.warn("Failed to persist structured service result:", persistErr);
+              }
+              // keep nerResult for logging/consistency but skip Gemini persistence below
+              nerResult = parsed.structured;
+             } else if (parsed.parsedText && typeof parsed.parsedText === "string" && parsed.parsedText.trim().length > 20) {
+               // Fallback: send parsed text to Gemini NER (existing fallback)
+               const gResult = await geminiExtractResumeProfile(parsed.parsedText);
+               if (gResult?.error) throw new Error(gResult.error);
+               nerResult = gResult;
+             } else {
+               // Last resort: try server-side text extraction endpoint (keep original behavior)
+               const extractedText = await extractResumeText(file);
+               const gResult = await geminiExtractResumeProfile(extractedText);
+               if (gResult?.error) throw new Error(gResult.error);
+               nerResult = gResult;
+             }
+           } catch (svcErr) {
+             console.warn("Parsing service failed, falling back to existing extraction/Gemini path:", svcErr);
+             const extractedText = await extractResumeText(file);
+             const gResult = await geminiExtractResumeProfile(extractedText);
+             if (gResult?.error) throw new Error(gResult.error);
+             nerResult = gResult;
+           }
+       }
+
+       console.log("DEBUG NER result:", nerResult);
+       
+       // Check for Gemini error response
+       if (nerResult?.error) {
+         throw new Error(nerResult.error);
+       }
+
+      // If we already persisted the structured service result above, skip re-mapping/persisting.
+      if (!usedStructuredService) {
+        // First, manually update the local state BEFORE persisting (Gemini flow)
+        const mappedResume = mapNERToResumeFormat(nerResult);
+        setEditableResume(mappedResume);  // Update UI immediately
+        setParsed(true);  // Mark as parsed
+
+        // Then persist Gemini-shaped result
+        await persistGeminiAnalysisResult(nerResult);
       }
-
-      //First, manually update the local state BEFORE persisting
-      const mappedResume = mapNERToResumeFormat(nerResult);
-      setEditableResume(mappedResume);  // Update UI immediately
-      setParsed(true);  // Mark as parsed
-
-      // Then persist to store
-      await persistGeminiAnalysisResult(nerResult);
-
+ 
       // Reduce timeout since we already synced UI
       const waitForPersist = async (timeoutMs = 3000, intervalMs = 50) => {
          const start = Date.now();
@@ -1340,16 +1410,19 @@ export default function ResumeParser
             duration: 3000,
           });
 
-          setTimeout(() => {
-            //Show rate limit advisory
-            toast.info("Rate limit advisory", {
-              id: "rate-limit-parse",
-              description: `After parsing completes, wait at least ${recommended}s before analyzing to avoid rate limits.`,
-              icon: "⏱️",
-              dismissible: true,
-              duration: 3000,
-            });
-          }, 4000)
+          // Show the rate-limit advisory only for image parsing (image parsing uses Gemini and needs spacing)
+          if (file && file.type && file.type.toLowerCase().startsWith("image")) {
+            setTimeout(() => {
+              //Show rate limit advisory
+              toast.info("Rate limit advisory", {
+                id: "rate-limit-parse",
+                description: `After parsing completes, wait at least ${recommended}s before analyzing to avoid rate limits.`,
+                icon: "⏱️",
+                dismissible: true,
+                duration: 3000,
+              });
+            }, 4000);
+          }
 
         } catch (waitErr) {
           // If waiting failed, still attempt to use what's in the store and notify parent
@@ -1396,18 +1469,6 @@ export default function ResumeParser
       setIsParsingResume(false);
     }
   };
-
-  // REMOVE the old effect that synced onParsingStateChange to local isParsingResume.
-  // Replace this:
-  // useEffect(() => {
-  //   try {
-  //     onParsingStateChange?.(Boolean(isParsingResume), resumeName || "");
-  //   } catch (e) {
-  //     console.warn("onParsingStateChange callback failed:", e);
-  //   }
-  // }, [isParsingResume, resumeName, onParsingStateChange]);
-  //
-  // With: (no-op) — parent is updated explicitly above.
 
   // Similarly update handleAnalyzeResume to use tasks
   const handleAnalyzeResume = async () => {
