@@ -7,7 +7,6 @@ import SearchBar from "../components/SearchBar.jsx";
 import Pagination from "../components/Pagination.jsx";
 
 const Logs = ({uid}) => {
-  console.log("test", uid);
   const [logs, setLogs] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);

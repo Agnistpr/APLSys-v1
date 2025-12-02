@@ -3,7 +3,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import contextMenu from "electron-context-menu";
-import { spawn, exec } from "child_process";
 import "dotenv/config";
 import { getSession, restoreSession } from "./sessionManager.js";
 import { cspDirectives } from "./security-config.js";
@@ -40,42 +39,12 @@ contextMenu({
   },
 });
 
-let backendProcess;
-
-function startBackend() {
-  const backendPython = "python";
-  const nerScript = path.join(__dirname, "..", "..", "parser", "ner_api.py");
-  if (!fs.existsSync(nerScript)) {
-    logMessage("ERROR: ner_api.py not found!");
-    return;
-  }
-  backendProcess = spawn(backendPython, [`"${nerScript}"`], {
-    cwd: path.dirname(nerScript),
-    shell: true,
-    windowsHide: true,
-  });
-  backendProcess.unref();
-  backendProcess.stdout.on("data", (d) => logMessage(`[NER_API] ${d.toString().trim()}`));
-  backendProcess.stderr.on("data", (d) => logMessage(`[NER_API ERROR] ${d.toString().trim()}`));
-  backendProcess.on("close", (c) => logMessage(`[NER_API] exited with code ${c}`));
-}
-
-function stopBackend() {
-  return new Promise((resolve) => {
-    if (backendProcess && !backendProcess.killed) {
-      exec(`taskkill /PID ${backendProcess.pid} /T /F`, () => {
-        backendProcess = null;
-        resolve();
-      });
-    } else resolve();
-  });
-}
+let mainWindow;
 
 app.on("ready", async () => {
   try {
-    startBackend();
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-    const mainWindow = new BrowserWindow({
+    mainWindow = new BrowserWindow({
       title: "APLSys",
       width,
       height,
@@ -91,20 +60,33 @@ app.on("ready", async () => {
       icon: path.join(__dirname, '../assets/appLogo.png')
     });
 
-      // Build and apply CSP headers
-      const csp = Object.entries(cspDirectives)
-        .map(([key, values]) => `${key} ${values.join(' ')}`)
-        .join('; ');
+    mainWindow.on("close", async (e) => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          await mainWindow.webContents.executeJavaScript(`
+            window.utilityAPI.clearAllDates();
+          `);
+          logMessage("Date filters cleared before window closed.");
+        }
+      } catch (err) {
+        logMessage("Clear cache error: " + (err.stack || err));
+      }
+    });
 
-      // Set CSP headers for all responses
-      mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-        callback({
-          responseHeaders: {
-            ...details.responseHeaders,
-            'Content-Security-Policy': [csp]
-          }
-        });
+      // Build and apply CSP headers
+    const csp = Object.entries(cspDirectives)
+      .map(([key, values]) => `${key} ${values.join(' ')}`)
+      .join('; ');
+
+    // Set CSP headers for all responses
+    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [csp]
+        }
       });
+    });
 
     mainWindow.loadFile(path.join(app.getAppPath(), "/dist-react/index.html"));
     Menu.setApplicationMenu(null);
@@ -121,17 +103,5 @@ app.on("ready", async () => {
     logMessage("App started");
   } catch (err) {
     logMessage(`ERROR: ${err.stack || err}`);
-  }
-});
-
-app.on("before-quit", async (event) => {
-  event.preventDefault();
-  try {
-    logMessage("Stopping backend...");
-    await stopBackend();
-  } catch (err) {
-    logMessage(`Shutdown error: ${err.stack || err}`);
-  } finally {
-    app.exit();
   }
 });

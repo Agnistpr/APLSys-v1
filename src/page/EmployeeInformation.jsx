@@ -672,6 +672,7 @@ const EmployeeInformation = ({ uid, employeeId, goBack }) => {
               {renderEditableField("Gender", "gender")}
               {renderEditableField("Age", "age")}
               {renderEditableField("Birthdate", "birthdate", true)}
+              {renderEditableField("Marital Status", "maritalstatus")}
             </div>
 
             <div className="infoColumn">

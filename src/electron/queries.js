@@ -1170,6 +1170,99 @@ ipcMain.handle("exportLogs", async (event, date) => {
   }
 });
 
+ipcMain.handle("getNotification", async (event, uid) => {
+  try {
+    const { data: requests, error: reqError } = await supabase
+      .from("detailrequest")
+      .select(`
+        detailrequestid,
+        employeeid,
+        detailtype,
+        newdetail,
+        detailstatus,
+        timestamp,
+        employee:employeeid (
+          firstname,
+          lastname,
+          user_id
+        )
+      `)
+      .neq("detailstatus", "Approved")
+      .order("timestamp", { ascending: false });
+
+    if (reqError || !requests) {
+      console.log("Notif fetch error:", reqError);
+      return [];
+    }
+
+    const { data: readRows, error: readError } = await supabase
+      .from("requestread")
+      .select("request_id")
+      .eq("user_id", uid)
+      .eq("request_type", "detailrequest");
+
+    if (readError || !readRows) {
+      console.log("Read fetch error:", readError);
+      return [];
+    }
+
+    const readIds = new Set(readRows.map(r => r.request_id));
+
+    return requests
+      .filter(r => r.employee !== null)
+      .map(n => ({
+        id: n.detailrequestid,
+        name: `${n.employee.lastname}, ${n.employee.firstname}`,
+        text: `${n.employee.lastname}, ${n.employee.firstname} requested a ${n.detailtype} change to ${n.newdetail}`,
+        datetime: n.timestamp,
+        read: readIds.has(n.detailrequestid)
+      }));
+
+  } catch (err) {
+    console.log("getNotification exception:", err);
+    return [];
+  }
+});
+
+ipcMain.handle("updateDetailRequestStatus", async (event, requestId, status) => {
+  try {
+    const { error } = await supabase
+      .from("detailrequest")
+      .update({ detailstatus: status })
+      .eq("detailrequestid", requestId);
+
+    if (error) throw error;
+
+    return { success: true };
+  } catch (err) {
+    console.log("updateDetailRequestStatus error:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("setNotificationsRead", async (event, uid, notifIds) => {
+  try {
+    const rows = notifIds.map(id => ({
+      user_id: uid,
+      request_id: id,
+      request_type: "detailrequest"
+    }));
+
+    const { error } = await supabase
+      .from("requestread")
+      .upsert(rows, { onConflict: "user_id,request_id,request_type" });
+
+    if (error) throw error;
+
+    return { success: true };
+
+  } catch (err) {
+    console.log("setNotificationsRead error:", err);
+    return { success: false };
+  }
+});
+
+
 ipcMain.handle("getDashboardCardData", async () => {
   try {
     const today = formatDateToISO(new Date());
@@ -1235,7 +1328,8 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
         employeeimage,
         type,
         shiftstart,
-        shiftend
+        shiftend,
+        marital_status
       `)
       .eq("employeeid", employeeId)
       .maybeSingle();
@@ -1271,6 +1365,7 @@ ipcMain.handle("getEmployee", async (event, employeeId) => {
       shiftend: data.shiftend ?? "",
       employeeimage: data.employeeimage || null,
       type: data.type ?? "",
+      maritalstatus: data.marital_status ?? "",
     };
   } catch (err) {
     console.error("Error fetching employee details:", err);
@@ -1433,7 +1528,6 @@ ipcMain.handle("updateEmployee", async (event, employeeId, field, value) => {
       const base64Data = value.split(",")[1];
       const buffer = Buffer.from(base64Data, "base64");
       const fileExt = value.substring("data:image/".length, value.indexOf(";base64"));
-      const fileName = `Employee${employeeId}_image.${fileExt}`;
       const filePath = `Employee${employeeId}_image.${fileExt}`;
 
       console.log({
@@ -1490,6 +1584,74 @@ ipcMain.handle("updateEmployee", async (event, employeeId, field, value) => {
 //     return { success: false, error: err.message };
 //   }
 // });
+
+ipcMain.handle("getShifts", async () => {
+  try {
+    const { data: employees, error: empErr } = await supabase
+      .from("employee")
+      .select(`
+        employeeid,
+        lastname,
+        firstname,
+        middlename,
+        shiftstart,
+        shiftend,
+        position:positionid ( positionname )
+      `)
+      .order("employeeid", { ascending: true });
+
+    if (empErr) throw empErr;
+
+    const { data: applicants, error: applErr } = await supabase
+      .from("applicant")
+      .select(`
+        applicantid,
+        lastname,
+        firstname,
+        middlename,
+        position:positionid ( positionname )
+        shiftstart,
+        shiftend
+      `)
+      .order("applicantid", { ascending: true });
+
+    if (applErr) throw applErr;
+
+    const makeName = (last, first, middle) =>
+      `${last}, ${first}${middle ? ` ${middle.charAt(0)}.` : ""}`;
+
+    const formattedEmployees = (employees || []).map((e) => {
+      const hasShift = e.shiftstart && e.shiftend;
+
+      return {
+        role: "Employee",
+        name: makeName(e.lastname, e.firstname, e.middlename),
+        position: e.position?.positionname ?? "",
+        shift: hasShift
+          ? `${formatTime12(e.shiftstart)} - ${formatTime12(e.shiftend)}`
+          : "Missing",
+      };
+    });
+
+    const formattedApplicants = (applicants || []).map((a) => {
+      const hasShift = a.shiftstart && a.shiftend;
+
+      return {
+        role: "Applicant",
+        name: makeName(a.lastname, a.firstname, a.middlename),
+        position: a.appliedrole ?? "Applicant",
+        shift: hasShift
+          ? `${formatTime12(a.shiftstart)} - ${formatTime12(a.shiftend)}`
+          : "Missing",
+      };
+    });
+
+    return [...formattedEmployees, ...formattedApplicants];
+  } catch (err) {
+    console.error("getShifts error:", err);
+    return [];
+  }
+});
 
 ipcMain.handle("getAttendance", async (event, date = null) => {
   try {
@@ -2501,13 +2663,11 @@ ipcMain.handle('addApplicant', async (event, resume) => {
 
 ipcMain.handle("getLogs", async (event, date) => {
   try {
-    // Base query for logs
     let q = supabase
       .from("userlogs")
       .select("userlogid, user_id, useraction, description, dateofaction")
       .order("dateofaction", { ascending: false });
 
-    // Optional date filter
     if (date) {
       const start = `${date}T00:00:00`;
       const end = `${date}T23:59:59`;
@@ -2518,11 +2678,9 @@ ipcMain.handle("getLogs", async (event, date) => {
     const { data: logs, error: logError } = await q;
     if (logError) throw logError;
 
-    // Get distinct user IDs
     const userIds = [...new Set((logs || []).map((l) => l.user_id))].filter(Boolean);
     if (userIds.length === 0) return logs;
 
-    // Fetch corresponding employees
     const { data: employees, error: empError } = await supabase
       .from("employee")
       .select("user_id, firstname, lastname")
