@@ -1,5 +1,4 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Card } from '@/ocr/components/ui/card';
 import { Button } from '@/ocr/components/ui/button';
 import { Badge } from '@/ocr/components/ui/badge';
 import { 
@@ -25,7 +24,7 @@ import { useOcrStore } from '../../electron/ocrStore';
 
 export interface ExtractedText {
   id: string;
-  text: string; //Paul Jonas
+  text: string;
   bbox: {
     x: number;
     y: number;
@@ -258,20 +257,6 @@ export const DocumentScanner: React.FC = () => {
       duration: 4000,
     });
   }, []);
-
-  const handleParse = async () => {
-    setLoading(true);
-    setEntities([]);
-    try {
-      const result = await parseDocumentText(inputText);
-      setEntities(result);
-    } catch (err) {
-      setEntities([]);
-      alert("Failed to parse document.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleOcrStart = useCallback(() => {
     setOcrProcessing(true);
