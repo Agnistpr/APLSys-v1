@@ -774,18 +774,6 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         </Button>
       </div>
     );
-  } else if (fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
-    // DOCX preview not natively supported, show a message + Parse button
-    return (
-      <div className="flex flex-col items-center justify-center h-full w-full">
-        <div className="mb-4 text-muted-foreground">
-          DOCX preview not supported. You can still parse the document.
-        </div>
-        <Button onClick={handleParseDocument} disabled={parsing}>
-          {parsing ? "Parsing..." : "Parse Document"}
-        </Button>
-      </div>
-    );
   } else if (!fileType) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
@@ -799,4 +787,19 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       </div>
     );
   }
+  /**
+   * else if (fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    // DOCX preview not natively supported, show a message + Parse button
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full">
+        <div className="mb-4 text-muted-foreground">
+          DOCX preview not supported. You can still parse the document.
+        </div>
+        <Button onClick={handleParseDocument} disabled={parsing}>
+          {parsing ? "Parsing..." : "Parse Document"}
+        </Button>
+      </div>
+    );
+  }
+   */
 };
