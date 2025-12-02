@@ -187,7 +187,7 @@ const Sidebar = ({
           </div>
           {showEmployees && (
             <div className="subNavList">
-              {['Employee'].map((page, idx) => (
+              {['Employee', 'Shifting'].map((page, idx) => (
                 <div
                   key={idx}
                   className={`subNavItem ${activePage === page ? 'activeSubTab' : ''}`}

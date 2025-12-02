@@ -65,6 +65,12 @@ contextBridge.exposeInMainWorld('employeeAPI', {
   getFilterOptions: () => ipcRenderer.invoke('getFilterOptions'),
 });
 
+contextBridge.exposeInMainWorld('shiftAPI', {
+  getShifts: () => ipcRenderer.invoke("getShifts"),
+  updateShift: (id, shiftStart, shiftEnd) =>
+    ipcRenderer.invoke("updateShift", id, shiftStart, shiftEnd),
+});
+
 contextBridge.exposeInMainWorld('attendanceAPI', {
   getAttendanceColumns: () => ipcRenderer.invoke("getAttendanceColumns"),
   getEmployeeAttendance: (id, date) => ipcRenderer.invoke('getEmployeeAttendance', id, date),
@@ -105,6 +111,18 @@ contextBridge.exposeInMainWorld('utilityAPI', {
   getDashboardCardData: () => ipcRenderer.invoke('getDashboardCardData'),
   checkAttendanceDuplicates: (entries) => ipcRenderer.invoke("checkAttendanceDuplicates", { entries }),
   importAttendance: (rows) => ipcRenderer.invoke("importAttendance", { rows }),
+  clearAllDates: () => {
+    localStorage.removeItem("attendanceDate");
+    localStorage.removeItem("absenceDate");
+    localStorage.removeItem("leaveDate");
+    localStorage.removeItem("inventoryDate");
+    localStorage.removeItem("logsDate");
+  },
+  getNotification: (uid) => ipcRenderer.invoke("getNotification", uid),
+  setNotificationsRead: (uid, notifIds) =>
+    ipcRenderer.invoke("setNotificationsRead", uid, notifIds),
+  updateDetailRequestStatus: (requestId, status) =>
+    ipcRenderer.invoke("updateDetailRequestStatus", requestId, status),
 });
 
 // contextBridge.exposeInMainWorld('importAPI', {

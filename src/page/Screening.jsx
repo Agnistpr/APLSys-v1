@@ -214,7 +214,7 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
 
   const handleApprove = () => {
     if (selectedTab === "Pending") updateStatus(selectedIds, { status: "Approved", setTrainingDate: false });
-    else if (selectedTab === "Approved") updateStatus(selectedIds, { status: "Training", setTrainingDate: true });
+    else if (selectedTab === "Approved") updateStatus(selectedIds, { status: "Training", setTrainingDate: true }); // here maybe idk
     else if (selectedTab === "Rejected") updateStatus(selectedIds, { status: "Pending", resetTraining: true, setApplicationDate: true });
   };
 

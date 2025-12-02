@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { FaUserClock, FaClipboardCheck, FaClipboardList } from 'react-icons/fa';
+import { IoIosNotifications } from "react-icons/io";
 import AttendanceTab from '../tabs/AttendanceTab.jsx';
 import AbsenceTab from '../tabs/AbsenceTab.jsx';
 import LeaveTab from '../tabs/LeaveTab.jsx';
 import InventoryTab from '../tabs/InventoryTab.jsx';
+import ConfirmModal from "../components/ConfirmModal.jsx";
 
 function useFitText({ text, maxSize = 28, minSize = 12 }) {
   const elementRef = useRef(null);
@@ -77,6 +79,51 @@ const Dashboard = ({
   const [totalApprovedLeaves, setTotalApprovedLeaves] = useState(0);
   const [totalLeaveRequests, setTotalLeaveRequests] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showNotif, setShowNotif] = useState(false);
+  const notifRef = useRef(null);
+  const [notifications, setNotifications] = useState([]);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [selectedNotif, setSelectedNotif] = useState(null);
+
+  const fetchNotifications = async () => {
+    try {
+      const result = await window.utilityAPI.getNotification(uid);
+      if (Array.isArray(result)) {
+        setNotifications(result);
+      }
+    } catch (err) {
+      console.error("Notif fetch error:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      const modal = document.querySelector(".confirmModalOverlay");
+
+      // If modal is open and the click is INSIDE it → do nothing
+      if (modal && modal.contains(event.target)) return;
+
+      // Normal notification dropdown closing logic
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        if (showNotif) {
+          const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+          if (unreadIds.length > 0) {
+            window.utilityAPI.setNotificationsRead(uid, unreadIds);
+          }
+          const updated = notifications.map(n => ({ ...n, read: true }));
+          setNotifications(updated);
+        }
+        setShowNotif(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showNotif, notifications]);
 
   const handleTabChange = (tab) => setSelectedTab(tab);
 
@@ -112,6 +159,18 @@ const Dashboard = ({
   useEffect(() => {
     fetchCounts();
   }, []);
+
+  const updateDetailRequestStatus = async (id, status) => {
+    try {
+      await window.utilityAPI.updateDetailRequestStatus(id, status);
+
+      await fetchNotifications();
+
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    } catch (err) {
+      console.error("Failed to update request status:", err);
+    }
+  };
 
   const tabComponents = {
     Attendance: (
@@ -185,6 +244,17 @@ const Dashboard = ({
 
   const tabs = ['Attendance', 'Absent', 'Approved Leaves', 'Leave Requests', 'PPE Inventory'];
 
+  const formatTimestamp = (d) => {
+    const dateObj = new Date(d);
+    return dateObj.toLocaleString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  };
+
   return (
     <div className="dashboardContainer">
       <div className="dashboardHeader">
@@ -194,6 +264,46 @@ const Dashboard = ({
             <span>{dateStr}</span>
             <span className="divider">|</span>
             <span>{timeStr}</span>
+          </div>
+          <div className="notifContainer" ref={notifRef}>
+            <div className="notifIcon" onClick={() => setShowNotif(prev => !prev)}>
+              <IoIosNotifications />
+            </div>
+
+            {showNotif && (
+              <div className="notifDropdown">
+                <div className="notifHeader">
+                  Notifications
+                  <button className="clearNotifBtn">Clear</button>
+                </div>
+
+                <div className="notifList">
+                  {notifications.length === 0 ? (
+                    <div className="notifItem empty">No notifications</div>
+                  ) : (
+                    notifications.map(n => (
+                      <div
+                        className="notifItem"
+                        key={n.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedNotif(n);
+                          setConfirmOpen(true);
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <div
+                          style={{ fontWeight: n.read ? "normal" : "bold" }}
+                        >
+                          {n.text}
+                        </div>
+                        <div className="notifDate">{formatTimestamp(n.datetime)}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -247,6 +357,22 @@ const Dashboard = ({
           </div>
         </div>
       </div>
+      <ConfirmModal
+        open={confirmOpen}
+        title="Handle Leave Request"
+        message={selectedNotif ? selectedNotif.text : ""}
+        confirmLabel="Approve"
+        cancelLabel="Cancel"
+        onConfirm={async () => {
+          await updateDetailRequestStatus(selectedNotif.id, "Approved");
+          console.log("Approved:", selectedNotif);
+          setConfirmOpen(false);
+        }}
+        onCancel={() => {
+          console.log("Cancelled:", selectedNotif);
+          setConfirmOpen(false);
+        }}
+      />\
     </div>
   );
 };
