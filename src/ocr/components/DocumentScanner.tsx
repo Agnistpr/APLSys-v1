@@ -535,11 +535,11 @@ export const DocumentScanner: React.FC = () => {
         </div>
       </div>
 
-      {/* Hidden file input */}
+      {/* Hidden file input */} {/*application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document */}
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+        accept="image/*,text/plain"
         onChange={handleFileUpload}
         className="hidden"
       />
