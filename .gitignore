@@ -10,6 +10,7 @@ backups/
 dist/
 dist-react/
 documents/
+documents/ocr_results
 
 # Old Stuff to be removed || For other dev:
 aplsys_db.sql

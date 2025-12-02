@@ -7,7 +7,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "lib/*": ["src/app/lib/*"],          // 👈 allows "lib/..."
+      "lib/*": ["src/app/lib/*"],
       "components/*": ["src/app/components/*"],
       "resume-parser/*": ["src/app/resume-parser/*"],
       "data/*": ["src/app/data/*"],

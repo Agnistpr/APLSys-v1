@@ -27,6 +27,7 @@ interface OCRPanelProps {
   currentFileData?: string;
   onUpdateExtraction: (id: string, updates: Partial<ExtractedText>) => void;
   onDeleteExtraction: (id: string) => void;
+  onClearFile?: () => void; // <<< added prop
 }
 
 export const OCRPanel: React.FC<OCRPanelProps> = ({
@@ -35,7 +36,8 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
   currentFileName = "document",
   currentFileData,
   onUpdateExtraction,
-  onDeleteExtraction
+  onDeleteExtraction,
+  onClearFile // <<< destructure prop
 }) => {
   //Guard: ensure extractedData is always an array
   const safeExtractedData = Array.isArray(extractedData) ? extractedData : [];
@@ -160,6 +162,12 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
         duration: 4000,
       });
 
+      // Clear the uploaded file and extractions to avoid accidental overwrite
+      try {
+        onClearFile?.();
+      } catch (err) {
+        console.warn("onClearFile failed:", err);
+      }
     } catch (err) {
       console.error("Failed to save:", err);
       toast.error("Failed to save", {

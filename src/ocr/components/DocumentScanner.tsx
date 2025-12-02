@@ -447,7 +447,7 @@ export const DocumentScanner: React.FC = () => {
               {/* Panel header (fixed) */}
               <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
                 {/* keep navigation / tabs here */}
-                <div className="grid grid-cols-4 gap-1 bg-muted rounded-lg p-1">
+                <div className="grid grid-cols-2 gap-1 bg-muted rounded-lg p-1">
                   {[
                     //{ id: 'viewer', icon: Eye, label: 'View' },
                     { id: 'ocr', icon: FileText, label: 'OCR' },
@@ -497,6 +497,7 @@ export const DocumentScanner: React.FC = () => {
                         currentFileData={currentFileData}  //Now properly set after delay
                         onUpdateExtraction={handleUpdateExtraction}
                         onDeleteExtraction={handleDeleteExtraction}
+                        onClearFile={handleClearFile} // <<< pass clear handler
                       />
                     </div>
                   )}
