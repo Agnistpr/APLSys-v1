@@ -305,10 +305,10 @@ useEffect(() => {
 
       // Show toast notifications
       if (status === "started") {
-        toast.loading(`${filename || 'OCR'}: Started`, { id: toastId, duration: 2000, dismissible: true });
+        toast(`${filename || 'OCR'}: Started`, { id: toastId, duration: 2000, dismissible: true });
       } else if (status === "progress") {
         const pct = progress ? Math.round(progress * 100) : null;
-        toast.loading(`${filename}: ${pct}%`, { id: toastId, duration: 2000, dismissible: true });
+        toast(`${filename}: ${pct}%`, { id: toastId, duration: 2000, dismissible: true });
       } else if (status === "done") {
         toast.success(`${filename}: Completed`, { id: toastId, duration: 2000, dismissible: true });
       } else if (status === "error") {

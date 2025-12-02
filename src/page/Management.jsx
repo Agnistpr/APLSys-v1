@@ -9,6 +9,7 @@ import { API_BASE_URL } from '../../config';
 
 const Management = ({ onTaskStart, onTaskEnd }) => {
   const { docs, setDocs, setProcessingMap, batchId, setBatchId, ocrMatches, setOcrMatches } = useOcrStore();
+  const selectedFolder = useOcrStore(s => s.selectedFolder); // <<< new: ensure we know which folder is active
   // global flag setter used to show/hide global OCR processing state
   const setGlobalProcessing = useOcrStore(s => s.setProcessing);
   // subscribe to processingMap and derive context flags
@@ -27,8 +28,10 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   const filterRef = useRef(null);
   const isOpeningFolder = useRef(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedDocs, setSelectedDocs] = useState(new Set()); // <<< new
   const columnLabelMap = { type: "Type" };
   const PROCESSING_STATE_KEY = "documentProcessingState";
+  const scanToastId = `scan:${Date.now()}`;
   const OPEN_FOLDER_TOAST = "open-folder";
 
   // helper to call backend create-task
@@ -232,7 +235,7 @@ useEffect(() => {
         } catch (err) { /* noop */ }
         
         toast(`${filename}: Started`, {
-          id: taskId,
+          id: task_id,
           description: "Scanning has started, you can close this while it runs.",
           icon: "⏳",
           dismissible: true,
@@ -266,7 +269,7 @@ useEffect(() => {
         setDocs(updatedDocs);
         //Notify as done
         toast.success(`${filename} parsed successfully.`, {
-            id: taskId,
+            id: task_id,
             description: `${filename} has been scanned successfully.`,
             icon: "✅",
             dismissible: true,
@@ -306,7 +309,7 @@ useEffect(() => {
           return next;
         });
         toast(`${filename} failed to extract.`, {
-            id: taskId,
+            id: task_id,
             description: `${filename} was not scanned correctly. Please try again later.`,
             icon: "❌",
             dismissible: true,
@@ -319,7 +322,7 @@ useEffect(() => {
       localStorage.removeItem(PROCESSING_STATE_KEY);
       window.fileAPI.listDocuments().then(setDocs);
       onTaskEnd(task_id);
-      toast.success("All files have been processed");
+      toast.success("All files have been processed", {id: scanToastId, description: "Done", duration: 4000 });
     }
   };
 
@@ -423,7 +426,7 @@ useEffect(() => {
 
       if (pathsToProcess.length === 0) {
         toast("No new files to process", {
-          id: taskId,
+          id: "scan:none",
           description: "All files in this page have been scanned.",
           dismissible: true,
           duration: 10000,
@@ -433,15 +436,6 @@ useEffect(() => {
         setGlobalProcessing(false);
         return;
       }
-
-      // Only show "Scanning..." toast if we actually have files to process
-      toast("Scanning all files...", {
-        id: taskId,
-        description: "Scanning all files, you can close this while it runs.",
-        icon: "⏳",
-        dismissible: true,
-        duration: 10000,
-      });
 
       const filenames = pathsToProcess.map(p => normalizeName(p.name));
 
@@ -475,6 +469,15 @@ useEffect(() => {
       const batchTaskId = batchResp?.task_id;
       if (!batchTaskId) throw new Error("No batch task id returned from server");
       setBatchId(batchTaskId);
+
+      // Only show "Scanning..." toast if we actually have files to process
+      toast("Scanning all files...", {
+        id: scanToastId,
+        description: "Scanning all files, you can close this while it runs.",
+        icon: "⏳",
+        dismissible: true,
+        duration: 10000,
+      });
 
       // Create per-file tasks
       const fileTaskMap = {};
@@ -542,6 +545,119 @@ useEffect(() => {
       setIsProcessing(false);
       // don't clear globalProcessing here because scanner may still be running;
       // global overlay should be computed from store or cleared only when appropriate
+      window.fileAPI.listDocuments().then(setDocs);
+    }
+  };
+
+  // Toggle selection helpers
+  const toggleSelectDoc = (name) => {
+    setSelectedDocs(prev => {
+      const next = new Set(prev);
+      const key = normalizeName(name);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const selectAllVisible = (select) => {
+    setSelectedDocs(prev => {
+      const next = new Set(prev);
+      filtered.forEach(d => {
+        const k = normalizeName(d.name);
+        if (select) next.add(k);
+        else next.delete(k);
+      });
+      return next;
+    });
+  };
+
+  // New: scan only selected documents
+  const processSelectedOcr = async () => {
+    if (!selectedDocs || selectedDocs.size === 0) {
+      toast("No files selected", { description: "Choose files to scan or use Scan all files." });
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      setGlobalProcessing(true);
+
+      // refresh docs list
+      const docsList = await window.fileAPI.listDocuments();
+      setDocs(docsList);
+
+      const allowedExts = new Set(["png","jpg","jpeg","tif","tiff","bmp","pdf"]);
+      // Build pathsToProcess for selected items that are not already processed
+      const pathsToProcess = docsList
+        .filter(doc => selectedDocs.has(normalizeName(doc.name)) && !doc.isProcessed && allowedExts.has((doc.type||"").toLowerCase()))
+        .map(doc => ({ path: doc.path, name: doc.name }));
+
+      if (pathsToProcess.length === 0) {
+        toast("No selected files to process", { description: "Selected files are either processed or unavailable." });
+        setIsProcessing(false);
+        setGlobalProcessing(false);
+        return;
+      }
+
+      // Build optimistic processing map & persist
+      const filenames = pathsToProcess.map(p => normalizeName(p.name));
+      const initialProcessingMap = {};
+      filenames.forEach(name => initialProcessingMap[`batch:${name}`] = true);
+      const storeState = useOcrStore.getState();
+      const mergedOptimistic = { ...(storeState.processingMap || {}), ...initialProcessingMap };
+      setProcessingMap(mergedOptimistic);
+      localStorage.setItem("documentProcessingState", JSON.stringify({ batchId: null, processingMap: mergedOptimistic }));
+
+      // Create batch task on server
+      const batchResp = await createServerTask({ task_type: "batch_ocr", files: filenames, details: { total_files: filenames.length }});
+      const batchTaskId = batchResp?.task_id;
+      if (!batchTaskId) throw new Error("No batch task id returned from server");
+      setBatchId(batchTaskId);
+
+      // create per-file tasks (same as processFolderOcr)
+      const fileTaskMap = {};
+      for (let i = 0; i < filenames.length; i++) {
+        const name = filenames[i];
+        const fileResp = await createServerTask({
+          task_type: "ocr_file",
+          filename: name,
+          details: { batch_id: batchTaskId, index: i + 1 }
+        });
+        fileTaskMap[name] = fileResp?.task_id || null;
+      }
+
+      try {
+        localStorage.setItem("batchOcr:pendingMap", JSON.stringify(fileTaskMap));
+        localStorage.setItem("batchOcr:inflight", String(batchTaskId));
+      } catch (err) { /* noop */ }
+
+      // Confirm optimistic state with worker
+      localStorage.setItem("documentProcessingState", JSON.stringify({ batchId: batchTaskId, processingMap: mergedOptimistic }));
+
+      const workerResponse = await window.fileAPI.startBatchOcr({
+        files: pathsToProcess.map(p => p.path),
+        batch_task_id: batchTaskId
+      });
+      if (!workerResponse?.success) throw new Error(workerResponse?.error || "Failed to start OCR worker");
+
+      // Merge confirmed processing files
+      const actualMap = { ...mergedOptimistic };
+      if (Array.isArray(workerResponse.processing_files)) {
+        workerResponse.processing_files.forEach(fname => actualMap[`batch:${normalizeName(fname)}`] = true);
+      }
+      setProcessingMap(actualMap);
+      localStorage.setItem("documentProcessingState", JSON.stringify({ batchId: batchTaskId, processingMap: actualMap }));
+
+      if (typeof onTaskStart === "function") onTaskStart(batchTaskId, { type: "batch_ocr", files: filenames });
+    } catch (err) {
+      console.error("Failed to start OCR process for selection:", err);
+      toast.error(err.message || "Failed to start OCR process");
+      setProcessingMap({});
+      localStorage.removeItem("documentProcessingState");
+      setBatchId(null);
+    } finally {
+      setIsProcessing(false);
       window.fileAPI.listDocuments().then(setDocs);
     }
   };
@@ -640,6 +756,15 @@ useEffect(() => {
             >
               {batchProcessing ? 'Processing...' : isProcessing ? 'Preparing...' : 'Scan all files'}
             </button>
+            <button
+              className="ocrProcessBtn"
+              onClick={processSelectedOcr}
+              disabled={selectedDocs.size === 0 || batchProcessing || isProcessing}
+              title={selectedDocs.size === 0 ? "Select files to scan" : "Scan only selected files"}
+              style={{ marginLeft: 8 }}
+            >
+              {isProcessing ? 'Processing...' : `Scan Selected (${selectedDocs.size})`}
+            </button>
         </div>
 
         <div className="managementControls">
@@ -732,45 +857,60 @@ useEffect(() => {
         <table className="docTable">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Size</th>
-              <th>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.length > 0 ? (
-              paginated.map((doc, idx) => (
-                <tr
-                  key={idx}
-                  className="docRow"
-                  onClick={() => window.fileAPI.openDocument(doc.path)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <td>
-                    {doc.name}
-                    {(processingMap[`batch:${normalizeName(doc.name)}`] || processingMap[normalizeName(doc.name)]) && (
-                      <span className="inlineSpinner" title="Scanning..." />
-                    )}
-                    {doc.isProcessed && (
-                      <FaCheck style={{ color: "#2ea44f", marginLeft: 8 }} title="Scanned" />
-                    )}
-                  </td>
-                  <td>.{doc.type}</td>
-                  <td>{doc.size}</td>
-                  <td>{new Date(doc.date).toLocaleDateString()}</td>
-                </tr>
-              ))
-            ): (
+                <th style={{ width: 40 }}>
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(d => selectedDocs.has(normalizeName(d.name)))}
+                    onChange={(e) => selectAllVisible(e.target.checked)}
+                  />
+                </th>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Size</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginated.length > 0 ? (
+                paginated.map((doc, idx) => (
+                  <tr
+                    key={idx}
+                    className="docRow"
+                    onClick={() => window.fileAPI.openDocument(doc.path)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedDocs.has(normalizeName(doc.name))}
+                        onChange={(e) => { e.stopPropagation(); toggleSelectDoc(doc.name); }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
+                    <td>
+                      {doc.name}
+                      {(processingMap[`batch:${normalizeName(doc.name)}`] || processingMap[normalizeName(doc.name)]) && (
+                        <span className="inlineSpinner" title="Scanning..." />
+                      )}
+                      {doc.isProcessed && (
+                        <FaCheck style={{ color: "#2ea44f", marginLeft: 8 }} title="Scanned" />
+                      )}
+                    </td>
+                    <td>.{doc.type}</td>
+                    <td>{doc.size}</td>
+                    <td>{new Date(doc.date).toLocaleDateString()}</td>
+                  </tr>
+                ))
+              ): (
               <tr>
                 <td colSpan="5" style={{ textAlign: "center" }}>
                   No documents found
                 </td>
               </tr>
             )}
-          </tbody>
-        </table>
-      </div>
+            </tbody>
+          </table>
+        </div>
 
       {filtered.length > 0 && (
         <div className="tableFooter">
@@ -897,13 +1037,21 @@ useEffect(() => {
                   if (!files) return;
 
                   for (const file of files) {
-                    await window.fileAPI.saveFileToFolder({ sourcePath: file });
+                    // pass explicit customDir to guarantee the file lands in the currently selected folder
+                    await window.fileAPI.saveFileToFolder({ sourcePath: file, customDir: selectedFolder || undefined });
+                    console.log("[Management] saved file ->", file, "to", selectedFolder || "(default documents)");
                   }
 
-                  const docs = await window.fileAPI.listDocuments();
-                  setDocs(docs);
+                  // small delay to ensure FS settled (saves are sync but keep a short tick for UI race conditions)
+                  await new Promise((r) => setTimeout(r, 120));
+                  toast("Refreshing...");
+                  const refreshed = await window.fileAPI.listDocuments();
+                  setDocs(refreshed);
+                  console.log("[Management] refreshed docs after upload:", refreshed.length);
+                  toast.success("Files added to folder", { description: `${files.length} file(s) copied` });
                 } catch (err) {
                   console.error("Upload failed:", err);
+                  toast.error("Upload failed", { description: String(err) });
                 }
               }}
             >

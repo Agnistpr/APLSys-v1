@@ -21,8 +21,13 @@ if (!API_BASE_URL_RUNTIME) {
   }
 }
 
+//Fallback URL
+const RAILWAY_URL = "https://aplsys-backend-production.up.railway.app";
+
 // Backend URL used by Electron handlers. Set BACKEND_URL in the environment for production.
-const BACKEND_URL = API_BASE_URL_RUNTIME;
+const BACKEND_URL = API_BASE_URL_RUNTIME || RAILWAY_URL; // ✅ Always use Railway as fallback
+console.log("[files.js init] BACKEND_URL resolved to:", BACKEND_URL); // ✅ Log which URL is being used
+
 
 const fileFilters = {
   pdf: [{ name: "PDF Files", extensions: ["pdf"] }],
@@ -290,7 +295,7 @@ ipcMain.handle('file:readFile', async (event, filePath) => {
 });
 
 /* OCR STUFF NA NASA DOCUMENT MANAGEMENT TAB*/
-ipcMain.handle("ocr:startBatch", async (event, { files = [] } = {}) => {
+ipcMain.handle("ocr:startBatch", async (event, { files = [], batch_task_id = null } = {}) => {
   try {
     if (!Array.isArray(files) || files.length === 0) {
       return { success: false, error: "No files provided" };
@@ -303,7 +308,6 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [] } = {}) => {
         const ocrDir = path.join(baseDir, "ocr_results");
         fs.mkdirSync(ocrDir, { recursive: true });
 
-        // dynamic imports so top-level bundle doesn't fail if modules change
         const axios = (await import("axios")).default;
         const FormData = (await import("form-data")).default;
 
@@ -314,226 +318,112 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [] } = {}) => {
         const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
         // helper: retry wrapper for axios POST/requests (available to entire handler)
-        const requestWithRetries = async (axiosInstance, config, opts = {}) => {
-          const maxRetries = opts.maxRetries ?? 3;
-          let attempt = 0;
-          let backoff = opts.initialBackoff ?? 1000;
-          while (true) {
-            try {
-              return await axiosInstance(config);
-            } catch (err) {
-              attempt++;
-              const status = err?.response?.status;
-              // consider transient on network errors, 429, 5xx
-              const isTransient = !err?.response || status === 429 || (status >= 500 && status < 600);
-              if (!isTransient || attempt > maxRetries) throw err;
+        // const requestWithRetries = async (axiosInstance, config, opts = {}) => {
+        //   const maxRetries = opts.maxRetries ?? 3;
+        //   let attempt = 0;
+        //   let backoff = opts.initialBackoff ?? 1000;
+        //   while (true) {
+        //     try {
+        //       return await axiosInstance(config);
+        //     } catch (err) {
+        //       attempt++;
+        //       const status = err?.response?.status;
+        //       // consider transient on network errors, 429, 5xx
+        //       const isTransient = !err?.response || status === 429 || (status >= 500 && status < 600);
+        //       if (!isTransient || attempt > maxRetries) throw err;
 
-              // honor Retry-After header if present
-              const retryAfter = err?.response?.headers?.["retry-after"];
-              if (retryAfter) {
-                const asNum = parseFloat(retryAfter);
-                if (!isNaN(asNum)) {
-                  await sleep(asNum * 1000);
-                  continue;
-                }
-              }
+        //       // honor Retry-After header if present
+        //       const retryAfter = err?.response?.headers?.["retry-after"];
+        //       if (retryAfter) {
+        //         const asNum = parseFloat(retryAfter);
+        //         if (!isNaN(asNum)) {
+        //           await sleep(asNum * 1000);
+        //           continue;
+        //         }
+        //       }
 
-              // exponential backoff + jitter
-              const jitter = Math.round(Math.random() * 300);
-              await sleep(backoff + jitter);
-              backoff *= 2;
-              continue;
-            }
-          }
-        };
+        //       // exponential backoff + jitter
+        //       const jitter = Math.round(Math.random() * 300);
+        //       await sleep(backoff + jitter);
+        //       backoff *= 2;
+        //       continue;
+        //     }
+        //   }
+        // };
 
         for (const filePath of files) {
           const filename = path.basename(filePath);
+          
           try {
-            // notify started
-            event.sender.send("ocr-progress", { filename, status: "started" });
+            // ✅ CRITICAL: Notify started
+            event.sender.send("ocr-progress", { filename, status: "started", batch_id: batch_task_id });
 
-            // read file
+            // Read file
             const fileBuffer = fs.readFileSync(filePath);
+            const formData = new FormData();
+            formData.append("files", fileBuffer, filename );
 
-            // Determine extension
-            const fileExt = path.extname(filePath).toLowerCase();
-            if (fileExt === ".pdf") {
-              // Try backend pdf->images first (with retries). If 404 or not found, fallback to uploading PDF to OCR endpoint.
-              const pdfForm = new FormData();
-              pdfForm.append("file", fileBuffer, { filename, contentType: "application/pdf" });
-
-              // Try multiple candidate endpoints (some backends mount routers under prefixes)
-              const pdfEndpoints = [
-                // try the most likely backend paths first (add the exact route you saw in backend logs)
-                `${API_BASE_URL_RUNTIME}/ocr/process-pdf-to-images?save=false&include_b64=true&dpi=300`,
-                `${API_BASE_URL_RUNTIME}/ocr/pdf-to-images?save=false&include_b64=true&dpi=300`,
-                `${API_BASE_URL_RUNTIME}/parser/pdf-to-images?save=false&include_b64=true&dpi=300`,
-                `${API_BASE_URL_RUNTIME}/pdf-to-images?save=false&include_b64=true&dpi=300`,
-              ];
-
-              let pdfRes = null;
-              let lastErr = null;
-              for (const url of pdfEndpoints) {
-                try {
-                  pdfRes = await requestWithRetries(axios, {
-                    method: "post",
-                    url,
-                    data: pdfForm,
-                    headers: { ...pdfForm.getHeaders() },
-                    timeout: 0,
-                  }, { maxRetries: 4, initialBackoff: 1000 });
-
-                  // If we got a response that's not JSON (string/html), try to detect JSON payload safely
-                  if (typeof pdfRes.data === "string") {
-                    const s = pdfRes.data.trim();
-                    if (s.startsWith("{") || s.startsWith("[")) {
-                      try { pdfRes.data = JSON.parse(s); } catch (e) { /* leave as string */ }
-                    } else {
-                      // non-JSON body -> treat as failure for this endpoint and try next
-                      throw new Error(`Non-JSON response from ${url}`);
-                    }
-                  }
-
-                  // success: log then break out
-                  console.log(`[ocr:startBatch] pdf->images succeeded using ${url}`);
-                  break;
-                } catch (err) {
-                  lastErr = err;
-                  const status = err?.response?.status;
-                  // if 404 specifically, try next endpoint (route not mounted)
-                  if (status === 404) {
-                    console.warn(`[ocr:startBatch] ${url} returned 404, trying next candidate`);
-                    continue;
-                  }
-                  // if transient, requestWithRetries already retried; try next endpoint only if this was a route mismatch
-                  console.warn(`[ocr:startBatch] error calling ${url}:`, err?.message || err);
+            console.log(`[ocr:startBatch] Posting to ${BACKEND_URL}/ocr/process-folder with file: ${filename}`);
+            
+            try {
+              const response = await axios.post(
+                `${BACKEND_URL}/ocr/process-folder`,
+                formData,
+                {
+                  headers: { ...formData.getHeaders() },
+                  timeout: 300000
                 }
-              }
+              );
 
-              if (!pdfRes) {
-                // nothing worked — fallback to uploading PDF directly to OCR endpoint
-                console.warn(`[ocr:startBatch] pdf-to-images endpoints all failed for ${filename}: ${lastErr?.message || lastErr}`);
-                try {
-                  const fallbackForm = new FormData();
-                  fallbackForm.append("files", fileBuffer, { filename, contentType: "application/pdf" });
-                  const fallbackRes = await requestWithRetries(axios, {
-                    method: "post",
-                    url: `${API_BASE_URL_RUNTIME}/ocr/process-folder`,
-                    data: fallbackForm,
-                    headers: { ...fallbackForm.getHeaders() },
-                    timeout: 0,
-                  }, { maxRetries: 3, initialBackoff: 800 });
+              console.log(`[ocr:startBatch] Success for ${filename}:`, response.data);
 
-                  const result = fallbackRes.data?.result ?? fallbackRes.data;
-                  const outName = `${filename}.json`;
-                  fs.writeFileSync(path.join(ocrDir, outName), JSON.stringify(result, null, 2), "utf8");
-                  event.sender.send("ocr-progress", { filename, status: "done" });
-                  continue;
-                } catch (fbErr) {
-                  throw fbErr;
-                }
-              }
+              const result = response.data?.result ?? response.data;
+              const outName = `${filename}.json`;
+              fs.writeFileSync(
+                path.join(ocrDir, outName),
+                JSON.stringify(result, null, 2),
+                "utf8"
+              );
 
-              // If pdfRes available, process returned pages
-              const pages = Array.isArray(pdfRes.data?.pages) ? pdfRes.data.pages : [];
-              if (pages.length === 0) {
-                throw new Error("No pages returned from pdf-to-images");
-              }
+              event.sender.send("ocr-progress", { filename, status: "done", batch_id: batch_task_id });
 
-              // process pages sequentially and post each page to OCR
-              const totalPages = pages.length;
-              let processedPages = 0;
-              for (let idx = 0; idx < pages.length; idx++) {
-                const p = pages[idx];
-                const pageNum = idx + 1;
-                const pageB64 = p?.b64 || p?.data || "";
-                const pageName = `${path.basename(filename, ".pdf")}_page_${pageNum}.png`;
-
-                // emit page started
-                event.sender.send("ocr-progress", { filename: pageName, status: "started", page: pageNum, parent: filename });
-
-                const pageBuf = Buffer.from(pageB64, "base64");
-                const pageForm = new FormData();
-                pageForm.append("files", pageBuf, { filename: pageName, contentType: "image/png" });
-
-                const ocrRes = await requestWithRetries(axios, {
-                  method: "post",
-                  url: `${API_BASE_URL_RUNTIME}/ocr/process-folder`,
-                  data: pageForm,
-                  headers: { ...pageForm.getHeaders() },
-                  timeout: 0,
-                }, { maxRetries: 4, initialBackoff: 1000 });
-
-                const pageResults = Array.isArray(ocrRes.data?.results)
-                  ? ocrRes.data.results
-                  : ocrRes.data?.result
-                    ? [ocrRes.data.result]
-                    : [];
-
-                if (pageResults.length === 0 && ocrRes.data) {
-                  const outName = `${pageName}.json`;
-                  fs.writeFileSync(path.join(ocrDir, outName), JSON.stringify(ocrRes.data, null, 2), "utf8");
-                } else {
-                  pageResults.forEach((resObj) => {
-                    const resFilename = resObj?.filename || pageName;
-                    const outName = `${resFilename}.json`;
-                    const content = resObj?.result ? JSON.stringify(resObj.result, null, 2) : JSON.stringify(resObj, null, 2);
-                    fs.writeFileSync(path.join(ocrDir, outName), content, "utf8");
-                  });
-                }
-
-                processedPages++;
-                const frac = processedPages / totalPages;
-                event.sender.send("ocr-progress", { filename: pageName, status: "done", page: pageNum, parent: filename });
-                event.sender.send("ocr-progress", { filename, status: "progress", progress: frac, processedPages, totalPages });
-              }
-
-              // pdf overall done
-              event.sender.send("ocr-progress", { filename, status: "done", processedPages, totalPages });
-              continue;
+            } catch (postErr) {
+             console.error(`[ocr:startBatch] POST failed for ${filename}:`, postErr.message);
+             console.error(`[ocr:startBatch] Full error:`, postErr?.response?.data || postErr);
+              event.sender.send("ocr-progress", {
+                filename,
+                status: "error",
+                error: postErr?.message || String(postErr),
+                batch_id: batch_task_id
+              });
             }
 
-            // Non-PDF path: upload file buffer directly
-            event.sender.send("ocr-progress", { filename, status: "started" });
-            const form = new FormData();
-            form.append("files", fileBuffer, filename);
-
-            const res = await requestWithRetries(axios, {
-              method: "post",
-              url: `${API_BASE_URL_RUNTIME}/ocr/process-folder`,
-              data: form,
-              headers: { ...form.getHeaders() },
-              timeout: 0,
-            }, { maxRetries: 3, initialBackoff: 800 });
-
-            // save result into ocr_results
-            const result = res.data?.result ?? res.data;
-            const outName = `${filename}.json`;
-            fs.writeFileSync(path.join(ocrDir, outName), JSON.stringify(result, null, 2), "utf8");
-
-            // notify done
-            event.sender.send("ocr-progress", { filename, status: "done" });
           } catch (err) {
-            console.error("[ocr:startBatch] file error:", filePath, err);
+            console.error(`[ocr:startBatch] Error processing ${filename}:`, err.message);
             event.sender.send("ocr-progress", {
-              filename: path.basename(filePath),
+              filename,
               status: "error",
               error: err?.message || String(err),
+              batch_id: batch_task_id
             });
           }
         }
 
-        // all done
-        event.sender.send("ocr-progress", { status: "all_done" });
-      } catch (bgErr) {
-        console.error("[ocr:startBatch] background worker failed:", bgErr);
-        event.sender.send("ocr-progress", { status: "all_done", error: bgErr?.message || String(bgErr) });
-      }
-    })();
+        event.sender.send("ocr-progress", { status: "all_done", batch_id: batch_task_id });
+        console.log("[ocr:startBatch] Background worker completed");
 
-    // return immediately so renderer can continue
-    return { success: true };
+      } catch (bgErr) {
+        console.error("[ocr:startBatch] Background worker failed:", bgErr);
+        event.sender.send("ocr-progress", {
+          status: "all_done",
+          error: bgErr?.message || String(bgErr)
+        });
+      }
+    })(); // Start async, don't await
+
+    // Return immediately so renderer continues
+    return { success: true, processing_files: files.map(f => path.basename(f)) };
+
   } catch (err) {
     console.error("ocr:startBatch handler failed:", err);
     return { success: false, error: err?.message || String(err) };
