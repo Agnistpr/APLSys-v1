@@ -221,6 +221,32 @@ export const DocumentScanner: React.FC = () => {
     event.preventDefault();
   }, []);
 
+    const handleClearFile = useCallback(() => {
+    // Revoke blob URL if it exists
+    if (currentFileUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(currentFileUrl);
+    }
+    
+    // Clear all file and extracted data state
+    setCurrentFile(null);
+    setCurrentFileUrl(null);
+    setCurrentFileType(null);
+    setCurrentFileData(null);
+    setExtractedData([]); //This is key
+    setCustomTags([]); //Also clear custom tags
+    setActivePanel("ocr"); // Reset to OCR panel
+    
+    // Clear stored file and extracted data from Zustand store
+    setCurrentStoredFile(null);
+    setStoredExtractedData([]); //explicitly clear store's extracted data
+    
+    toast.success('File cleared', {
+      description: 'Document has been removed',
+      duration: 3000,
+    });
+  }, [currentFileUrl, setCurrentStoredFile, setStoredExtractedData]);
+
+
   const handleTextExtracted = useCallback(async (newExtraction: ExtractedText | ExtractedText[]) => {
     const blocks = Array.isArray(newExtraction) ? newExtraction : [newExtraction];
     
@@ -375,6 +401,16 @@ export const DocumentScanner: React.FC = () => {
               <Badge variant="secondary" className="bg-success-soft text-success-foreground">
                 {extractedData.length} Extractions
               </Badge>
+              {currentFile && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleClearFile}
+                  title="Clear current file and extractions"
+                >
+                  ✕ Clear File
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -416,7 +452,7 @@ export const DocumentScanner: React.FC = () => {
                 {/* keep navigation / tabs here */}
                 <div className="grid grid-cols-4 gap-1 bg-muted rounded-lg p-1">
                   {[
-                    { id: 'viewer', icon: Eye, label: 'View' },
+                    //{ id: 'viewer', icon: Eye, label: 'View' },
                     { id: 'ocr', icon: FileText, label: 'OCR' },
                     { id: 'tags', icon: Settings, label: 'Tags' },
                     //{ id: 'export', icon: Download, label: 'Export' },

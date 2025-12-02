@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/ocr/components/ui/button';
 import { Card } from '@/ocr/components/ui/card';
 import { Badge } from '@/ocr/components/ui/badge';
@@ -37,7 +37,7 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
   onUpdateExtraction,
   onDeleteExtraction
 }) => {
-  // ✅ Guard: ensure extractedData is always an array
+  //Guard: ensure extractedData is always an array
   const safeExtractedData = Array.isArray(extractedData) ? extractedData : [];
   
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,6 +47,15 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
   );
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [tagSearch, setTagSearch] = useState('');
+
+  //Reset UI state when extractedData changes (especially when cleared)
+  useEffect(() => {
+    setEditingId(null);
+    setEditText('');
+    setOpenDropdownId(null);
+    setTagSearch('');
+    setVisibleExtractions(new Set(safeExtractedData.map(item => item.id)));
+  }, [extractedData?.length]); // Only track length changes to avoid excessive updates
 
   // Helper to convert base64 to Blob
   const base64ToBlob = (base64: string) => {

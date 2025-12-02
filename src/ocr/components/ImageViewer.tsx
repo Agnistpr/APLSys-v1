@@ -577,9 +577,20 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   };
 
   const handleParseDocument = async () => {
+    if (typeof parseDocumentText !== 'function') {
+      console.error("parseDocumentText is not a function:", parseDocumentText);
+      toast.error("Parse function not available");
+      return;
+    }
+    
     setParsing(true);
     try {
       const text = await extractTextFromDocument(fileUrl, "application/pdf");
+      if (!text || text.trim().length === 0) {
+        toast.error("No text extracted from document");
+        return;
+      }
+      
       const entities = await parseDocumentText(text);
       onTextExtracted(
         entities.map((ent: any, idx: number) => ({
@@ -775,8 +786,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         </Button>
       </div>
     );
+  } else if (!fileType) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-500">
+        No file loaded.
+      </div>
+    );
   } else {
-    // Unsupported file type
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
         Unsupported file type.
