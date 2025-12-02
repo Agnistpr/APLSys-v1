@@ -398,9 +398,6 @@ export const DocumentScanner: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="bg-success-soft text-success-foreground">
-                {extractedData.length} Extractions
-              </Badge>
               {currentFile && (
                 <Button
                   variant="destructive"
