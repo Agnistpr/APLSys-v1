@@ -88,6 +88,8 @@ export const DocumentScanner: React.FC = () => {
   const [inputText, setInputText] = useState("");
   const [entities, setEntities] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showUploadWarning, setShowUploadWarning] = useState(false); // <<< NEW
+  const [pendingFile, setPendingFile] = useState<File | null>(null); // <<< NEW
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- store selectors ---
@@ -131,97 +133,81 @@ export const DocumentScanner: React.FC = () => {
   //   }
   // }, []);
 
-  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  // ✅ NEW: Handle confirmed file upload
+  const handleConfirmUpload = useCallback((file: File) => {
     if (currentFileUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(currentFileUrl);
     }
 
-    const file = event.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      
-      // Store File object immediately
-      setCurrentFile(file);
-      setCurrentFileUrl(url);
-      setCurrentFileType(file.type);
-      setExtractedData([]);
-
-      // Store in Zustand
-      setCurrentStoredFile({
-        file,
-        url,
-        type: file.type,
-        name: file.name
-      });
-      
-      toast.success('Document loaded successfully', {
-        description: file.name,
-        duration: 4000,
-      });
-
-      addFileMeta({ name: file.name, type: file.type, url, addedAt: Date.now() });
-      addTask({ id: `local-${Date.now()}`, filename: file.name, status: 'pending', createdAt: Date.now() });
-    }
-  }, [addFileMeta, addTask, setCurrentStoredFile]);
-
-  // ✅ SEPARATE useEffect: Convert File to base64 AFTER currentFile is set
-  useEffect(() => {
-    if (!currentFile || !(currentFile instanceof Blob)) {
-      setCurrentFileData(null);
-      return;
-    }
-
-    // Only convert once per file
-    if (currentFileData) {
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const base64Data = e.target?.result as string;
-      setCurrentFileData(base64Data);
-      // ✅ ALSO persist to store immediately
-      useOcrStore.getState().setCurrentFileData(base64Data);
-      console.log("✅ Base64 data ready for:", currentFile.name);
-    };
-    reader.onerror = (err) => {
-      console.error("FileReader error:", err);
-      setCurrentFileData(null);
-    };
+    const url = URL.createObjectURL(file);
     
-    reader.readAsDataURL(currentFile);
-  }, [currentFile, currentFileData]); // Only run when currentFile changes
+    // Store File object immediately
+    setCurrentFile(file);
+    setCurrentFileUrl(url);
+    setCurrentFileType(file.type);
+    setExtractedData([]); // ✅ Clear extracted data
+    setCustomTags([]); // ✅ Clear custom tags
+    setActivePanel("ocr"); // Reset panel
+
+    // Store in Zustand
+    setCurrentStoredFile({
+      file,
+      url,
+      type: file.type,
+      name: file.name
+    });
+    
+    // Clear store's extracted data
+    setStoredExtractedData([]); // ✅ NEW
+    
+    toast.success('Document loaded successfully', {
+      description: file.name,
+      duration: 4000,
+    });
+
+    addFileMeta({ name: file.name, type: file.type, url, addedAt: Date.now() });
+    addTask({ id: `local-${Date.now()}`, filename: file.name, status: 'pending', createdAt: Date.now() });
+
+    // Close modal and reset pending
+    setShowUploadWarning(false);
+    setPendingFile(null);
+  }, [currentFileUrl, setCurrentStoredFile, setStoredExtractedData, addFileMeta, addTask]);
+
+  // ✅ NEW: Handle file upload click (show warning if file exists)
+  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // If there's already a file or extracted data, show warning
+    if (currentFile || extractedData.length > 0) {
+      setPendingFile(file);
+      setShowUploadWarning(true);
+      // Reset file input so user can select the same file again if they cancel
+      event.target.value = '';
+    } else {
+      // No existing file, proceed directly
+      handleConfirmUpload(file);
+      event.target.value = '';
+    }
+  }, [currentFile, extractedData.length, handleConfirmUpload]);
 
   const handleDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     const file = event.dataTransfer.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setCurrentFile(file);
-      setCurrentFileUrl(url);
-      setCurrentFileType(file.type);
-      setExtractedData([]);
-      toast.success('Document loaded successfully', {
-        description: file.name,
-        duration: 4000,
-      });
+    if (!file) return;
 
-      // Persist file metadata & create task
-      addFileMeta({ name: file.name, type: file.type, url, addedAt: Date.now() });
-      addTask({ id: `local-${Date.now()}`, filename: file.name, status: 'pending', createdAt: Date.now() });
+    // If there's already a file or extracted data, show warning
+    if (currentFile || extractedData.length > 0) {
+      setPendingFile(file);
+      setShowUploadWarning(true);
     } else {
-      toast.error('Please drop a valid file', {
-        description: 'Only images and documents are supported',
-        duration: 4000,
-      });
+      // No existing file, proceed directly
+      handleConfirmUpload(file);
     }
-  }, [addFileMeta, addTask]);
+  }, [currentFile, extractedData.length, handleConfirmUpload]);
 
-  const handleDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-  }, []);
-
-    const handleClearFile = useCallback(() => {
+  // --- file handling logic ---
+  const handleClearFile = useCallback(() => {
     // Revoke blob URL if it exists
     if (currentFileUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(currentFileUrl);
@@ -232,13 +218,13 @@ export const DocumentScanner: React.FC = () => {
     setCurrentFileUrl(null);
     setCurrentFileType(null);
     setCurrentFileData(null);
-    setExtractedData([]); //This is key
-    setCustomTags([]); //Also clear custom tags
+    setExtractedData([]); // This is key
+    setCustomTags([]); // Also clear custom tags
     setActivePanel("ocr"); // Reset to OCR panel
     
     // Clear stored file and extracted data from Zustand store
     setCurrentStoredFile(null);
-    setStoredExtractedData([]); //explicitly clear store's extracted data
+    setStoredExtractedData([]); // explicitly clear store's extracted data
     
     toast.success('File cleared', {
       description: 'Document has been removed',
@@ -246,16 +232,15 @@ export const DocumentScanner: React.FC = () => {
     });
   }, [currentFileUrl, setCurrentStoredFile, setStoredExtractedData]);
 
-
   const handleTextExtracted = useCallback(async (newExtraction: ExtractedText | ExtractedText[]) => {
     const blocks = Array.isArray(newExtraction) ? newExtraction : [newExtraction];
     
-    // Update local state
-    setExtractedData((prev) => [...prev, ...blocks]);
+    // Replace (not append) extracted data with current scan results only
+    setExtractedData(blocks);
     setActivePanel("ocr");
 
-    // Persist extracted data
-    setStoredExtractedData((prev) => [...prev, ...blocks]);
+    // Persist extracted data (replace, not append)
+    setStoredExtractedData(blocks);
     
     // Update processing state
     setOcrProcessing(false);
@@ -384,6 +369,52 @@ export const DocumentScanner: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/*NEW: Upload Warning Modal */}
+      {showUploadWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-surface rounded-lg shadow-lg p-6 max-w-md mx-auto border border-border">
+            <h2 className="text-lg font-bold text-foreground mb-2">Upload New File?</h2>
+            <p className="text-muted-foreground mb-6">
+              Uploading a new file will clear your currently uploaded document and all extracted text data. 
+              {extractedData.length > 0 && ` You have ${extractedData.length} extraction(s) that will be lost.`}
+            </p>
+            <p className="text-sm text-muted-foreground mb-6 font-semibold">
+              Do you want to continue?
+            </p>
+
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowUploadWarning(false);
+                  setPendingFile(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  //Close modal immediately
+                  setShowUploadWarning(false);
+                  setPendingFile(null);
+                  
+                  // Then process the upload
+                  if (pendingFile) {
+                    // Small delay to ensure modal closes before upload logic runs
+                    setTimeout(() => {
+                      handleConfirmUpload(pendingFile);
+                    }, 0);
+                  }
+                }}
+              >
+                Upload & Clear
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="border-b bg-surface shadow-soft">
         <div className="max-w-7xl mx-auto px-6 py-6">

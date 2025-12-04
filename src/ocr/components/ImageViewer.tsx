@@ -295,13 +295,16 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       }
     } catch (err) {
       console.error(err);
-      toast(`Extracting from ${fileName} failed`, {
-        id: toastId,
-        description: "Something went wrong. Please try again.",
-        icon: "❌",
-        dismissible: true,
-        duration: 10000,
-      });
+      // Add delay before showing error toast
+      setTimeout(() => {
+        toast(`Extracting from ${fileName} failed`, {
+          id: toastId,
+          description: "Something went wrong. Please try again.",
+          icon: "❌",
+          dismissible: true,
+          duration: 10000,
+        });
+      }, 1000); // 1 second delay
     } finally {
       // always clear both the per-file key AND the global processing flag
       setProcessingMap(prev => {
@@ -312,7 +315,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       });
       setIsProcessingOCR(false);
       setGlobalProcessing(false);
-      toast.dismiss(toastId);
+      toast.dismiss(toastId); // Dismiss the "Processing..." toast
     }
     //CRITICAL: add setProcessingMap to dependency array
   }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
@@ -490,22 +493,30 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       }
 
       onTextExtracted(items);
-      toast(`${fileName} extracted successfully.`, {
+      
+      // ✅ Add delay before success toast (so it doesn't overlap with "Processing Full scan...")
+      setTimeout(() => {
+        toast(`${fileName} extracted successfully.`, {
           id: toastId,
           description: `${items.length} lines extracted. You may now return to the scanner tab to look at the results`,
           icon: "✅",
           dismissible: true,
           duration: 10000,
         });
+      }, 1000);
     } catch (error) {
       console.error("Full Scan OCR Error:", error);
-      toast(`Extracting from ${fileName} failed`, {
-        id: toastId,
-        description: "Something went wrong. Please try again.",
-        icon: "❌",
-        dismissible: true,
-        duration: 10000,
-      });
+      
+      // ✅ Add delay before error toast
+      setTimeout(() => {
+        toast(`Extracting from ${fileName} failed`, {
+          id: toastId,
+          description: "Something went wrong. Please try again.",
+          icon: "❌",
+          dismissible: true,
+          duration: 10000,
+        });
+      }, 1000);
     } finally {
       setProcessingMap(prev => {
         const updated = { ...(prev || {}) };
@@ -514,7 +525,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       });
       setIsProcessingOCR(false);
       setGlobalProcessing(false);
-      toast.dismiss(toastId);
+      toast.dismiss(toastId); // Dismiss "Processing Full scan..." toast
     }
   }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
 

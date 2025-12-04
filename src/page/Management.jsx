@@ -234,13 +234,17 @@ useEffect(() => {
           localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(stored));
         } catch (err) { /* noop */ }
         
-        toast(`${filename}: Started`, {
-          id: task_id,
-          description: "Scanning has started, you can close this while it runs.",
-          icon: "⏳",
-          dismissible: true,
-          duration: 10000,
-        });
+        // ✅ Add delay so "Started" toast doesn't overlap with previous toasts
+        setTimeout(() => {
+          toast(`${filename}: Started`, {
+            id: task_id,
+            description: "Scanning has started, you can close this while it runs.",
+            icon: "⏳",
+            dismissible: true,
+            duration: 10000,
+          });
+        }, 1000); // Small delay for "started" (1s)
+        
       } else if (status === "done") {
         // Dismiss any existing toasts for this file first
         toast.dismiss(`ocr-${filename}`);
@@ -268,13 +272,15 @@ useEffect(() => {
         });
         setDocs(updatedDocs);
         //Notify as done
-        toast.success(`${filename} parsed successfully.`, {
+        setTimeout(() => {
+          toast.success(`${filename} parsed successfully.`, {
             id: task_id,
             description: `${filename} has been scanned successfully.`,
             icon: "✅",
             dismissible: true,
             duration: 10000,
           });
+        }, 1000);
         
         // Clear from localStorage
         try {
@@ -308,13 +314,30 @@ useEffect(() => {
           if (parent && next[parent]) delete next[parent];
           return next;
         });
-        toast(`${filename} failed to extract.`, {
+        // ✅ Add delay before error toast
+        setTimeout(() => {
+          toast(`${filename} failed to extract.`, {
             id: task_id,
             description: `${filename} was not scanned correctly. Please try again later.`,
             icon: "❌",
             dismissible: true,
             duration: 10000,
           });
+        }, 1000);
+      } else if (status === "all_done") {
+        setProcessingMap({});
+        setBatchId(null);
+        localStorage.removeItem(PROCESSING_STATE_KEY);
+        window.fileAPI.listDocuments().then(setDocs);
+        onTaskEnd(task_id);
+        // ✅ Add delay for final completion toast (5s after last file's toast)
+        setTimeout(() => {
+          toast.success("All files have been processed", {
+            id: scanToastId,
+            description: "Done",
+            duration: 4000
+          });
+        }, 1000);
       }
     } else if (status === "all_done") {
       setProcessingMap({});
