@@ -205,157 +205,156 @@ useEffect(() => {
   };
 
   useEffect(() => {
-  // Create a stable reference to the handler function
-  const handleOcrProgress = (e) => {
-    const evt = e?.detail ?? e;
-    const rawFilename = evt?.filename || "";
-    const rawParent = evt?.parent || "";
-    const filename = normalizeName(rawFilename);
-    const parent = normalizeName(rawParent);
-    const { status, task_id } = evt || {};
+    // Create a stable reference to the handler function
+    const handleOcrProgress = (e) => {
+      const evt = e?.detail ?? e;
+      const rawFilename = evt?.filename || "";
+      const rawParent = evt?.parent || "";
+      const filename = normalizeName(rawFilename);
+      const parent = normalizeName(rawParent);
+      const { status, task_id } = evt || {};
 
-    if (filename) {
-      if (status === "started") {
-        // Use a batch-prefixed key so scanner and batch tasks don't collide
-        const batchKey = `batch:${filename}`;
-        // Check if file is already in processing state to avoid duplicate "started" notifications
-        const currentProcessing = useOcrStore.getState().processingMap || {};
-        if (currentProcessing[batchKey]) {
-          return; // Skip if already processing
-        }
-        // mark the actual event filename as started (namespaced)
-        setProcessingMap(prev => ({ ...prev, [batchKey]: true }));
-
-        // persist with normalized, namespaced key
-        try {
-          const raw = localStorage.getItem(PROCESSING_STATE_KEY);
-          const stored = raw ? JSON.parse(raw) : { batchId: useOcrStore.getState().batchId, processingMap: {} };
-          stored.processingMap = { ...(stored.processingMap || {}), [batchKey]: true };
-          localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(stored));
-        } catch (err) { /* noop */ }
-        
-        // ✅ Add delay so "Started" toast doesn't overlap with previous toasts
-        setTimeout(() => {
-          toast(`${filename}: Started`, {
-            id: task_id,
-            description: "Scanning has started, you can close this while it runs.",
-            icon: "⏳",
-            dismissible: true,
-            duration: 10000,
-          });
-        }, 1000); // Small delay for "started" (1s)
-        
-      } else if (status === "done") {
-        // Dismiss any existing toasts for this file first
-        toast.dismiss(`ocr-${filename}`);
-
-        setProcessingMap(prev => {
-          const next = { ...prev };
-          // Remove namespaced batch keys (and fall back to bare keys for backward compatibility)
+      if (filename) {
+        if (status === "started") {
+          // Use a batch-prefixed key so scanner and batch tasks don't collide
           const batchKey = `batch:${filename}`;
-          const parentBatchKey = parent ? `batch:${parent}` : null;
-          if (batchKey && next[batchKey]) delete next[batchKey];
-          if (parentBatchKey && next[parentBatchKey]) delete next[parentBatchKey];
-          if (filename && next[filename]) delete next[filename];
-          if (parent && next[parent]) delete next[parent];
-          return next;
-        });
+          // Check if file is already in processing state to avoid duplicate "started" notifications
+          const currentProcessing = useOcrStore.getState().processingMap || {};
+          if (currentProcessing[batchKey]) {
+            return; // Skip if already processing
+          }
+          // mark the actual event filename as started (namespaced)
+          setProcessingMap(prev => ({ ...prev, [batchKey]: true }));
 
-        // Update docs to mark as processed
-        const currentDocs = useOcrStore.getState().docs || [];
-        const updatedDocs = currentDocs.map(doc => {
-          const docName = normalizeName(doc.name);
-          if (docName === filename || docName === parent) {
-            return { ...doc, isProcessed: true };
-          }
-          return doc;
-        });
-        setDocs(updatedDocs);
-        //Notify as done
-        setTimeout(() => {
-          toast.success(`${filename} parsed successfully.`, {
-            id: task_id,
-            description: `${filename} has been scanned successfully.`,
-            icon: "✅",
-            dismissible: true,
-            duration: 10000,
-          });
-        }, 1000);
-        
-        // Clear from localStorage
-        try {
-          const raw = localStorage.getItem(PROCESSING_STATE_KEY);
-          const stored = raw ? JSON.parse(raw) : {};
-          if (stored.processingMap) {
-            // Remove namespaced keys from persisted map
-            delete stored.processingMap[`batch:${filename}`];
-            if (parent) delete stored.processingMap[`batch:${parent}`];
-            // Also remove legacy bare keys if present
-            delete stored.processingMap[filename];
-            if (parent) delete stored.processingMap[parent];
-          }
-          if (Object.keys(stored.processingMap || {}).length === 0) {
-            localStorage.removeItem(PROCESSING_STATE_KEY);
-          } else {
+          // persist with normalized, namespaced key
+          try {
+            const raw = localStorage.getItem(PROCESSING_STATE_KEY);
+            const stored = raw ? JSON.parse(raw) : { batchId: useOcrStore.getState().batchId, processingMap: {} };
+            stored.processingMap = { ...(stored.processingMap || {}), [batchKey]: true };
             localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(stored));
-          }
-        } catch (err) {
-          console.warn("Failed to update storage:", err);
-        }
-      } else if (status === "error") {
-        // clean up map for both keys
-        setProcessingMap(prev => {
-          const next = { ...prev };
-          const batchKey = `batch:${filename}`;
-          const parentBatchKey = parent ? `batch:${parent}` : null;
-          if (batchKey && next[batchKey]) delete next[batchKey];
-          if (parentBatchKey && next[parentBatchKey]) delete next[parentBatchKey];
-          if (filename && next[filename]) delete next[filename];
-          if (parent && next[parent]) delete next[parent];
-          return next;
-        });
-        // ✅ Add delay before error toast
-        setTimeout(() => {
-          toast(`${filename} failed to extract.`, {
-            id: task_id,
-            description: `${filename} was not scanned correctly. Please try again later.`,
-            icon: "❌",
-            dismissible: true,
-            duration: 10000,
+          } catch (err) { /* noop */ }
+        
+          // ✅ Add delay so "Started" toast doesn't overlap with previous toasts
+          setTimeout(() => {
+            toast(`${filename}: Started`, {
+              id: task_id,
+              description: "Scanning has started, you can close this while it runs.",
+              icon: "⏳",
+              dismissible: true,
+              duration: 10000,
+            });
+          }, 1000); // Small delay for "started" (1s)
+        
+        } else if (status === "done") {
+          toast.dismiss(`ocr-${filename}`);
+
+          setProcessingMap(prev => {
+            const next = { ...prev };
+            // Remove namespaced batch keys (and fall back to bare keys for backward compatibility)
+            const batchKey = `batch:${filename}`;
+            const parentBatchKey = parent ? `batch:${parent}` : null;
+            if (batchKey && next[batchKey]) delete next[batchKey];
+            if (parentBatchKey && next[parentBatchKey]) delete next[parentBatchKey];
+            if (filename && next[filename]) delete next[filename];
+            if (parent && next[parent]) delete next[parent];
+            return next;
           });
-        }, 1000);
+
+          // Update docs to mark as processed
+          const currentDocs = useOcrStore.getState().docs || [];
+          const updatedDocs = currentDocs.map(doc => {
+            const docName = normalizeName(doc.name);
+            if (docName === filename || docName === parent) {
+              return { ...doc, isProcessed: true };
+            }
+            return doc;
+          });
+          setDocs(updatedDocs);
+
+          // ✅ Add 3s delay before showing "parsed successfully" toast
+          setTimeout(() => {
+            toast.success(`${filename} parsed successfully.`, {
+              id: task_id,
+              description: `${filename} has been scanned successfully.`,
+              icon: "✅",
+              dismissible: true,
+              duration: 10000,
+            });
+          }, 3000);
+
+          // Clear from localStorage
+          try {
+            const raw = localStorage.getItem(PROCESSING_STATE_KEY);
+            const stored = raw ? JSON.parse(raw) : {};
+            if (stored.processingMap) {
+              // Remove namespaced keys from persisted map
+              delete stored.processingMap[`batch:${filename}`];
+              if (parent) delete stored.processingMap[`batch:${parent}`];
+              // Also remove legacy bare keys if present
+              delete stored.processingMap[filename];
+              if (parent) delete stored.processingMap[parent];
+            }
+            if (Object.keys(stored.processingMap || {}).length === 0) {
+              localStorage.removeItem(PROCESSING_STATE_KEY);
+            } else {
+              localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(stored));
+            }
+          } catch (err) {
+            console.warn("Failed to update storage:", err);
+          }
+        } else if (status === "error") {
+          setProcessingMap(prev => {
+            const next = { ...prev };
+            const batchKey = `batch:${filename}`;
+            const parentBatchKey = parent ? `batch:${parent}` : null;
+            if (batchKey && next[batchKey]) delete next[batchKey];
+            if (parentBatchKey && next[parentBatchKey]) delete next[parentBatchKey];
+            if (filename && next[filename]) delete next[filename];
+            if (parent && next[parent]) delete next[parent];
+            return next;
+          });
+          setTimeout(() => {
+            toast(`${filename} failed to extract.`, {
+              id: task_id,
+              description: `${filename} was not scanned correctly. Please try again later.`,
+              icon: "❌",
+              dismissible: true,
+              duration: 10000,
+            });
+          }, 3000); // ✅ 3s delay for error toast
+        } else if (status === "all_done") {
+          setProcessingMap({});
+          setBatchId(null);
+          localStorage.removeItem(PROCESSING_STATE_KEY);
+          window.fileAPI.listDocuments().then(setDocs);
+          onTaskEnd(task_id);
+
+          // ✅ Add 3s delay for final completion toast
+          setTimeout(() => {
+            toast.success("All files have been processed", {
+              id: scanToastId,
+              description: "Done",
+              duration: 4000
+            });
+          }, 3000);
+        }
       } else if (status === "all_done") {
         setProcessingMap({});
         setBatchId(null);
         localStorage.removeItem(PROCESSING_STATE_KEY);
         window.fileAPI.listDocuments().then(setDocs);
         onTaskEnd(task_id);
-        // ✅ Add delay for final completion toast (5s after last file's toast)
         setTimeout(() => {
-          toast.success("All files have been processed", {
-            id: scanToastId,
-            description: "Done",
-            duration: 4000
-          });
-        }, 1000);
+          toast.success("All files have been processed", {id: scanToastId, description: "Done", duration: 4000 });
+        }, 3000); // ✅ 3s delay for fallback all_done
       }
-    } else if (status === "all_done") {
-      setProcessingMap({});
-      setBatchId(null);
-      localStorage.removeItem(PROCESSING_STATE_KEY);
-      window.fileAPI.listDocuments().then(setDocs);
-      onTaskEnd(task_id);
-      toast.success("All files have been processed", {id: scanToastId, description: "Done", duration: 4000 });
-    }
-  };
+    };
 
-  // Add single event listener with stable handler reference
-  window.addEventListener("app:ocr-progress", handleOcrProgress);
-  
-  return () => {
-    window.removeEventListener("app:ocr-progress", handleOcrProgress);
-  };
-}, []);
+    window.addEventListener("app:ocr-progress", handleOcrProgress);
+    return () => {
+      window.removeEventListener("app:ocr-progress", handleOcrProgress);
+    };
+  }, []);
 
   const uniqueValues = useMemo(() => {
     const values = { type: new Set() };
@@ -492,15 +491,6 @@ useEffect(() => {
       const batchTaskId = batchResp?.task_id;
       if (!batchTaskId) throw new Error("No batch task id returned from server");
       setBatchId(batchTaskId);
-
-      // Only show "Scanning..." toast if we actually have files to process
-      toast("Scanning all files...", {
-        id: scanToastId,
-        description: "Scanning all files, you can close this while it runs.",
-        icon: "⏳",
-        dismissible: true,
-        duration: 10000,
-      });
 
       // Create per-file tasks
       const fileTaskMap = {};

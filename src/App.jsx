@@ -296,25 +296,80 @@ useEffect(() => {
   useEffect(() => {
     if (!window.fileAPI?.onOcrProgress) return;
 
+    // Scheduler: ensure OCR toasts are spaced to avoid folded/overlapping notifications
+    // nextToastAvailable tracks the earliest epoch (ms) when the next toast may appear
+    let nextToastAvailable = Date.now();
+
+    const scheduleToast = (fn) => {
+      const now = Date.now();
+      const delay = Math.max(0, nextToastAvailable - now);
+      const scheduledAt = now + delay;
+      // schedule the toast action
+      setTimeout(() => {
+        try { fn(); } catch (e) { console.error('Toast scheduler error', e); }
+      }, delay);
+      // reserve the next slot 3 seconds after this toast appears
+      nextToastAvailable = scheduledAt + 3000;
+    };
+
     const unsubscribe = window.fileAPI.onOcrProgress((evt) => {
-      const { filename, status, progress, error } = evt || {};
+      const { filename, status, progress, error, batch_id } = evt || {};
       const toastId = filename ? `ocr-${filename}` : "ocr-batch";
 
-      // Dispatch event for management page
+      // --- Sync shared store so Sidebar reacts even when Management is unmounted ---
+      try {
+        if (filename) {
+          const nsKey = `batch:${filename}`;
+          if (status === "started") {
+            // mark file as processing
+            useOcrStore.setState((prev) => {
+              const pm = { ...(prev.processingMap || {}) };
+              pm[nsKey] = true;
+              return { processingMap: pm, batchId: batch_id ?? prev.batchId };
+            });
+          } else if (status === "done" || status === "error") {
+            // remove single file key
+            useOcrStore.setState((prev) => {
+              const pm = { ...(prev.processingMap || {}) };
+              delete pm[nsKey];
+              return { processingMap: pm };
+            });
+          }
+        }
+
+        if (status === "all_done") {
+          // clear everything on completion
+          useOcrStore.setState({ processingMap: {}, batchId: null });
+          try {
+            localStorage.removeItem("documentProcessingState");
+            localStorage.removeItem("batchOcr:pendingMap");
+            localStorage.removeItem("batchOcr:inflight");
+          } catch (e) { /* noop */ }
+          // refresh docs list so UI reflects processed state
+          window.fileAPI.listDocuments().then((d) => {
+            try { useOcrStore.getState().setDocs?.(d); } catch(_) {}
+          });
+        }
+      } catch (storeErr) {
+        console.error("Failed to sync OCR progress to useOcrStore:", storeErr);
+      }
+      // --- end store sync ---
+
+      // Dispatch event for management page immediately (management handles its own delays)
       window.dispatchEvent(new CustomEvent("app:ocr-progress", { detail: evt }));
 
-      // Show toast notifications
+      // Schedule toast notifications spaced by 3s
       if (status === "started") {
-        toast(`${filename || 'OCR'}: Started`, { id: toastId, duration: 2000, dismissible: true });
+        scheduleToast(() => toast(`${filename || 'OCR'}: Started`, { id: toastId, duration: 2000, dismissible: true }));
       } else if (status === "progress") {
         const pct = progress ? Math.round(progress * 100) : null;
-        toast(`${filename}: ${pct}%`, { id: toastId, duration: 2000, dismissible: true });
+        scheduleToast(() => toast(`${filename}: ${pct}%`, { id: toastId, duration: 2000, dismissible: true }));
       } else if (status === "done") {
-        toast.success(`${filename}: Completed`, { id: toastId, duration: 2000, dismissible: true });
+        scheduleToast(() => toast.success(`${filename}: Completed`, { id: toastId, duration: 2000, dismissible: true }));
       } else if (status === "error") {
-        toast.error(`${filename}: ${error || 'Failed'}`, { id: toastId, duration: 2000, dismissible: true });
+        scheduleToast(() => toast.error(`${filename}: ${error || 'Failed'}`, { id: toastId, duration: 2000, dismissible: true }));
       } else if (status === "all_done") {
-        toast.success("All files processed", { id: "ocr-batch" });
+        scheduleToast(() => toast.success("All files processed", { id: "ocr-batch" }));
       }
     });
 
