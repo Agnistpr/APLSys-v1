@@ -19,7 +19,6 @@ import { TagsPanel } from './TagsPanel';
 import { DocumentUploadOCRPanel } from "./DocumentUploadOCRPanel";
 import { MetadataExtractorPanel } from './MetadataExtractorPanel';
 import { toast } from 'sonner';
-import { parseDocumentText } from "../../api/ocr";
 import { useOcrStore } from '../../electron/ocrStore';
 
 export interface ExtractedText {
@@ -187,6 +186,7 @@ export const DocumentScanner: React.FC = () => {
     } else {
       // No existing file, proceed directly
       handleConfirmUpload(file);
+      // ✅ Reset input after upload succeeds
       event.target.value = '';
     }
   }, [currentFile, extractedData.length, handleConfirmUpload]);
@@ -226,6 +226,11 @@ export const DocumentScanner: React.FC = () => {
     setCurrentStoredFile(null);
     setStoredExtractedData([]); // explicitly clear store's extracted data
     
+    // ✅ NEW: Reset file input so same file can be re-selected
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    
     toast.success('File cleared', {
       description: 'Document has been removed',
       duration: 3000,
@@ -244,11 +249,6 @@ export const DocumentScanner: React.FC = () => {
     
     // Update processing state
     setOcrProcessing(false);
-
-    toast.success('Text extracted successfully', {
-      description: `${blocks.length} items extracted`,
-      duration: 4000,
-    });
 
     // Persist OCR result to store
     const filename = currentFile?.name || `unsaved-${Date.now()}`;

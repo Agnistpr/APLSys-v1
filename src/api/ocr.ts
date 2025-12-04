@@ -29,19 +29,19 @@ export async function ocrFullScan(imageData: string) {
   return res.data.result;
 }
 
-export async function parseDocumentText(text: string) {
-  if (!API_BASE_URL) {
-    throw new Error('API_BASE_URL is not defined');
-  }
-  try {
-    const res = await axios.post(`${API_BASE_URL}/parser/parse-document`, { text });
-    if (!res.data) throw new Error('No response data from parseDocumentText');
-    return res.data.entities || [];
-  } catch (err) {
-    console.error('parseDocumentText error:', err);
-    throw err;
-  }
-}
+// export async function parseDocumentText(text: string) {
+//   if (!API_BASE_URL) {
+//     throw new Error('API_BASE_URL is not defined');
+//   }
+//   try {
+//     const res = await axios.post(`${API_BASE_URL}/parser/parse-document`, { text });
+//     if (!res.data) throw new Error('No response data from parseDocumentText');
+//     return res.data.entities || [];
+//   } catch (err) {
+//     console.error('parseDocumentText error:', err);
+//     throw err;
+//   }
+// }
 
 export async function ocrRegion(imageData: string) {
   const formData = new FormData();

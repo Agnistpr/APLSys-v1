@@ -1,6 +1,4 @@
 import React, { useState } from "react";
-import { parseDocumentText } from "../../api/ocr";
-
 export const GeneralDocumentParser: React.FC = () => {
   const [inputText, setInputText] = useState("");
   const [entities, setEntities] = useState<any[]>([]);
@@ -9,15 +7,6 @@ export const GeneralDocumentParser: React.FC = () => {
   const handleParse = async () => {
     setLoading(true);
     setEntities([]);
-    try {
-      const result = await parseDocumentText(inputText);
-      setEntities(result);
-    } catch (err) {
-      setEntities([]);
-      alert("Failed to parse document.");
-    } finally {
-      setLoading(false);
-    }
   };
 
   return (

@@ -11,14 +11,13 @@ import {
   Download
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { ocrFullScan, ocrRegion, parseDocumentText } from '../../api/ocr';
+import { ocrFullScan, ocrRegion } from '../../api/ocr';
 import { API_BASE_URL } from '../../../config';
 import type { ExtractedText } from './DocumentScanner';
 import axios from "axios";
 import { useOcrStore } from '../../electron/ocrStore';
 
 
-console.log("DEBUG: parseDocumentText =", typeof parseDocumentText, parseDocumentText);
 
 //Mapping function for NER entity to tag
 export function entityToTag(entity: string): string | null {
@@ -116,6 +115,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  // store pan at the moment a drag starts so we can compute relative movement
+  const panStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
   const [currentSelection, setCurrentSelection] = useState<SelectionBox | null>(null);
@@ -200,28 +201,9 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     console.log("DEBUG processingMap after task start:", useOcrStore.getState().processingMap);
 
     try {
-      const img = imageRef.current;
-      // Get displayed image rect and compute scale to natural pixels
-      const imgRect = img.getBoundingClientRect();
-      const scaleX = img.naturalWidth / imgRect.width;
-      const scaleY = img.naturalHeight / imgRect.height;
-
-      // selection is in displayed-image pixels relative to image top-left (x,y,width,height)
-      const sx = Math.max(0, Math.round(selection.x * scaleX));
-      const sy = Math.max(0, Math.round(selection.y * scaleY));
-      const sw = Math.max(1, Math.round(selection.width * scaleX));
-      const sh = Math.max(1, Math.round(selection.height * scaleY));
-
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas context not available");
-
-      canvas.width = sw;
-      canvas.height = sh;
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-
-      const imageData = canvas.toDataURL("image/png");
-      const { text, confidence } = await ocrRegion(imageData);
+      // NEW: robust cropping that accounts for rotation/zoom/pan
+      const cropDataUrl = await cropSelectionToDataUrl(selection);
+      const { text, confidence } = await ocrRegion(cropDataUrl);
 
       if (typeof text === "string" && text.trim()) {
         // Use Gemini to label the region text
@@ -320,6 +302,87 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     //CRITICAL: add setProcessingMap to dependency array
   }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
 
+  // --- NEW helper: crop selection to a PNG dataURL, handles rotation (0/90/180/270) ---
+  async function cropSelectionToDataUrl(selection: SelectionBox): Promise<string> {
+    if (!imageRef.current || !containerRef.current) throw new Error("Image not available");
+    const img = imageRef.current;
+    const imgRect = img.getBoundingClientRect();
+    const angle = ((rotation % 360) + 360) % 360; // normalize
+
+    // If no rotation, simple map based on displayed -> natural scales
+    if (angle === 0) {
+      const scaleX = img.naturalWidth / imgRect.width;
+      const scaleY = img.naturalHeight / imgRect.height;
+      const sx = Math.max(0, Math.round(selection.x * scaleX));
+      const sy = Math.max(0, Math.round(selection.y * scaleY));
+      const sw = Math.max(1, Math.round(selection.width * scaleX));
+      const sh = Math.max(1, Math.round(selection.height * scaleY));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = sw;
+      canvas.height = sh;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas context not available");
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      return canvas.toDataURL("image/png");
+    }
+
+    // For rotated cases: draw a rotated natural-size canvas, then map displayed selection to that rotated canvas
+    // Create a canvas that will contain the rotated image at natural pixel resolution
+    let rotCanvas = document.createElement("canvas");
+    let rotCtx = rotCanvas.getContext("2d");
+    if (!rotCtx) throw new Error("Canvas context not available");
+
+    if (angle === 90 || angle === 270) {
+      rotCanvas.width = img.naturalHeight;
+      rotCanvas.height = img.naturalWidth;
+    } else { // 180
+      rotCanvas.width = img.naturalWidth;
+      rotCanvas.height = img.naturalHeight;
+    }
+
+    // Draw rotated image onto rotCanvas at native resolution
+    rotCtx.save();
+    switch (angle) {
+      case 90:
+        rotCtx.translate(rotCanvas.width, 0);
+        rotCtx.rotate(Math.PI / 2);
+        rotCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+        break;
+      case 180:
+        rotCtx.translate(rotCanvas.width, rotCanvas.height);
+        rotCtx.rotate(Math.PI);
+        rotCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+        break;
+      case 270:
+        rotCtx.translate(0, rotCanvas.height);
+        rotCtx.rotate((3 * Math.PI) / 2);
+        rotCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+        break;
+      default:
+        rotCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+    }
+    rotCtx.restore();
+
+    // Compute scale between displayed (imgRect) and the rotated natural canvas
+    const scaleX = rotCanvas.width / imgRect.width;
+    const scaleY = rotCanvas.height / imgRect.height;
+
+    const rx = Math.max(0, Math.round(selection.x * scaleX));
+    const ry = Math.max(0, Math.round(selection.y * scaleY));
+    const rw = Math.max(1, Math.round(selection.width * scaleX));
+    const rh = Math.max(1, Math.round(selection.height * scaleY));
+
+    // Crop from rotated canvas
+    const out = document.createElement("canvas");
+    out.width = rw;
+    out.height = rh;
+    const outCtx = out.getContext("2d");
+    if (!outCtx) throw new Error("Canvas context not available");
+    outCtx.drawImage(rotCanvas, rx, ry, rw, rh, 0, 0, rw, rh);
+    return out.toDataURL("image/png");
+  }
+
   //Mouse mapping helper
   const getImageCoords = useCallback((e: React.MouseEvent) => {
     if (!imageRef.current || !containerRef.current) return { x: 0, y: 0 };
@@ -359,27 +422,45 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     setRotation(0);
     setPan({ x: 0, y: 0 });
     setCurrentSelection(null);
-    toast.success('View reset to default');
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!imageRef.current || !containerRef.current) return;
-    const { left, top, width, height } = imageRef.current.getBoundingClientRect();
-    // Only start selection when in select mode
-    if (mode !== 'select') return;
+    const imgRect = imageRef.current.getBoundingClientRect();
+    const { left, top, width, height } = imgRect;
 
-    const startX = e.clientX - left;
-    const startY = e.clientY - top;
-    // clamp
-    const sx = Math.max(0, Math.min(startX, width));
-    const sy = Math.max(0, Math.min(startY, height));
+    // If in select mode, begin a region selection
+    if (mode === 'select') {
+      const startX = e.clientX - left;
+      const startY = e.clientY - top;
+      // clamp
+      const sx = Math.max(0, Math.min(startX, width));
+      const sy = Math.max(0, Math.min(startY, height));
 
-    selectionStartRef.current = { x: sx, y: sy };
-    setSelectionDisplay({ x: sx, y: sy, width: 0, height: 0 });
-    setIsSelecting(true);
-  }, [mode]);
+      selectionStartRef.current = { x: sx, y: sy };
+      setSelectionDisplay({ x: sx, y: sy, width: 0, height: 0 });
+      setIsSelecting(true);
+      return;
+    }
+
+    // Otherwise start dragging (panning) the image
+    setIsDragging(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    // store current pan so mouse move deltas are relative to this
+    panStartRef.current = { x: pan.x, y: pan.y };
+  }, [mode, pan.x, pan.y]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // dragging (panning)
+    if (isDragging && panStartRef.current) {
+      const dx = e.clientX - dragStart.x;
+      const dy = e.clientY - dragStart.y;
+      // divide by zoom so pan movement feels consistent at different zoom levels
+      setPan({ x: panStartRef.current.x + dx / zoom, y: panStartRef.current.y + dy / zoom });
+      return;
+    }
+
+    // selection
     if (!isSelecting || !imageRef.current || !selectionStartRef.current) return;
     const imgRect = imageRef.current.getBoundingClientRect();
     const curX = Math.max(0, Math.min(e.clientX - imgRect.left, imgRect.width));
@@ -390,9 +471,15 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     const w = Math.abs(curX - s.x);
     const h = Math.abs(curY - s.y);
     setSelectionDisplay({ x, y, width: w, height: h });
-  }, [isSelecting]);
+  }, [isDragging, dragStart.x, dragStart.y, zoom, isSelecting]);
 
   const handleMouseUp = useCallback(async (e: React.MouseEvent) => {
+    // finish dragging if active
+    if (isDragging) {
+      setIsDragging(false);
+      panStartRef.current = null;
+    }
+
     if (!isSelecting) return;
     setIsSelecting(false);
 
@@ -405,7 +492,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     // clear
     selectionStartRef.current = null;
     setSelectionDisplay(null);
-  }, [isSelecting, selectionDisplay, performOCR]);
+  }, [isDragging, isSelecting, selectionDisplay, performOCR]);
 
   const handleFullScanOCR = useCallback(async () => {
     if (!imageRef.current) return;
@@ -539,6 +626,15 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
   }, []);
 
+    // NEW: Reset rotation/zoom/pan when a new file is loaded
+  useEffect(() => {
+    setZoom(1);
+    setRotation(0);  // ✅ Reset rotation for new image
+    setPan({ x: 0, y: 0 });
+    setCurrentSelection(null);
+    setSelectionDisplay(null);
+  }, [fileUrl]); // Reset whenever fileUrl changes
+
   // Handler to send the displayed image to the classifier endpoint
   const handleSendToClassifier = useCallback(async () => {
     if (!imageRef.current) return;
@@ -584,42 +680,6 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     } catch (err) {
       console.error("Text extraction failed:", err);
       throw new Error("Text extraction failed");
-    }
-  };
-
-  const handleParseDocument = async () => {
-    if (typeof parseDocumentText !== 'function') {
-      console.error("parseDocumentText is not a function:", parseDocumentText);
-      toast.error("Parse function not available");
-      return;
-    }
-    
-    setParsing(true);
-    try {
-      const text = await extractTextFromDocument(fileUrl, "application/pdf");
-      if (!text || text.trim().length === 0) {
-        toast.error("No text extracted from document");
-        return;
-      }
-      
-      const entities = await parseDocumentText(text);
-      onTextExtracted(
-        entities.map((ent: any, idx: number) => ({
-          id: `${Date.now()}-${idx}`,
-          text: ent.word,
-          tags: [entityToTag(ent.entity_group)].filter(Boolean),
-          bbox: { x: 0, y: 0, width: 0, height: 0 },
-          confidence: ent.score,
-        }))
-      );
-      toast.success("Document parsed successfully!");
-    } catch (err) {
-      console.error("handleParseDocument error:", err);
-      toast.error("Failed to parse document.", {
-        description: err instanceof Error ? err.message : "Unknown error"
-      });
-    } finally {
-      setParsing(false);
     }
   };
 
@@ -728,6 +788,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-10 pointer-events-auto">
           <Button size="sm" onClick={handleZoomIn} title="Zoom In"><ZoomIn /></Button>
           <Button size="sm" onClick={handleZoomOut} title="Zoom Out"><ZoomOut /></Button>
+          <Button size="sm" onClick={handleRotateCounterclockwise} title="Rotate Left"><RotateCcw /></Button>
+          <Button size="sm" onClick={handleRotate} title="Rotate Right"><RotateCw /></Button>
           <Button size="sm" onClick={handleReset} title="Reset View"><Maximize /></Button>
           <Button 
             size="sm" 
@@ -752,39 +814,6 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         </div>
       </div>
     );
-  } else if (fileType === "application/pdf") {
-    // PDF preview + Parse button
-    return (
-      <div className="flex flex-col items-center justify-center h-full w-full">
-        <iframe
-          src={fileUrl}
-          title="PDF Preview"
-          style={{ width: "100%", height: "60vh", border: "1px solid #ccc", marginBottom: 16 }}
-        />
-        <Button onClick={handleParseDocument} disabled={parsing}>
-          {parsing ? "Parsing..." : "Parse Document"}
-        </Button>
-      </div>
-    );
-  } else if (fileType === "text/plain") {
-    // Text file preview + Parse button
-    const [textPreview, setTextPreview] = useState<string>("");
-    useEffect(() => {
-      fetch(fileUrl)
-        .then(res => res.text())
-        .then(setTextPreview)
-        .catch(() => setTextPreview("Failed to load text preview."));
-    }, [fileUrl]);
-    return (
-      <div className="flex flex-col items-center justify-center h-full w-full">
-        <pre style={{ width: "100%", maxHeight: 300, overflow: "auto", background: "#f9f9f9", border: "1px solid #ccc", marginBottom: 16 }}>
-          {textPreview}
-        </pre>
-        <Button onClick={handleParseDocument} disabled={parsing}>
-          {parsing ? "Parsing..." : "Parse Document"}
-        </Button>
-      </div>
-    );
   } else if (!fileType) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
@@ -794,7 +823,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   } else {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
-        Unsupported file type.
+        Unsupported file type. Upload only Images (PNGs/JPGs)
       </div>
     );
   }
@@ -813,4 +842,22 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     );
   }
    */
+
+  /*
+  *else if (fileType === "application/pdf") {
+    // PDF preview + Parse button
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full">
+        <iframe
+          src={fileUrl}
+          title="PDF Preview"
+          style={{ width: "100%", height: "60vh", border: "1px solid #ccc", marginBottom: 16 }}
+        />
+        <Button onClick={handleParseDocument} disabled={parsing}>
+          {parsing ? "Parsing..." : "Parse Document"}
+        </Button>
+      </div>
+    );
+  } 
+  */
 };
