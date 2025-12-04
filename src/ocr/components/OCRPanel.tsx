@@ -162,6 +162,13 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
         duration: 4000,
       });
 
+      // Emit a global event so other pages (e.g. Management) can refresh immediately
+      try {
+        window.dispatchEvent(new Event("app:documents-changed"));
+      } catch (e) {
+        console.warn("Failed to dispatch app:documents-changed:", e);
+      }
+
       // Clear the uploaded file and extractions to avoid accidental overwrite
       try {
         onClearFile?.();

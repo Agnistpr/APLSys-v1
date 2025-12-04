@@ -142,6 +142,21 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
     return () => clearInterval(interval);
   }, []); 
 
+  // --- NEW: listen for saves from other components and refresh immediately ---
+  useEffect(() => {
+    const onDocsChanged = async () => {
+      try {
+        const refreshed = await window.fileAPI.listDocuments();
+        setDocs(refreshed);
+        console.log("Refreshed docs after external save (app:documents-changed)");
+      } catch (err) {
+        console.warn("Failed to refresh docs on app:documents-changed:", err);
+      }
+    };
+    window.addEventListener("app:documents-changed", onDocsChanged);
+    return () => window.removeEventListener("app:documents-changed", onDocsChanged);
+  }, [setDocs]);
+
   // Restore saved spinner state immediately at mount
   // Update the restore effect to validate against ocr_results and isProcessed flag
 useEffect(() => {
@@ -1057,7 +1072,6 @@ useEffect(() => {
 
                   // small delay to ensure FS settled (saves are sync but keep a short tick for UI race conditions)
                   await new Promise((r) => setTimeout(r, 120));
-                  toast("Refreshing...");
                   const refreshed = await window.fileAPI.listDocuments();
                   setDocs(refreshed);
                   console.log("[Management] refreshed docs after upload:", refreshed.length);
