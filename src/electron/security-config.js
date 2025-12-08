@@ -72,6 +72,7 @@ export const cspDirectives = {
     'https://*.supabase.co',
     'https://word-telemetry.officeapps.live.com',
     'https://browser.events.data.microsoft.com',
-    'https://*.officeapps.live.com'
+    'https://*.officeapps.live.com',
+    'https://aplsys-backend-331525477255.asia-east1.run.app'
   ]
 };

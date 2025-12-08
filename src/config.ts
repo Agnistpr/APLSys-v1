@@ -5,7 +5,7 @@ export const API_BASE_URL =(() => {
     return import.meta.env.VITE_API_URL;
   }
   // Fallback
-  return "https://aplsys-backend-production.up.railway.app";
+  return "https://aplsys-backend-331525477255.asia-east1.run.app";
 })();
 
 export const PARSING_SERVICE_URL = "https://open-parser-api-production.up.railway.app";
