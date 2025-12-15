@@ -9,7 +9,7 @@ import { analyzeResumeWithDS } from "../../../conn/genAnalysis";
 import { persistNERResult } from "./aiActions";
 import { JOB_ROLES } from "../data/jobRoles";
 import axios from "axios";
-import { API_BASE_URL, PARSING_SERVICE_URL } from '../../../config';
+import { API_BASE_URL} from '../../../config';
 import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
 import * as pdfjsLib from "pdfjs-dist";
 import {
@@ -1311,7 +1311,7 @@ export default function ResumeParser
           // PDF/DOCX: use external parsing service first
           try {
             const base64 = await fileToBase64(file);
-            const resp = await axios.post(`${PARSING_SERVICE_URL}/api/parse-resume`, {
+            const resp = await axios.post(`${API_BASE_URL}/parser/ner-extract-resume-profile`, {
               base64,
               fileName: file.name,
               mimeType: file.type,
