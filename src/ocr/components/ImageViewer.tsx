@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ocrFullScan, ocrRegion } from '../../api/ocr';
-import { API_BASE_URL } from '../../../config';
+import { API_BASE_URL, DEV_TEST_URL } from '../../../config';
 import type { ExtractedText } from './DocumentScanner';
 import axios from "axios";
 import { useOcrStore } from '../../electron/ocrStore';
@@ -54,7 +54,7 @@ const sendImageToClassifier = async (imageDataUrl: string) => {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await axios.post(`${API_BASE_URL}/parser/parse-document`, formData, {
+  const response = await axios.post(`${DEV_TEST_URL}/parser/parse-document`, formData, {
     headers: { "Content-Type": "multipart/form-data" }
   });
   return response.data;
@@ -77,14 +77,14 @@ interface SelectionBox {
 }
 
 export async function classifyTextWithNER(text: string) {
-  const res = await axios.post(`${API_BASE_URL}/parser/parse-document`, { text });
+  const res = await axios.post(`${DEV_TEST_URL}/parser/parse-document`, { text });
   return res.data.entities;
 }
 
 // Update the classification function
 export async function classifyTextWithAI(text: string) {
   try {
-    const res = await axios.post(`${API_BASE_URL}/ai/deepseek-label-extracted-text`, { 
+    const res = await axios.post(`${DEV_TEST_URL}/ai/deepseek-label-extracted-text`, { 
       text,
       fileName: "document.txt" // Add filename for context
     });
@@ -108,10 +108,12 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   fileName,
   onTextExtracted,
   extractedData
-}) => {
+ }) => {
   const [isRegionMode, setIsRegionMode] = useState<boolean>(false);
   const [zoom, setZoom] = useState(1);
-  const [rotation, setRotation] = useState(0);
+  // rotation now lives in the global OCR store
+  const rotation = useOcrStore(s => s.rotation ?? 0);
+  const setRotationStore = useOcrStore(s => s.setRotation);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -131,6 +133,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const processingMap = useOcrStore(s => s.processingMap);
   const setProcessingMap = useOcrStore(s => s.setProcessingMap);
 
+  // Persisted current file (object saved to Zustand) and setter for rotation persistence
+  const currentStoredFile = useOcrStore(s => s.currentFile);
+  const setCurrentStoredFile = useOcrStore(s => s.setCurrentFile);
+  
   // persistence actions
   const addResult = useOcrStore(s => s.addResult);
   const setCurrentExtractedData = useOcrStore(s => s.setCurrentExtractedData);
@@ -201,9 +207,21 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     console.log("DEBUG processingMap after task start:", useOcrStore.getState().processingMap);
 
     try {
-      // NEW: robust cropping that accounts for rotation/zoom/pan
-      const cropDataUrl = await cropSelectionToDataUrl(selection);
-      const { text, confidence } = await ocrRegion(cropDataUrl);
+      // Use client-side crop (handles rotation) and send cropped PNG to server.
+      let text = "";
+      let confidence = 0;
+      try {
+        const croppedDataUrl = await cropSelectionToDataUrl(selection);
+        // Since croppedDataUrl already reflects rotation, send rotation=0 to server.
+        console.log("performOCR: sending cropped image (len):", (croppedDataUrl || "").length);
+        const resp = await ocrRegion(croppedDataUrl, 0);
+        text = resp?.text || "";
+        confidence = resp?.confidence || 0;
+      } catch (postErr) {
+        console.error("performOCR: ocrRegion (cropped) failed:", postErr);
+        text = "";
+        confidence = 0;
+      }
 
       if (typeof text === "string" && text.trim()) {
         // Use Gemini to label the region text
@@ -276,7 +294,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         });
       }
     } catch (err) {
-      console.error(err);
+      console.error("performOCR: caught error:", err, "stack:", err?.stack);
       // Add delay before showing error toast
       setTimeout(() => {
         toast(`Extracting from ${fileName} failed`, {
@@ -313,10 +331,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     if (angle === 0) {
       const scaleX = img.naturalWidth / imgRect.width;
       const scaleY = img.naturalHeight / imgRect.height;
-      const sx = Math.max(0, Math.round(selection.x * scaleX));
-      const sy = Math.max(0, Math.round(selection.y * scaleY));
-      const sw = Math.max(1, Math.round(selection.width * scaleX));
-      const sh = Math.max(1, Math.round(selection.height * scaleY));
+      const sx = Math.max(0, Math.min(selection.x * scaleX, img.naturalWidth));
+      const sy = Math.max(0, Math.min(selection.y * scaleY, img.naturalHeight));
+      const sw = Math.max(1, Math.min(selection.width * scaleX, img.naturalWidth - sx));
+      const sh = Math.max(1, Math.min(selection.height * scaleY, img.naturalHeight - sy));
 
       const canvas = document.createElement("canvas");
       canvas.width = sw;
@@ -410,16 +428,18 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   }, []);
 
   const handleRotate = useCallback(() => {
-    setRotation(prev => (prev + 90) % 360);
-  }, []);
-
+    const next = (rotation + 90) % 360;
+    try { setRotationStore(next); } catch (e) { /* ignore */ }
+  }, [rotation, setRotationStore]);
+   
   const handleRotateCounterclockwise = useCallback(() => {
-    setRotation(prev => (prev - 90 + 360) % 360);
-  }, []);
+    const next = (rotation - 90 + 360) % 360;
+    try { setRotationStore(next); } catch (e) { /* ignore */ }
+  }, [rotation, setRotationStore]);
+
 
   const handleReset = useCallback(() => {
     setZoom(1);
-    setRotation(0);
     setPan({ x: 0, y: 0 });
     setCurrentSelection(null);
   }, []);
@@ -431,17 +451,27 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
     // If in select mode, begin a region selection
     if (mode === 'select') {
-      const startX = e.clientX - left;
-      const startY = e.clientY - top;
-      // clamp
-      const sx = Math.max(0, Math.min(startX, width));
-      const sy = Math.max(0, Math.min(startY, height));
+      // Guard: prevent starting a new region selection while another scan is running
+      if (isProcessingOCR || isGlobalProcessing) {
+        toast("A scan is already in progress. Please wait for it to finish before selecting a new region.", {
+          id: "scan-lock",
+          description: "Current scan is running",
+          duration: 3000,
+          icon: "⏳",
+        });
+        return;
+      }
+       const startX = e.clientX - left;
+       const startY = e.clientY - top;
+       // clamp
+       const sx = Math.max(0, Math.min(startX, width));
+       const sy = Math.max(0, Math.min(startY, height));
 
-      selectionStartRef.current = { x: sx, y: sy };
-      setSelectionDisplay({ x: sx, y: sy, width: 0, height: 0 });
-      setIsSelecting(true);
-      return;
-    }
+       selectionStartRef.current = { x: sx, y: sy };
+       setSelectionDisplay({ x: sx, y: sy, width: 0, height: 0 });
+       setIsSelecting(true);
+       return;
+     }
 
     // Otherwise start dragging (panning) the image
     setIsDragging(true);
@@ -626,14 +656,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
   }, []);
 
-    // NEW: Reset rotation/zoom/pan when a new file is loaded
+  // Reset zoom/pan/selection when a new file is loaded — rotation is managed in the store
   useEffect(() => {
     setZoom(1);
-    setRotation(0);  // ✅ Reset rotation for new image
     setPan({ x: 0, y: 0 });
     setCurrentSelection(null);
     setSelectionDisplay(null);
-  }, [fileUrl]); // Reset whenever fileUrl changes
+  }, [fileUrl]);
 
   // Handler to send the displayed image to the classifier endpoint
   const handleSendToClassifier = useCallback(async () => {
@@ -803,14 +832,17 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           <Button
             variant={mode === 'select' ? 'default' : 'outline'}
             size="sm"
+            disabled={isProcessingOCR || isGlobalProcessing}
             onClick={() => {
+              if (isProcessingOCR || isGlobalProcessing) return;
               setIsRegionMode(!isRegionMode);
               setMode(mode === 'select' ? '' : 'select');
             }}
-          >
-            <Square className="w-4 h-4 mr-1" />
-            Region Scan
-          </Button>
+            title={isProcessingOCR || isGlobalProcessing ? "Processing..." : (mode === 'select' ? "Exit Region Scan" : "Region Scan")}
+           >
+             <Square className="w-4 h-4 mr-1" />
+             Region Scan
+           </Button>
         </div>
       </div>
     );

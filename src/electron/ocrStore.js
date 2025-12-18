@@ -10,12 +10,14 @@ export const useOcrStore = create(
       isProcessing: false,
       docs: [],
       currentFile: null,
-      currentFileData: null, // ← ADD THIS
+      currentFileData: null, // ← PERSIST THIS
+      rotation: 0, // <-- new global rotation state (degrees)
       currentExtractedData: [],
       ocrMatches: {},
       selectedFolder: null,
 
       // Action methods to update state
+      setRotation: (r) => set({ rotation: r }), // <- new setter
       setProcessingMap: (mapOrFn) => {
         set(state => {
           const newMap = typeof mapOrFn === 'function' ? mapOrFn(state.processingMap) : mapOrFn;
@@ -51,19 +53,39 @@ export const useOcrStore = create(
           processingMap,      // transient — do NOT persist
           batchId,            // transient — do NOT persist
           isProcessing,       // transient — do NOT persist
-          ...persistable      // keep docs, currentExtractedData, etc.
+          docs,
+          currentFile,
+          currentFileData,
+          rotation, // persist rotation so it survives navigation (cleared when file cleared)
+          currentExtractedData,
+          ocrMatches,
         } = state;
         return {
-          docs: persistable.docs || [],
-          currentFile: persistable.currentFile || null,
-          currentFileData: persistable.currentFileData || null, // ← PERSIST THIS
-          currentExtractedData: persistable.currentExtractedData || [],
-          ocrMatches: persistable.ocrMatches || {},
+          docs: docs || [],
+          currentFile: currentFile || null,
+          currentFileData: currentFileData || null, // ← PERSIST THIS
+          rotation: typeof rotation === 'number' ? rotation : 0,
+          currentExtractedData: currentExtractedData || [],
+          ocrMatches: ocrMatches || {},
         };
       },
       onRehydrateStorage: () => (state) => {
         if (state) {
-          // Reset transient flags on rehydrate
+          // Ensure no persisted image/preview survives a cold start.
+          // Revoke any blob: URL to avoid leaked previews, then clear persisted file data.
+          try {
+            const cf = state.currentFile;
+            if (cf && typeof cf === 'object' && cf.url && String(cf.url).startsWith('blob:')) {
+              try { URL.revokeObjectURL(cf.url); } catch (_) {}
+            }
+          } catch (_) {}
+  
+          // Clear persisted file/preview data so scanner starts clean
+          state.currentFile = null;
+          state.currentFileData = null;
+          state.currentExtractedData = [];
+  
+          // Reset transient flags as before
           state.processingMap = {};
           state.batchId = null;
           state.isProcessing = false;

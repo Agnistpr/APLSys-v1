@@ -8,3 +8,6 @@ export const PARSING_SERVICE_URL =
 
 // Backwards-compatible alias
 export const BACKEND_URL = API_BASE_URL;
+
+
+export const DEV_TEST_URL = "http://localhost:8080"

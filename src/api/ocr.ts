@@ -1,6 +1,6 @@
 import axios from "axios";
 import * as pdfjs from "pdfjs-dist"
-import { API_BASE_URL } from "../config";
+import { API_BASE_URL, DEV_TEST_URL } from "../config";
 
 
 //verify at load time:
@@ -19,11 +19,19 @@ function base64ToBlob(base64: string) {
   while (n--) u8arr[n] = bstr.charCodeAt(n);
   return new Blob([u8arr], { type: mime });
 }
-
+//, rotation: number = 0, bbox?: { x:number; y:number; width:number; height:number }
 export async function ocrFullScan(imageData: string) {
   const formData = new FormData();
+  // send only the image; server will handle rotation/bbox as needed
   formData.append("file", base64ToBlob(imageData), "scan.png");
-  const res = await axios.post(`${API_BASE_URL}/ocr/extract-full`, formData, {
+
+  try {
+    console.info("[OCR] ocrFullScan: Sending image only; server will handle rotation/bbox if required.");
+  } catch (logErr) {
+    console.warn("[OCR] ocrFullScan: logging failed", logErr);
+  }
+
+  const res = await axios.post(`${DEV_TEST_URL}/ocr/extract-full`, formData, {
     headers: { "Content-Type": "multipart/form-data" }
   });
   return res.data.result;
@@ -43,14 +51,31 @@ export async function ocrFullScan(imageData: string) {
 //   }
 // }
 
-export async function ocrRegion(imageData: string) {
+export async function ocrRegion(imageData: string, rotation: number = 0, bbox?: { x:number; y:number; width:number; height:number }) {
   const formData = new FormData();
-  formData.append("file", base64ToBlob(imageData), "region.png");
+  formData.append("file", base64ToBlob(imageData), "scan.png");
+  formData.append("rotation", String(rotation));
+  if (bbox) {
+    formData.append("bbox_x", String(bbox.x));
+    formData.append("bbox_y", String(bbox.y));
+    formData.append("bbox_w", String(bbox.width));
+    formData.append("bbox_h", String(bbox.height));
+  }
+
+  // Logger: indicate rotated image being sent for region requests
   try {
-    const res = await axios.post(`${API_BASE_URL}/ocr/extract-region`, formData, {
+    const normRot = ((rotation % 360) + 360) % 360;
+    if (normRot !== 0) {
+      console.info(`[OCR] ocrRegion: Sending rotated image to server. rotation=${normRot}°`);
+    }
+  } catch (logErr) {
+    console.warn("[OCR] ocrRegion: rotation logging failed", logErr);
+  }
+
+  try {
+    const res = await axios.post(`${DEV_TEST_URL}/ocr/extract-region`, formData, {
       headers: { "Content-Type": "multipart/form-data" }
     });
-    // The backend now returns { text, confidence }
     const { text = "", confidence = 0 } = res.data || {};
     return { text, confidence };
   } catch (err) {
@@ -125,7 +150,8 @@ export async function batchProcessFolder(files: File[]) {
           canvas.height = viewport.height;
           
           await page.render({
-            canvasContext: canvas.getContext('2d'),
+            canvasContext: canvas.getContext('2d')!,
+            canvas: canvas,
             viewport: viewport
           }).promise;
           

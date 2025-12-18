@@ -98,6 +98,7 @@ export const DocumentScanner: React.FC = () => {
   const markFileProcessed = useOcrStore(s => s.markFileProcessed);
   const currentStoredFile = useOcrStore(s => s.currentFile);
   const setCurrentStoredFile = useOcrStore(s => s.setCurrentFile);
+  const setRotationStore = useOcrStore(s => s.setRotation);
   const storedExtractedData = useOcrStore(s => s.currentExtractedData);
   const setStoredExtractedData = useOcrStore(s => s.setCurrentExtractedData);
   const isOcrProcessing = useOcrStore(s => s.isProcessing);
@@ -155,7 +156,9 @@ export const DocumentScanner: React.FC = () => {
       type: file.type,
       name: file.name
     });
-    
+    // Reset rotation for newly uploaded file
+    try { setRotationStore(0); } catch (e) { /* noop */ }
+
     // Clear store's extracted data
     setStoredExtractedData([]); // ✅ NEW
     
@@ -225,6 +228,8 @@ export const DocumentScanner: React.FC = () => {
     // Clear stored file and extracted data from Zustand store
     setCurrentStoredFile(null);
     setStoredExtractedData([]); // explicitly clear store's extracted data
+    // Reset global rotation when file is cleared
+    try { setRotationStore(0); } catch (e) { /* noop */ }
     
     // ✅ NEW: Reset file input so same file can be re-selected
     if (fileInputRef.current) {
