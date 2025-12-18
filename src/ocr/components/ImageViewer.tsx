@@ -114,6 +114,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   // rotation now lives in the global OCR store
   const rotation = useOcrStore(s => s.rotation ?? 0);
   const setRotationStore = useOcrStore(s => s.setRotation);
+  // pan is in displayed pixels (applied as CSS translate)
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -127,7 +128,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const [parsing, setParsing] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const imageRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null); // offscreen loader
   const isGlobalProcessing = useOcrStore(s => s.isProcessing);
   const setGlobalProcessing = useOcrStore(s => s.setProcessing);
   const processingMap = useOcrStore(s => s.processingMap);
@@ -146,14 +148,14 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
   const [selectionDisplay, setSelectionDisplay] = useState<SelectionBox | null>(null);
 
-  // compute display -> natural scale when needed
-  const displayToNatural = useCallback(() => {
-    if (!imageRef.current) return { sx: 1, sy: 1, imgRect: null as DOMRect | null };
-    const img = imageRef.current;
-    const imgRect = img.getBoundingClientRect();
-    const scaleX = img.naturalWidth / imgRect.width;
-    const scaleY = img.naturalHeight / imgRect.height;
-    return { sx: scaleX, sy: scaleY, imgRect };
+  // get mapping between displayed canvas size and canvas pixel coordinates
+  const displayedToCanvasScale = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { sx: 1, sy: 1, rect: null as DOMRect | null };
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    return { sx, sy, rect };
   }, []);
 
   const getPreTransformMetrics = () => {
@@ -212,7 +214,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       let confidence = 0;
       try {
         const croppedDataUrl = await cropSelectionToDataUrl(selection);
-        // Since croppedDataUrl already reflects rotation, send rotation=0 to server.
+        // cropSelectionToDataUrl returns rotated crop (rotation baked into PNG)
         console.log("performOCR: sending cropped image (len):", (croppedDataUrl || "").length);
         const resp = await ocrRegion(croppedDataUrl, 0);
         text = resp?.text || "";
@@ -321,103 +323,37 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
 
   // --- NEW helper: crop selection to a PNG dataURL, handles rotation (0/90/180/270) ---
+  // New: crop against the main rotated canvas (canvasRef). Canvas already contains the rotated image pixels.
   async function cropSelectionToDataUrl(selection: SelectionBox): Promise<string> {
-    if (!imageRef.current || !containerRef.current) throw new Error("Image not available");
-    const img = imageRef.current;
-    const imgRect = img.getBoundingClientRect();
-    const angle = ((rotation % 360) + 360) % 360; // normalize
+    const canvas = canvasRef.current;
+    if (!canvas) throw new Error("Image canvas not available");
+    const { sx, sy, rect } = displayedToCanvasScale();
+    if (!rect) throw new Error("Canvas rect missing");
 
-    // If no rotation, simple map based on displayed -> natural scales
-    if (angle === 0) {
-      const scaleX = img.naturalWidth / imgRect.width;
-      const scaleY = img.naturalHeight / imgRect.height;
-      const sx = Math.max(0, Math.min(selection.x * scaleX, img.naturalWidth));
-      const sy = Math.max(0, Math.min(selection.y * scaleY, img.naturalHeight));
-      const sw = Math.max(1, Math.min(selection.width * scaleX, img.naturalWidth - sx));
-      const sh = Math.max(1, Math.min(selection.height * scaleY, img.naturalHeight - sy));
+    // Map displayed selection -> canvas pixels
+    const x = Math.max(0, Math.round(selection.x * sx));
+    const y = Math.max(0, Math.round(selection.y * sy));
+    const w = Math.max(1, Math.round(selection.width * sx));
+    const h = Math.max(1, Math.round(selection.height * sy));
 
-      const canvas = document.createElement("canvas");
-      canvas.width = sw;
-      canvas.height = sh;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas context not available");
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-      return canvas.toDataURL("image/png");
-    }
-
-    // For rotated cases: draw a rotated natural-size canvas, then map displayed selection to that rotated canvas
-    // Create a canvas that will contain the rotated image at natural pixel resolution
-    let rotCanvas = document.createElement("canvas");
-    let rotCtx = rotCanvas.getContext("2d");
-    if (!rotCtx) throw new Error("Canvas context not available");
-
-    if (angle === 90 || angle === 270) {
-      rotCanvas.width = img.naturalHeight;
-      rotCanvas.height = img.naturalWidth;
-    } else { // 180
-      rotCanvas.width = img.naturalWidth;
-      rotCanvas.height = img.naturalHeight;
-    }
-
-    // Draw rotated image onto rotCanvas at native resolution
-    rotCtx.save();
-    switch (angle) {
-      case 90:
-        rotCtx.translate(rotCanvas.width, 0);
-        rotCtx.rotate(Math.PI / 2);
-        rotCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
-        break;
-      case 180:
-        rotCtx.translate(rotCanvas.width, rotCanvas.height);
-        rotCtx.rotate(Math.PI);
-        rotCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
-        break;
-      case 270:
-        rotCtx.translate(0, rotCanvas.height);
-        rotCtx.rotate((3 * Math.PI) / 2);
-        rotCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
-        break;
-      default:
-        rotCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
-    }
-    rotCtx.restore();
-
-    // Compute scale between displayed (imgRect) and the rotated natural canvas
-    const scaleX = rotCanvas.width / imgRect.width;
-    const scaleY = rotCanvas.height / imgRect.height;
-
-    const rx = Math.max(0, Math.round(selection.x * scaleX));
-    const ry = Math.max(0, Math.round(selection.y * scaleY));
-    const rw = Math.max(1, Math.round(selection.width * scaleX));
-    const rh = Math.max(1, Math.round(selection.height * scaleY));
-
-    // Crop from rotated canvas
     const out = document.createElement("canvas");
-    out.width = rw;
-    out.height = rh;
+    out.width = w;
+    out.height = h;
     const outCtx = out.getContext("2d");
     if (!outCtx) throw new Error("Canvas context not available");
-    outCtx.drawImage(rotCanvas, rx, ry, rw, rh, 0, 0, rw, rh);
+    outCtx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
     return out.toDataURL("image/png");
   }
 
-  //Mouse mapping helper
+  // map mouse -> displayed canvas local coords (pixels relative to canvas top-left)
   const getImageCoords = useCallback((e: React.MouseEvent) => {
-    if (!imageRef.current || !containerRef.current) return { x: 0, y: 0 };
-
-    const imgRect = imageRef.current.getBoundingClientRect(); // transformed
-    const { gapX, gapY } = getPreTransformMetrics();
-
-    // distance from image’s transformed top-left
-    const dx = e.clientX - imgRect.left;
-    const dy = e.clientY - imgRect.top;
-
-    // convert to pre-transform units and shift by pre-transform gaps
-    const x = gapX + (dx / zoom);
-    const y = gapY + (dy / zoom);
-
-    return { x, y };
-  }, [zoom]);
+    const canvas = canvasRef.current;
+    if (!canvas || !containerRef.current) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const localX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const localY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+    return { x: localX, y: localY };
+  }, []);
 
   const handleZoomIn = useCallback(() => {
     setZoom(prev => Math.min(prev * 1.2, 5));
@@ -445,8 +381,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!imageRef.current || !containerRef.current) return;
-    const imgRect = imageRef.current.getBoundingClientRect();
+     if (!canvasRef.current || !containerRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const imgRect = canvas.getBoundingClientRect();
     const { left, top, width, height } = imgRect;
 
     // If in select mode, begin a region selection
@@ -461,22 +399,19 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         });
         return;
       }
-       const startX = e.clientX - left;
-       const startY = e.clientY - top;
-       // clamp
-       const sx = Math.max(0, Math.min(startX, width));
-       const sy = Math.max(0, Math.min(startY, height));
+       // start coordinates relative to visible canvas top-left
+       const startX = Math.max(0, Math.min(e.clientX - left, width));
+       const startY = Math.max(0, Math.min(e.clientY - top, height));
 
-       selectionStartRef.current = { x: sx, y: sy };
-       setSelectionDisplay({ x: sx, y: sy, width: 0, height: 0 });
+       selectionStartRef.current = { x: startX, y: startY };
+       setSelectionDisplay({ x: startX, y: startY, width: 0, height: 0 });
        setIsSelecting(true);
        return;
      }
 
-    // Otherwise start dragging (panning) the image
+    // Otherwise start dragging (panning) the canvas view
     setIsDragging(true);
     setDragStart({ x: e.clientX, y: e.clientY });
-    // store current pan so mouse move deltas are relative to this
     panStartRef.current = { x: pan.x, y: pan.y };
   }, [mode, pan.x, pan.y]);
 
@@ -485,14 +420,14 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     if (isDragging && panStartRef.current) {
       const dx = e.clientX - dragStart.x;
       const dy = e.clientY - dragStart.y;
-      // divide by zoom so pan movement feels consistent at different zoom levels
-      setPan({ x: panStartRef.current.x + dx / zoom, y: panStartRef.current.y + dy / zoom });
+      // NOTE: invert the sign so dragging follows cursor (user moves mouse right -> image moves right)
+      setPan({ x: panStartRef.current.x + dx, y: panStartRef.current.y + dy });
       return;
     }
 
-    // selection
-    if (!isSelecting || !imageRef.current || !selectionStartRef.current) return;
-    const imgRect = imageRef.current.getBoundingClientRect();
+    // selection: use the visible canvas rect (not the offscreen image) so coords match display
+    if (!isSelecting || !canvasRef.current || !selectionStartRef.current) return;
+    const imgRect = canvasRef.current.getBoundingClientRect();
     const curX = Math.max(0, Math.min(e.clientX - imgRect.left, imgRect.width));
     const curY = Math.max(0, Math.min(e.clientY - imgRect.top, imgRect.height));
     const s = selectionStartRef.current;
@@ -515,8 +450,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
     // IMPORTANT: selectionDisplay is in displayed-image pixels relative to image top-left.
     // Pass that directly to performOCR which will convert it to natural pixels exactly once.
-    if (selectionDisplay && selectionDisplay.width > 5 && selectionDisplay.height > 5 && imageRef.current) {
-      await performOCR(selectionDisplay);
+    if (selectionDisplay && selectionDisplay.width > 5 && selectionDisplay.height > 5 && canvasRef.current) {
+       await performOCR(selectionDisplay);
     }
 
     // clear
@@ -542,15 +477,9 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       });
 
     try {
-      const img = imageRef.current;
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas context not available");
-
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
-
+      // Use the already-prepared rotated canvas (canvasRef) for full scan (it contains the rotated image at natural pixels)
+      const canvas = canvasRef.current;
+      if (!canvas) throw new Error("Canvas not ready");
       const imageData = canvas.toDataURL("image/png");
       const result = await ocrFullScan(imageData);
       console.log("OCR result:", result);
@@ -664,6 +593,90 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     setSelectionDisplay(null);
   }, [fileUrl]);
 
+  // Draw rotated image into canvasRef at natural pixels when fileUrl/rotation changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Clear when no file
+    if (!fileUrl) {
+      const ctx = canvas.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.style.width = "0px";
+      canvas.style.height = "0px";
+      imageRef.current = null;
+      return;
+    }
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    imageRef.current = img;
+    let cancelled = false;
+
+    img.onload = () => {
+      if (cancelled) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const angle = ((rotation % 360) + 360) % 360;
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+
+      // Set canvas pixel dims according to rotation
+      if (angle === 90 || angle === 270) {
+        canvas.width = h;
+        canvas.height = w;
+      } else {
+        canvas.width = w;
+        canvas.height = h;
+      }
+
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      switch (angle) {
+        case 90:
+          ctx.translate(canvas.width, 0);
+          ctx.rotate(Math.PI / 2);
+          break;
+        case 180:
+          ctx.translate(canvas.width, canvas.height);
+          ctx.rotate(Math.PI);
+          break;
+        case 270:
+          ctx.translate(0, canvas.height);
+          ctx.rotate((3 * Math.PI) / 2);
+          break;
+        default:
+          break;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      ctx.restore();
+
+      // Fit canvas visually in container (keep natural pixels in canvas.width/height)
+      const container = containerRef.current;
+      if (container) {
+        const cRect = container.getBoundingClientRect();
+        const maxW = cRect.width * 0.85;
+        const scale = Math.min(1, maxW / canvas.width);
+        canvas.style.width = `${Math.round(canvas.width * scale)}px`;
+        canvas.style.height = `${Math.round(canvas.height * scale)}px`;
+      } else {
+        canvas.style.width = `${canvas.width}px`;
+        canvas.style.height = `${canvas.height}px`;
+      }
+    };
+
+    img.onerror = (e) => {
+      console.error("Image load error:", e, fileUrl);
+    };
+
+    img.src = fileUrl;
+    return () => {
+      cancelled = true;
+      imageRef.current = null;
+    };
+  }, [fileUrl, rotation, zoom]);
+
   // Handler to send the displayed image to the classifier endpoint
   const handleSendToClassifier = useCallback(async () => {
     if (!imageRef.current) return;
@@ -773,18 +786,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       >
         {/* single image element used for all coordinate math */}
         {fileUrl ? (
-          <img
-            ref={imageRef}
-            src={fileUrl}
-            alt="Document"
+          <canvas
+            ref={canvasRef}
             style={{
-              transform: `scale(${zoom}) rotate(${rotation}deg) translate(${pan.x}px, ${pan.y}px)`,
-              transition: "transform 0.2s",
-              maxWidth: "100%",
-              maxHeight: "100%",
-              userSelect: "none",
-              pointerEvents: "auto",
-              display: 'block'
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(1)`,
+              transition: "transform 0.05s",
+              display: 'block',
+              cursor: mode === 'select' ? 'crosshair' : 'grab'
             }}
             draggable={false}
           />
@@ -792,10 +800,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           <div className="text-muted-foreground">No document loaded</div>
         )}
 
-        {/* Selection overlay: position relative to container using image rect offsets */}
-        {selectionDisplay && imageRef.current && containerRef.current && (
+        {/* Selection overlay: position relative to container using canvas rect offsets */}
+        {selectionDisplay && canvasRef.current && containerRef.current && (
           (() => {
-            const imgRect = imageRef.current.getBoundingClientRect();
+            const imgRect = canvasRef.current.getBoundingClientRect();
             const containerRect = containerRef.current.getBoundingClientRect();
             const left = imgRect.left - containerRect.left + selectionDisplay.x;
             const top = imgRect.top - containerRect.top + selectionDisplay.y;

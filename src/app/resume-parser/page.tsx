@@ -9,7 +9,7 @@ import { analyzeResumeWithDS } from "../../../conn/genAnalysis";
 import { persistNERResult } from "./aiActions";
 import { JOB_ROLES } from "../data/jobRoles";
 import axios from "axios";
-import { API_BASE_URL} from '../../../config';
+import { API_BASE_URL, DEV_TEST_URL} from '../../../config';
 import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
 import * as pdfjsLib from "pdfjs-dist";
 import {
@@ -942,7 +942,7 @@ export default function ResumeParser
 
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/parser/ner-extract-resume-profile`,
+        `${DEV_TEST_URL}/parser/ner-extract-resume-profile`,
         { text: safeText },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -972,7 +972,7 @@ export default function ResumeParser
 
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/ai/gemini-extract-resume-profile`,
+        `${DEV_TEST_URL}/ai/gemini-extract-resume-profile`,
         { text: safeText },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -996,7 +996,7 @@ export default function ResumeParser
 
     try {
       // Use the unified endpoint that supports PDF, images, and DOCX
-      const response = await axios.post(`${API_BASE_URL}/parser/extract-resume-text`, formData, {
+      const response = await axios.post(`${DEV_TEST_URL}/parser/extract-resume-text`, formData, {
         headers: { "Content-Type": "multipart/form-data" }
       });
       console.log("Text extraction response:", response);
@@ -1311,7 +1311,7 @@ export default function ResumeParser
           // PDF/DOCX: use external parsing service first
           try {
             const base64 = await fileToBase64(file);
-            const resp = await axios.post(`${API_BASE_URL}/parser/ner-extract-resume-profile`, {
+            const resp = await axios.post(`${DEV_TEST_URL}/parser/ner-extract-resume-profile`, {
               base64,
               fileName: file.name,
               mimeType: file.type,
