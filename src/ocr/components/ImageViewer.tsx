@@ -124,6 +124,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
   const [currentSelection, setCurrentSelection] = useState<SelectionBox | null>(null);
   const [mode, setMode] = useState<'' | 'select'>(''); // Change default to empty string
+  const [persistedSelections, setPersistedSelections] = useState<SelectionBox[]>([]); // persist boxes after creation
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [parsing, setParsing] = useState(false);
 
@@ -438,22 +439,111 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     setSelectionDisplay({ x, y, width: w, height: h });
   }, [isDragging, dragStart.x, dragStart.y, zoom, isSelecting]);
 
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+    };
+  }, []);
+
+
+  // Wheel zoom: only when cursor is inside the visible canvas; zoom around cursor point
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const rect = canvas.getBoundingClientRect();
+    e.preventDefault();
+    e.stopPropagation();
+    // ignore wheel if cursor is outside canvas
+    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+
+    const step = 1.1;
+    const factor = e.deltaY > 0 ? 1 / step : step;
+
+    // Use functional updates to avoid stale state
+    setZoom((prevZoom) => {
+      const prev = prevZoom;
+      const next = Math.max(0.1, Math.min(5, prev * factor));
+
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+
+      // Derivation:
+      // screenX = (imgX + pan) * scale
+      // imgX_prev = cx / prev - pan.x
+      // newPan = pan + cx*(1/next - 1/prev)
+      setPan((prevPan) => {
+        const newX = prevPan.x + cx * (1 / next - 1 / prev);
+        const newY = prevPan.y + cy * (1 / next - 1 / prev);
+
+        // optional clamping so the image doesn't completely escape the viewport
+        const displayedWidth = rect.width * (next / prev);
+        const displayedHeight = rect.height * (next / prev);
+        const containerRect = container.getBoundingClientRect();
+        const margin = 20;
+        const minX = Math.min(margin, containerRect.width - displayedWidth - margin);
+        const maxX = Math.max(-margin, margin);
+        const minY = Math.min(margin, containerRect.height - displayedHeight - margin);
+        const maxY = Math.max(-margin, margin);
+
+        const clampedX = Math.max(minX, Math.min(maxX, newX));
+        const clampedY = Math.max(minY, Math.min(maxY, newY));
+        return { x: clampedX, y: clampedY };
+      });
+
+      return next;
+    });
+  }, []);
+
+  // Attach a native non-passive wheel listener to ensure preventDefault works across browsers
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const nativeHandler = (ev: WheelEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      if (ev.clientX >= rect.left && ev.clientX <= rect.right && ev.clientY >= rect.top && ev.clientY <= rect.bottom) {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+    };
+    el.addEventListener('wheel', nativeHandler, { passive: false });
+    return () => el.removeEventListener('wheel', nativeHandler);
+  }, []);
+
   const handleMouseUp = useCallback(async (e: React.MouseEvent) => {
     // finish dragging if active
     if (isDragging) {
       setIsDragging(false);
       panStartRef.current = null;
     }
-
+ 
     if (!isSelecting) return;
     setIsSelecting(false);
-
+ 
     // IMPORTANT: selectionDisplay is in displayed-image pixels relative to image top-left.
     // Pass that directly to performOCR which will convert it to natural pixels exactly once.
     if (selectionDisplay && selectionDisplay.width > 5 && selectionDisplay.height > 5 && canvasRef.current) {
-       await performOCR(selectionDisplay);
+       // capture selection, perform OCR and persist the visual box
+       const sel = { ...selectionDisplay };
+       await performOCR(sel);
+       setPersistedSelections(prev => [...prev, sel]);
     }
-
+ 
     // clear
     selectionStartRef.current = null;
     setSelectionDisplay(null);
@@ -782,14 +872,16 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        style={{ cursor: mode === 'select' ? "crosshair" : "default", zIndex: 0, pointerEvents: 'auto'}}
+        onWheel={handleWheel}
+        style={{ cursor: mode === 'select' ? "crosshair" : "default", zIndex: 0, pointerEvents: 'auto', overscrollBehavior: 'contain'}}
       >
         {/* single image element used for all coordinate math */}
         {fileUrl ? (
           <canvas
             ref={canvasRef}
             style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(1)`,
+              // apply zoom via CSS transform so displayed rect changes and mapping to canvas pixels remains correct
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transition: "transform 0.05s",
               display: 'block',
               cursor: mode === 'select' ? 'crosshair' : 'grab'
@@ -819,6 +911,28 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
               />
             );
           })()
+        )}
+
+        {/* Persisted selection overlays (remain visible after OCR) */}
+        {persistedSelections && persistedSelections.length > 0 && canvasRef.current && containerRef.current && (
+          persistedSelections.map((sel, i) => {
+            const imgRect = canvasRef.current!.getBoundingClientRect();
+            const containerRect = containerRef.current!.getBoundingClientRect();
+            const left = imgRect.left - containerRect.left + sel.x;
+            const top = imgRect.top - containerRect.top + sel.y;
+            const style = {
+              position: "absolute" as const,
+              left: `${left}px`,
+              top: `${top}px`,
+              width: `${sel.width}px`,
+              height: `${sel.height}px`,
+              border: "2px dashed rgba(0,120,215,0.9)",
+              background: "rgba(0,120,215,0.06)",
+              pointerEvents: "none" as const,
+              zIndex: 12,
+            };
+            return <div key={`persisted-${i}`} style={style} />;
+          })
         )}
 
         {/* toolbar (absolute) */}
