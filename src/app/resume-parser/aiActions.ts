@@ -15,28 +15,77 @@ export async function persistNERResult(nerResult: any, analysisText?: string) {
       throw new Error("No parsed_entities found in NER result");
     }
 
-    // Build a normalized profile
-    const nameVal = (parsed.NAME && parsed.NAME[0]) || (parsed.PERSON_NAME && parsed.PERSON_NAME[0]) || "";
-    const emailVal = (parsed.EMAIL && parsed.EMAIL[0]) || "";
-    const phoneVal = (parsed.PHONE && parsed.PHONE[0]) || "";
-    const locationVal = (parsed.ADDRESS && parsed.ADDRESS[0]) || (parsed.LOCATION && parsed.LOCATION[0]) || "";
+    // helpers
+    const toStrArr = (v: any) =>
+      Array.isArray(v) ? v.map(String).map(s => s.trim()).filter(Boolean) : (v ? [String(v).trim()] : []);
 
+    const toTitleCase = (s: string) =>
+      s
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(w => w.replace(/^\w/, (c) => c.toUpperCase()))
+        .join(' ');
+
+    // Pick best email (prefer item matching simple email regex)
+    const emailCandidates = toStrArr(parsed.EMAIL || parsed.email || parsed.Mail);
+    const emailVal =
+      emailCandidates.find(e => /\S+@\S+\.\S+/.test(e)) ||
+      emailCandidates[0] ||
+      "";
+
+    // Pick best phone (prefer one matching digits pattern)
+    const phoneCandidates = toStrArr(parsed.PHONE || parsed.phone || parsed.Telephone);
+    const phoneVal =
+      phoneCandidates.find(p => /\+?\d[\d\-\s]{6,}\d/.test(p)) ||
+      phoneCandidates[0] ||
+      "";
+
+    // Pick best name: prefer non-gender tokens, prefer Title Case or comma-format or multi-word candidates
+    const rawNameCandidates = toStrArr(parsed.PERSON_NAME || parsed.NAME || parsed.person_name || parsed.name);
+    const nameCandidates = rawNameCandidates.filter(n => !/^(male|female|m|f|unknown)$/i.test(n));
+    let nameVal = "";
+    if (nameCandidates.length > 0) {
+      const titleCaseCandidate = nameCandidates.find(n => /[a-z]/.test(n)); // has lowercase -> likely Title Case
+      const commaCandidate = nameCandidates.find(n => /,/.test(n));
+      const multiWordCandidate = nameCandidates.find(n => n.split(/\s+/).length > 1);
+      nameVal = titleCaseCandidate || commaCandidate || multiWordCandidate || nameCandidates[0];
+    } else {
+      nameVal = rawNameCandidates[0] || "";
+    }
+
+    // Normalize/parse name into parts (support "Last, First Middle" or "First Middle Last")
     const profile: any = {
-      name: nameVal,
+      name: "",
       firstName: "",
       middleName: "",
       lastName: "",
       email: emailVal,
       phone: phoneVal,
-      location: locationVal,
+      location: "",
     };
 
     if (nameVal) {
-      const parts = nameVal.trim().split(/\s+/);
-      profile.firstName = parts[0] || "";
-      profile.lastName = parts.length > 1 ? parts[parts.length - 1] : "";
-      profile.middleName = parts.length > 2 ? parts.slice(1, -1).join(" ") : "";
+      const nv = nameVal.trim();
+      if (/,/.test(nv)) {
+        // "Last, First Middle"
+        const [lastPart, rest] = nv.split(',', 2).map(s => s.trim());
+        const restParts = (rest || "").split(/\s+/).filter(Boolean);
+        profile.firstName = toTitleCase(restParts[0] || "");
+        profile.middleName = restParts.length > 1 ? toTitleCase(restParts.slice(1).join(' ')) : "";
+        profile.lastName = toTitleCase(lastPart);
+        profile.name = toTitleCase(`${restParts.join(' ')} ${lastPart}`.trim());
+      } else {
+        const parts = nv.split(/\s+/).filter(Boolean);
+        profile.firstName = toTitleCase(parts[0] || "");
+        profile.lastName = toTitleCase(parts.length > 1 ? parts[parts.length - 1] : "");
+        profile.middleName = parts.length > 2 ? toTitleCase(parts.slice(1, -1).join(' ')) : "";
+        profile.name = toTitleCase(nv);
+      }
     }
+
+    const locationVal = (parsed.ADDRESS && parsed.ADDRESS[0]) || (parsed.LOCATION && parsed.LOCATION[0]) || "";
+    if (locationVal) profile.location = toTitleCase(String(locationVal));
 
     // Map other sections (safe defaults)
     const mapped = {
