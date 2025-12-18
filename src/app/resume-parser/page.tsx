@@ -1308,58 +1308,46 @@ export default function ResumeParser
         if (gResult?.error) throw new Error(gResult.error);
         nerResult = gResult;
       } else {
-          // PDF/DOCX: use external parsing service first
+          // PDF/DOCX: extract text first, then call the NER endpoint (NER expects text, not files)
           try {
-            const base64 = await fileToBase64(file);
-            const resp = await axios.post(`${DEV_TEST_URL}/parser/ner-extract-resume-profile`, {
-              base64,
-              fileName: file.name,
-              mimeType: file.type,
-            }, { headers: { "Content-Type": "application/json" } });
+            // 1) Extract plain text from the file (server endpoint that accepts file uploads)
+            const extractedText = await extractResumeText(file);
 
-            const parsed = resp.data || {};
-
-            // If parsing service returned a structured object, use it directly
-            if (parsed.structured && Object.keys(parsed.structured).length > 0) {
-              // Use structured result from the parsing service and persist it
-              const structuredResume = parsed.structured;
-              // Update UI immediately with structured resume
-              setEditableResume(structuredResume);
-              setParsed(true);
-
-              // Persist the structured resume + any parsed text returned
+            if (extractedText && typeof extractedText === "string" && extractedText.trim().length > 20) {
+              // 2) First try server-side NER which accepts text
+              let nerResp = null;
               try {
-                await persistAnalysisResult({
-                  resume: structuredResume,
-                  analysis: parsed.parsedText || ""
-                });
-                usedStructuredService = true;
-              } catch (persistErr) {
-                console.warn("Failed to persist structured service result:", persistErr);
+                nerResp = await NERResumeProfile(extractedText);
+              } catch (err) {
+                console.warn("Server NER failed, will fallback to Gemini:", err);
+                nerResp = null;
               }
-              // keep nerResult for logging/consistency but skip Gemini persistence below
-              nerResult = parsed.structured;
-             } else if (parsed.parsedText && typeof parsed.parsedText === "string" && parsed.parsedText.trim().length > 20) {
-               // Fallback: send parsed text to Gemini NER (existing fallback)
-               const gResult = await geminiExtractResumeProfile(parsed.parsedText);
-               if (gResult?.error) throw new Error(gResult.error);
-               nerResult = gResult;
-             } else {
-               // Last resort: try server-side text extraction endpoint (keep original behavior)
-               const extractedText = await extractResumeText(file);
-               const gResult = await geminiExtractResumeProfile(extractedText);
-               if (gResult?.error) throw new Error(gResult.error);
-               nerResult = gResult;
-             }
-           } catch (svcErr) {
-             console.warn("Parsing service failed, falling back to existing extraction/Gemini path:", svcErr);
-             const extractedText = await extractResumeText(file);
-             const gResult = await geminiExtractResumeProfile(extractedText);
-             if (gResult?.error) throw new Error(gResult.error);
-             nerResult = gResult;
-           }
-       }
 
+              if (nerResp && nerResp.parsed_entities && Object.keys(nerResp.parsed_entities).length > 0) {
+                // use server NER result
+                nerResult = nerResp;
+              } else {
+                // fallback to Gemini NER on the extracted text
+                const gResult = await geminiExtractResumeProfile(extractedText);
+                if (gResult?.error) throw new Error(gResult.error);
+                nerResult = gResult;
+              }
+            } else {
+              // extracted text too short -> try Gemini extraction as last resort
+              const textForGemini = extractedText || (await extractResumeText(file));
+              const gResult = await geminiExtractResumeProfile(textForGemini);
+              if (gResult?.error) throw new Error(gResult.error);
+              nerResult = gResult;
+            }
+          } catch (svcErr) {
+            console.warn("Parsing/extraction failed, falling back to extraction+Gemini path:", svcErr);
+            const fallbackText = await extractResumeText(file);
+            const gResult = await geminiExtractResumeProfile(fallbackText);
+            if (gResult?.error) throw new Error(gResult.error);
+            nerResult = gResult;
+          }
+        }
+ 
        console.log("DEBUG NER result:", nerResult);
        
        // Check for Gemini error response
@@ -1374,8 +1362,18 @@ export default function ResumeParser
         setEditableResume(mappedResume);  // Update UI immediately
         setParsed(true);  // Mark as parsed
 
-        // Then persist Gemini-shaped result
-        await persistGeminiAnalysisResult(nerResult);
+        // Persist appropriately depending on result shape
+        try {
+          // Server NER returns { parsed_entities: { ... } } — use NER persister
+          if (nerResult && (nerResult.parsed_entities || nerResult.parsedEntities)) {
+            await persistNERResult(nerResult);
+          } else {
+            // Gemini / AI shaped result -> use Gemini persister
+            await persistGeminiAnalysisResult(nerResult);
+          }
+        } catch (persistErr) {
+          console.warn("Failed to persist parsed result:", persistErr);
+        }
       }
  
       // Reduce timeout since we already synced UI
@@ -1950,7 +1948,7 @@ export default function ResumeParser
             >
               {isParsingResume || isProcessing ? "Parsing..." : "Parse Resume"}
             </button>
-          </div>
+                   </div>
 
           <button
             onClick={() => {
