@@ -244,22 +244,35 @@ export const DocumentScanner: React.FC = () => {
 
   const handleTextExtracted = useCallback(async (newExtraction: ExtractedText | ExtractedText[]) => {
     const blocks = Array.isArray(newExtraction) ? newExtraction : [newExtraction];
-    
-    // Replace (not append) extracted data with current scan results only
-    setExtractedData(blocks);
+
+    // Append new blocks to current extracted data (don't replace) so multiple region scans on same image accumulate
+    setExtractedData(prev => {
+      const combined = [...(prev || []), ...blocks];
+
+      // Persist combined into store and docs immediately
+      try {
+        setStoredExtractedData(combined);
+        const filename = currentFile?.name || `unsaved-${Date.now()}`;
+        const resultPayload = {
+          filename,
+          extractedData: combined,
+          customTags: [],
+          timestamp: new Date().toISOString()
+        };
+        // addResult expects the result object
+        addResult(resultPayload);
+        markFileProcessed(filename);
+      } catch (err) {
+        console.warn("Failed to persist appended OCR result:", err);
+      }
+
+      return combined;
+    });
+
     setActivePanel("ocr");
-
-    // Persist extracted data (replace, not append)
-    setStoredExtractedData(blocks);
-    
-    // Update processing state
+    // Update processing flag
     setOcrProcessing(false);
-
-    // Persist OCR result to store
-    const filename = currentFile?.name || `unsaved-${Date.now()}`;
-    addResult(filename, { extracted: blocks, timestamp: Date.now() });
-    markFileProcessed(filename);
-  }, [currentFile, addResult, markFileProcessed, setStoredExtractedData, setOcrProcessing]);
+  }, [currentFile, addResult, markFileProcessed, setStoredExtractedData]);
 
   const handleUpdateExtraction = useCallback((id: string, updates: Partial<ExtractedText>) => {
     setExtractedData(prev => 

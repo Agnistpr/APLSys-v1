@@ -48,13 +48,48 @@ function dataURLtoFile(dataurl: string, filename: string) {
   return new File([u8arr], filename, { type: mime });
 }
 
+//utility for bboxes
+function bboxFromRotatedUI(
+  sel: SelectionBox,
+  rotation: number,
+  imgW: number,
+  imgH: number
+) {
+  switch (rotation % 360) {
+    case 90:
+      return {
+        x: sel.y,
+        y: imgW - sel.x - sel.width,
+        width: sel.height,
+        height: sel.width
+      };
+    case 180:
+      return {
+        x: imgW - sel.x - sel.width,
+        y: imgH - sel.y - sel.height,
+        width: sel.width,
+        height: sel.height
+      };
+    case 270:
+      return {
+        x: imgH - sel.y - sel.height,
+        y: sel.x,
+        width: sel.height,
+        height: sel.width
+      };
+    default:
+      return sel;
+  }
+}
+
+
 // Example usage inside your OCR handler (e.g., handleFullScanOCR or performOCR)
 const sendImageToClassifier = async (imageDataUrl: string) => {
   const file = dataURLtoFile(imageDataUrl, "image.png");
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await axios.post(`${DEV_TEST_URL}/parser/parse-document`, formData, {
+  const response = await axios.post(`${API_BASE_URL}/parser/parse-document`, formData, {
     headers: { "Content-Type": "multipart/form-data" }
   });
   return response.data;
@@ -77,14 +112,14 @@ interface SelectionBox {
 }
 
 export async function classifyTextWithNER(text: string) {
-  const res = await axios.post(`${DEV_TEST_URL}/parser/parse-document`, { text });
+  const res = await axios.post(`${API_BASE_URL}/parser/parse-document`, { text });
   return res.data.entities;
 }
 
 // Update the classification function
 export async function classifyTextWithAI(text: string) {
   try {
-    const res = await axios.post(`${DEV_TEST_URL}/ai/deepseek-label-extracted-text`, { 
+    const res = await axios.post(`${API_BASE_URL}/ai/deepseek-label-extracted-text`, { 
       text,
       fileName: "document.txt" // Add filename for context
     });
@@ -214,17 +249,28 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       let text = "";
       let confidence = 0;
       try {
-        // Compute bbox in canvas (natural) pixels — same math used by cropSelectionToDataUrl
+        // --- NEW: scale UI selection -> canvas (rotated) pixels ---
         const { sx, sy } = displayedToCanvasScale();
-        const bx = Math.max(0, Math.round(selection.x * sx));
-        const by = Math.max(0, Math.round(selection.y * sy));
-        const bw = Math.max(1, Math.round(selection.width * sx));
-        const bh = Math.max(1, Math.round(selection.height * sy));
-        const bbox = { x: bx, y: by, width: bw, height: bh };
+        const selCanvas = {
+          x: Math.max(0, Math.round(selection.x * sx)),
+          y: Math.max(0, Math.round(selection.y * sy)),
+          width: Math.max(1, Math.round(selection.width * sx)),
+          height: Math.max(1, Math.round(selection.height * sy)),
+        };
 
         // Build original (unrotated) image bytes so server can re-orient + crop reliably.
         const origImg = imageRef.current;
         if (!origImg) throw new Error("Original image not available");
+
+        // Remap the selection from the rotated canvas space back to original-image pixel coords
+        const bbox = bboxFromRotatedUI(
+          selCanvas,
+          rotation,
+          origImg.naturalWidth,
+          origImg.naturalHeight
+        );
+
+        // Draw the original image into a canvas and send full image bytes + bbox
         const origCanvas = document.createElement("canvas");
         origCanvas.width = origImg.naturalWidth;
         origCanvas.height = origImg.naturalHeight;
@@ -233,12 +279,16 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         origCtx.drawImage(origImg, 0, 0, origImg.naturalWidth, origImg.naturalHeight);
         const fullImageData = origCanvas.toDataURL("image/png");
 
-        // Send full image + bbox + UI rotation to server — server will remap bbox -> original coords
+        // Send full image + bbox + UI rotation to server — server will remap/normalize bbox -> original coords
         const resp = await ocrRegion(fullImageData, rotation, bbox);
         text = resp?.text || "";
         confidence = resp?.confidence || 0;
+
+        console.log("UI bbox:", selection);
+        console.log("Sent bbox (orig-px):", bbox);
+        console.log("Rotation:", rotation);
       } catch (postErr) {
-        console.error("performOCR: ocrRegion (cropped) failed:", postErr);
+        console.error("performOCR: ocrRegion failed:", postErr);
         text = "";
         confidence = 0;
       }
@@ -326,7 +376,6 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         });
       }, 1000); // 1 second delay
     } finally {
-      // always clear both the per-file key AND the global processing flag
       setProcessingMap(prev => {
         const updated = { ...(prev || {}) };
         delete updated[processingKey];
@@ -337,8 +386,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       setGlobalProcessing(false);
       toast.dismiss(toastId); // Dismiss the "Processing..." toast
     }
-    //CRITICAL: add setProcessingMap to dependency array
-  }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
+  }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed, rotation, displayedToCanvasScale]);
 
   // --- NEW helper: crop selection to a PNG dataURL, handles rotation (0/90/180/270) ---
   // New: crop against the main rotated canvas (canvasRef). Canvas already contains the rotated image pixels.

@@ -31,7 +31,7 @@ export async function ocrFullScan(imageData: string) {
     console.warn("[OCR] ocrFullScan: logging failed", logErr);
   }
 
-  const res = await axios.post(`${DEV_TEST_URL}/ocr/extract-full`, formData, {
+  const res = await axios.post(`${API_BASE_URL}/ocr/extract-full`, formData, {
     headers: { "Content-Type": "multipart/form-data" }
   });
   return res.data.result;
@@ -73,15 +73,16 @@ export async function ocrRegion(imageData: string, rotation: number = 0, bbox?: 
   }
 
   try {
-    const res = await axios.post(`${DEV_TEST_URL}/ocr/extract-region`, formData, {
-      headers: { "Content-Type": "multipart/form-data" }
-    });
-    const { text = "", confidence = 0 } = res.data || {};
-    return { text, confidence };
-  } catch (err) {
-    console.error("ocrRegion error:", err);
-    return { text: "", confidence: 0 };
-  }
+    console.info(`[OCR] ocrRegion: POST ${API_BASE_URL}/ocr/extract-region`);
+    const res = await axios.post(`${API_BASE_URL}/ocr/extract-region`, formData, {
+       headers: { "Content-Type": "multipart/form-data" }
+     });
+     const { text = "", confidence = 0 } = res.data || {};
+     return { text, confidence };
+   } catch (err) {
+     console.error("ocrRegion error:", err);
+     return { text: "", confidence: 0 };
+   }
 }
 
 export async function ocrSearch(imageData: string, query: string) {
