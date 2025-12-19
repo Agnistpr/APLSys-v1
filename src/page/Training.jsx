@@ -331,21 +331,56 @@ const Training = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage,
                 />
 
                 <div className="actions">
-                  {!showCheckboxes ? (
-                    <button className="actionBtn" onClick={toggleCheckboxes}>Toggle</button>
-                  ) : (
+                  {showCheckboxes ? (
                     <>
-                      <button className="actionBtn" onClick={toggleCheckboxes}>Cancel</button>
-
                       {selectedTab === "Training" && (
                         <>
-                          <button className="actionBtn" onClick={handleApprove} disabled={selectedIds.length === 0}>Hire</button>
-                          <button className="actionBtn" onClick={handleReject} disabled={selectedIds.length === 0}>Reject</button>
+                          <button className="actionBtn" onClick={toggleCheckboxes}>Cancel</button>
+
+                          <button
+                            className="actionBtn"
+                            onClick={handleApprove}
+                            disabled={selectedIds.length === 0}
+                          >
+                            Hire
+                          </button>
+
+                          <button
+                            className="actionBtn"
+                            onClick={handleReject}
+                            disabled={selectedIds.length === 0}
+                          >
+                            Reject
+                          </button>
+
+                          <button className="actionBtn" onClick={toggleCheckboxes}>Toggle</button>
                         </>
                       )}
 
                       {selectedTab === "Rejected" && (
-                        <button className="actionBtn" onClick={handleApprove} disabled={selectedIds.length === 0}>Re-Train</button>
+                        <>
+                          <button className="actionBtn" onClick={toggleCheckboxes}>Cancel</button>
+
+                          <button
+                            className="actionBtn"
+                            onClick={handleApprove}
+                            disabled={selectedIds.length === 0}
+                          >
+                            Re-Train
+                          </button>
+
+                          <button className="actionBtn" onClick={toggleCheckboxes}>Toggle</button>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {selectedTab === "Training" && (
+                        <button className="actionBtn" onClick={toggleCheckboxes}>Toggle</button>
+                      )}
+
+                      {selectedTab === "Rejected" && (
+                        <button className="actionBtn" onClick={toggleCheckboxes}>Toggle</button>
                       )}
                     </>
                   )}

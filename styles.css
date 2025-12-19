@@ -236,6 +236,59 @@ input {
 /* #endregion Global/Main Styles */
 
 /* #region [Modal] */
+.modalEmployeeList {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #e3e3e3;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.modalEmployeeItem {
+  display: grid;
+  grid-template-columns: 24px 2fr 1.2fr 1.2fr 1.5fr;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eee;
+  transition: background-color 0.15s ease;
+}
+
+.modalEmployeeItem:last-child {
+  border-bottom: none;
+}
+
+.modalEmployeeItem:hover {
+  background-color: #f2f7ff;
+}
+
+.modalEmployeeItem input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #981b1b;
+  cursor: pointer;
+}
+
+.modalEmployeeItem > div,
+.modalEmployeeItem > span {
+  font-size: 14px;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modalEmployeeItem.header {
+  background: #f0f0f0;
+  font-weight: 600;
+  font-size: 13px;
+  color: #555;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+/* --- */
+
 .modalOverlay {
   position: fixed;
   top: 0;
@@ -268,6 +321,21 @@ input {
   font-size: 1.5rem;
   cursor: pointer;
   color: #333;
+}
+
+.modalFilters {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 0.75rem 0 1rem;
+}
+
+.modalFilters select {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+  background: #fff;
 }
 
 .modalForm {
@@ -378,6 +446,7 @@ input {
 
 .modalActions button:first-child {
   background: #ccc;
+  color: black;
 }
 
 .modalActions button:last-child {
@@ -3955,33 +4024,23 @@ ocr-root
   z-index: 50;
 }
 
-/* ---- TABLE ---- */
-
-.shiftTable {
-  width: 100%;
-  border-collapse: collapse;
-  background-color: white;
-}
-
 .shiftTable th {
   background-color: #981b1b;
   color: white;
-  padding: 0.6rem;
   text-align: left;
-  font-size: 14px;
+  padding: 0.75rem 1rem;
+  white-space: nowrap;
 }
 
 .shiftTable td {
-  padding: 0.55rem 0.6rem;
-  border-bottom: 1px solid #e8e8e8;
-  font-size: 14px;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #e5e5e5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shiftTable tr:nth-child(even) {
-  background-color: #fafafa;
-}
-
-.shiftTable tr:hover {
-  background-color: #f1f1f1;
+  background-color: #f9f9f9;
 }
 /* #endregion Shifting Styles */
