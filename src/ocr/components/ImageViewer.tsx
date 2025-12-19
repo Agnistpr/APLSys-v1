@@ -214,10 +214,27 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       let text = "";
       let confidence = 0;
       try {
-        const croppedDataUrl = await cropSelectionToDataUrl(selection);
-        // cropSelectionToDataUrl returns rotated crop (rotation baked into PNG)
-        console.log("performOCR: sending cropped image (len):", (croppedDataUrl || "").length);
-        const resp = await ocrRegion(croppedDataUrl, 0);
+        // Compute bbox in canvas (natural) pixels — same math used by cropSelectionToDataUrl
+        const { sx, sy } = displayedToCanvasScale();
+        const bx = Math.max(0, Math.round(selection.x * sx));
+        const by = Math.max(0, Math.round(selection.y * sy));
+        const bw = Math.max(1, Math.round(selection.width * sx));
+        const bh = Math.max(1, Math.round(selection.height * sy));
+        const bbox = { x: bx, y: by, width: bw, height: bh };
+
+        // Build original (unrotated) image bytes so server can re-orient + crop reliably.
+        const origImg = imageRef.current;
+        if (!origImg) throw new Error("Original image not available");
+        const origCanvas = document.createElement("canvas");
+        origCanvas.width = origImg.naturalWidth;
+        origCanvas.height = origImg.naturalHeight;
+        const origCtx = origCanvas.getContext("2d");
+        if (!origCtx) throw new Error("Canvas context not available");
+        origCtx.drawImage(origImg, 0, 0, origImg.naturalWidth, origImg.naturalHeight);
+        const fullImageData = origCanvas.toDataURL("image/png");
+
+        // Send full image + bbox + UI rotation to server — server will remap bbox -> original coords
+        const resp = await ocrRegion(fullImageData, rotation, bbox);
         text = resp?.text || "";
         confidence = resp?.confidence || 0;
       } catch (postErr) {
@@ -681,6 +698,11 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     setPan({ x: 0, y: 0 });
     setCurrentSelection(null);
     setSelectionDisplay(null);
+
+    // Clear persisted region boxes when the current file is cleared/removed
+    if (!fileUrl) {
+      setPersistedSelections([]);
+    }
   }, [fileUrl]);
 
   // Draw rotated image into canvasRef at natural pixels when fileUrl/rotation changes
