@@ -111,10 +111,6 @@ interface SelectionBox {
   height: number;
 }
 
-export async function classifyTextWithNER(text: string) {
-  const res = await axios.post(`${API_BASE_URL}/parser/parse-document`, { text });
-  return res.data.entities;
-}
 
 // Update the classification function
 export async function classifyTextWithAI(text: string) {
@@ -164,9 +160,11 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const [parsing, setParsing] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null); // offscreen loader
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
+  // Persist per-file drawn word boxes (keyed by fileUrl or fileName)
+  const persistedWordBoxesRef = useRef<Record<string, Array<{ x:number; y:number; width:number; height:number; label?:string }>>>({});
   const isGlobalProcessing = useOcrStore(s => s.isProcessing);
   const setGlobalProcessing = useOcrStore(s => s.setProcessing);
   const processingMap = useOcrStore(s => s.processingMap);
@@ -295,33 +293,31 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       }
 
       if (typeof text === "string" && text.trim()) {
-        // Use Gemini to label the region text
+        // Classify region text using the /classify endpoint.
+        // If the classifier returns nothing (204) or errors, continue without tags.
         let tags: string[] = [];
-        // try {
-        //   const geminiResult = await classifyTextWithAI(text.trim());
-        //   // normalize into array of strings
-        //   if (Array.isArray(geminiResult)) {
-        //     tags = geminiResult
-        //       .map((it: any) => {
-        //         if (typeof it === "string") return it;
-        //         if (it && typeof it === "object") return it.tag || it.label || it.key || "";
-        //         return "";
-        //       })
-        //       .filter(Boolean);
-        //   } else if (geminiResult && typeof geminiResult === "object") {
-        //     // object -> prefer keys with truthy value or string values
-        //     tags = Object.keys(geminiResult).filter(k => {
-        //       const v = (geminiResult as any)[k];
-        //       return (typeof v === "string" && v.trim() !== "") || Boolean(v);
-        //     });
-        //   } else {
-        //     tags = [];
-        //   }
-        // } catch (e) {
-        //   console.warn("AI classification failed:", e);
-        //   tags = [];
-        // }
-
+        try {
+          const payload = { text: String(text || "").trim() };
+          const r = await axios.post(`${API_BASE_URL}/ai/classify`, payload, { validateStatus: () => true });
+          if (r.status === 204) {
+            // no content / rate-limited — leave tags empty
+            tags = [];
+            toast(`Warning: No Tags`, {
+              id: toastId,
+              description: "Extracted text weren't tagged due to rate limit",
+              icon: "⚠️",
+              dismissible: true,
+              duration: 5000,
+            });
+          } else if (r.data) {
+            const tag = (r.data.tag || r.data || "").toString().trim();
+            if (tag) tags = [tag];
+          }
+        } catch (e) {
+          console.warn("Classifier call failed:", e);
+          tags = [];
+        }
+ 
         // build items array from OCR result (items was undefined)
         const extractedItems = [
           {
@@ -452,31 +448,52 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       if (!ctx) return;
       ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-      const origW = imageRef.current.naturalWidth;
-      const origH = imageRef.current.naturalHeight;
-      const rot = rotation % 360;
-
+      // Determine coordinate space used by server result:
+      // - If result.pages[0].dimensions matches the original image natural size, the bboxes
+      //   are relative to the original image and must be remapped to the rotated canvas.
+      // - Otherwise assume bboxes are relative to the image bytes we sent (the rotated canvas).
+      const canvas = canvasRef.current;
+      const origImg = imageRef.current;
       const pages = Array.isArray(result?.pages) ? result.pages : [];
+      const pageDim = pages[0]?.dimensions;
+
+      const canvasW = canvas?.width ?? origImg.naturalWidth;
+      const canvasH = canvas?.height ?? origImg.naturalHeight;
+      const origW = origImg.naturalWidth;
+      const origH = origImg.naturalHeight;
+
+      const boxesToPersist: Array<{ x:number; y:number; width:number; height:number; label?:string }> = [];
+
+      const coordSpaceIsOriginal = Array.isArray(pageDim) && pageDim[0] === origW && pageDim[1] === origH;
+
       pages.forEach((page: any) => {
         (page.blocks || []).forEach((block: any) => {
           (block.lines || []).forEach((line: any) => {
             (line.words || []).forEach((word: any) => {
-              const b = word.bbox || word.box || word; // tolerate shapes
+              const b = word.bbox || word.box || word;
               if (!b) return;
-              // if normalized (values <= 1) convert -> original pixels
-              const isNormalized = [b.x, b.y, b.width, b.height].every((v: number) => typeof v === "number" && v <= 1);
-              const origBox = {
-                x: isNormalized ? Math.round(b.x * origW) : Math.round(b.x),
-                y: isNormalized ? Math.round(b.y * origH) : Math.round(b.y),
-                width: isNormalized ? Math.max(1, Math.round((b.width || 0) * origW)) : Math.max(1, Math.round(b.width || 0)),
-                height: isNormalized ? Math.max(1, Math.round((b.height || 0) * origH)) : Math.max(1, Math.round(b.height || 0))
-              };
-              const rotated = origToRotatedUI(origBox, rot, origW, origH);
 
-              // draw rect
+              const isNormalized = [b.x, b.y, b.width, b.height].every((v: number) => typeof v === "number" && v <= 1);
+
+              // Map normalized -> pixels in the coordinate space the bbox is reported in.
+              const spaceW = coordSpaceIsOriginal ? origW : canvasW;
+              const spaceH = coordSpaceIsOriginal ? origH : canvasH;
+
+              const spaceBox = {
+                x: isNormalized ? Math.round(b.x * spaceW) : Math.round(b.x),
+                y: isNormalized ? Math.round(b.y * spaceH) : Math.round(b.y),
+                width: isNormalized ? Math.max(1, Math.round((b.width || 0) * spaceW)) : Math.max(1, Math.round(b.width || 0)),
+                height: isNormalized ? Math.max(1, Math.round((b.height || 0) * spaceH)) : Math.max(1, Math.round(b.height || 0))
+              };
+
+              // If bbox is reported relative to the original image, transform to rotated canvas coords:
+              const drawBox = coordSpaceIsOriginal
+                ? origToRotatedUI(spaceBox, rotation % 360, origW, origH)
+                : spaceBox;
+
               ctx.strokeStyle = "rgba(255,80,80,0.95)";
               ctx.lineWidth = Math.max(1, Math.round(Math.max(1, Math.min(4, overlay.width / 800))));
-              ctx.strokeRect(rotated.x, rotated.y, rotated.width, rotated.height);
+              ctx.strokeRect(drawBox.x, drawBox.y, drawBox.width, drawBox.height);
 
               // optional: draw text label (small)
               const label = (word.value || word.text || "").toString().slice(0, 30);
@@ -485,19 +502,56 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                 ctx.font = "12px sans-serif";
                 const padding = 3;
                 const textW = ctx.measureText(label).width + padding * 2;
-                ctx.fillRect(rotated.x, Math.max(0, rotated.y - 16), textW, 16);
+                ctx.fillRect(drawBox.x, Math.max(0, drawBox.y - 16), textW, 16);
                 ctx.fillStyle = "white";
-                ctx.fillText(label, rotated.x + padding, Math.max(0, rotated.y - 4));
+                ctx.fillText(label, drawBox.x + padding, Math.max(0, drawBox.y - 4));
               }
+
+              // collect for persistence
+              boxesToPersist.push({
+                x: Math.round(drawBox.x),
+                y: Math.round(drawBox.y),
+                width: Math.round(drawBox.width),
+                height: Math.round(drawBox.height),
+                label: label || undefined
+              });
             });
           });
         });
       });
+
+      // Persist boxes keyed by fileUrl (fallback to fileName)
+      const key = fileUrl || fileName || "unsaved";
+      if (key) persistedWordBoxesRef.current[key] = boxesToPersist;
     } catch (e) {
       console.warn("drawWordBoxes failed", e);
     }
   }
 
+  // insert helper to redraw persisted boxes for a given key
+  function redrawPersistedBoxesForKey(key: string) {
+    if (!key) return;
+    const overlay = ensureOverlayCanvas();
+    if (!overlay) return;
+    const ctx = overlay.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    const boxes = persistedWordBoxesRef.current[key] || [];
+    boxes.forEach(b => {
+      ctx.strokeStyle = "rgba(255,80,80,0.95)";
+      ctx.lineWidth = Math.max(1, Math.round(Math.max(1, Math.min(4, overlay.width / 800))));
+      ctx.strokeRect(b.x, b.y, b.width, b.height);
+      if (b.label) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.font = "12px sans-serif";
+        const padding = 3;
+        const textW = ctx.measureText(b.label).width + padding * 2;
+        ctx.fillRect(b.x, Math.max(0, b.y - 16), textW, 16);
+        ctx.fillStyle = "white";
+        ctx.fillText(b.label, b.x + padding, Math.max(0, b.y - 4));
+      }
+    });
+  }
 
   // --- NEW helper: crop selection to a PNG dataURL, handles rotation (0/90/180/270) ---
   // New: crop against the main rotated canvas (canvasRef). Canvas already contains the rotated image pixels.
@@ -938,6 +992,25 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       imageRef.current = null;
     };
   }, [fileUrl, rotation, zoom]);
+
+  useEffect(() => {
+   // if there's no file, remove all persisted boxes and clear overlay
+   if (!fileUrl) {
+     persistedWordBoxesRef.current = {};
+     const overlay = overlayRef.current;
+     if (overlay) {
+       const ctx = overlay.getContext("2d");
+       if (ctx) ctx.clearRect(0, 0, overlay.width, overlay.height);
+     }
+     return;
+   }
+
+   // redraw persisted boxes for this file (if present)
+   const key = fileUrl || fileName || "unsaved";
+   if (persistedWordBoxesRef.current[key]) {
+     redrawPersistedBoxesForKey(key);
+   }
+ }, [fileUrl, fileName, rotation, zoom]);
 
   // Handler to send the displayed image to the classifier endpoint
   const handleSendToClassifier = useCallback(async () => {
