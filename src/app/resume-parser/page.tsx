@@ -942,7 +942,7 @@ export default function ResumeParser
 
     try {
       const response = await axios.post(
-        `${DEV_TEST_URL}/parser/ner-extract-resume-profile`,
+        `${API_BASE_URL}/parser/ner-extract-resume-profile`,
         { text: safeText },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -972,7 +972,7 @@ export default function ResumeParser
 
     try {
       const response = await axios.post(
-        `${DEV_TEST_URL}/ai/gemini-extract-resume-profile`,
+        `${API_BASE_URL}/ai/gemini-extract-resume-profile`,
         { text: safeText },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -996,7 +996,7 @@ export default function ResumeParser
 
     try {
       // Use the unified endpoint that supports PDF, images, and DOCX
-      const response = await axios.post(`${DEV_TEST_URL}/parser/extract-resume-text`, formData, {
+      const response = await axios.post(`${API_BASE_URL}/parser/extract-resume-text`, formData, {
         headers: { "Content-Type": "multipart/form-data" }
       });
       console.log("Text extraction response:", response);
