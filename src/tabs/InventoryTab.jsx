@@ -285,8 +285,11 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
   return (
     <div className="tabSection">
       <div className="inventoryRow">
+        <h2 className="tabTitle">Inventory</h2>
         <div className="tabTitleGroup">
-          <h2 className="tabTitle">Inventory</h2>
+        <button className="addBtn" onClick={() => setAddModalOpen(true)}>
+          <FiPlus /> Add Item
+        </button>
           <button
             className="exportBtn"
             onClick={async () => {
@@ -308,9 +311,6 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
             Export
           </button>
         </div>
-        <button className="addBtn" onClick={() => setAddModalOpen(true)}>
-          <FiPlus /> Add Item
-        </button>
       </div>
 
       <div className="tabCards" style={{ scrollBehavior: "smooth" }}>
@@ -356,26 +356,6 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
       <div className="tabHeaderRow">
         <div className="tabTitleGroup">
           <h2 className="tabTitle">Inventory Logs</h2>
-          <button
-            className="exportBtn"
-            onClick={async () => {
-              try {
-                const result = await window.exportAPI.exportInventoryLogs(selectedDate);
-                console.log(uid);
-                if (result.success) {
-                  await window.userAPI.logAction(uid, "exported a copy of Inventory Logs");
-                  window.toast("Inventory Logs exported successfully!", "success");
-                } else {
-                  window.toast(result.message || "Export failed", "error");
-                }
-              } catch (err) {
-                console.error("Export error:", err);
-                window.toast("An error occurred during export", "error");
-              }
-            }}
-          >
-            Export
-          </button>
         </div>
         <div className="tabControls">
           <SortDropdown
@@ -450,6 +430,26 @@ const InventoryComponent = ({ uid, setActivePage, setSelectedEmployeeId }) => {
           onItemsPerPageChange={setItemsPerPage}
           onExport={() => window.exportAPI.exportInventoryLogs(selectedDate)}
         />
+        <button
+          className="exportBtn"
+          onClick={async () => {
+            try {
+              const result = await window.exportAPI.exportInventoryLogs(selectedDate);
+              console.log(uid);
+              if (result.success) {
+                await window.userAPI.logAction(uid, "exported a copy of Inventory Logs");
+                window.toast("Inventory Logs exported successfully!", "success");
+              } else {
+                window.toast(result.message || "Export failed", "error");
+              }
+            } catch (err) {
+              console.error("Export error:", err);
+              window.toast("An error occurred during export", "error");
+            }
+          }}
+        >
+          Export
+        </button>
       </div>
 
       <ConfirmModal

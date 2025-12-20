@@ -274,7 +274,6 @@ const Dashboard = ({
               <div className="notifDropdown">
                 <div className="notifHeader">
                   Notifications
-                  <button className="clearNotifBtn">Clear</button>
                 </div>
 
                 <div className="notifList">
@@ -359,7 +358,7 @@ const Dashboard = ({
       </div>
       <ConfirmModal
         open={confirmOpen}
-        title="Handle Leave Request"
+        title="Approve Detail Request?"
         message={selectedNotif ? selectedNotif.text : ""}
         confirmLabel="Approve"
         cancelLabel="Cancel"

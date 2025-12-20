@@ -63,6 +63,15 @@ function timeToMinutes(timeStr) {
   const m = parseInt(parts[1], 10) || 0;
   return h * 60 + m;
 }
+
+function to24Hour(timeStr) {
+  if (!timeStr) return null;
+  const [time, modifier] = timeStr.split(" "); // ["10:00", "AM"]
+  let [hours, minutes] = time.split(":").map(Number);
+  if (modifier.toUpperCase() === "PM" && hours < 12) hours += 12;
+  if (modifier.toUpperCase() === "AM" && hours === 12) hours = 0;
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+}
 // --------------------------------------------------------------------
 
 // CSV --------------------------------------------------------------------
@@ -1624,6 +1633,7 @@ ipcMain.handle("getShifts", async () => {
       const hasShift = e.shiftstart && e.shiftend;
 
       return {
+        employeeid: e.employeeid,
         role: "Employee",
         name: makeName(e.lastname, e.firstname, e.middlename),
         position: e.position?.positionname ?? "",
@@ -1637,6 +1647,7 @@ ipcMain.handle("getShifts", async () => {
       const hasShift = a.shiftstart && a.shiftend;
 
       return {
+        applicantid: a.applicantid,
         role: "Applicant",
         name: makeName(a.lastname, a.firstname, a.middlename),
         position: a.appliedrole ?? "Applicant",
@@ -1650,6 +1661,41 @@ ipcMain.handle("getShifts", async () => {
   } catch (err) {
     console.error("getShifts error:", err);
     return [];
+  }
+});
+
+ipcMain.handle("updateShift", async (event, ids, shiftStart, shiftEnd) => {
+  try {
+    console.log("updateShift called with:", ids, shiftStart, shiftEnd);
+
+    if (!Array.isArray(ids) || !ids.length) return false;
+
+    const employeeIds = ids.filter(i => i.type === "employee").map(i => i.id);
+    const applicantIds = ids.filter(i => i.type === "applicant").map(i => i.id);
+
+    console.log("Employee IDs:", employeeIds);
+    console.log("Applicant IDs:", applicantIds);
+
+    if (employeeIds.length) {
+      const { data, error } = await supabase
+        .from("employee")
+        .update({ shiftstart: shiftStart, shiftend: shiftEnd })
+        .in("employeeid", employeeIds);
+      console.log("Employee update:", data, error);
+    }
+
+    if (applicantIds.length) {
+      const { data, error } = await supabase
+        .from("applicant")
+        .update({ shiftstart: shiftStart, shiftend: shiftEnd })
+        .in("applicantid", applicantIds);
+      console.log("Applicant update:", data, error);
+    }
+
+    return true;
+  } catch (err) {
+    console.error("updateShift error:", err);
+    return false;
   }
 });
 

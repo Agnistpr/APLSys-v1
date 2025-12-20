@@ -67,8 +67,7 @@ contextBridge.exposeInMainWorld('employeeAPI', {
 
 contextBridge.exposeInMainWorld('shiftAPI', {
   getShifts: () => ipcRenderer.invoke("getShifts"),
-  updateShift: (id, shiftStart, shiftEnd) =>
-    ipcRenderer.invoke("updateShift", id, shiftStart, shiftEnd),
+  updateShift: (ids, shiftStart, shiftEnd) => ipcRenderer.invoke("updateShift", ids, shiftStart, shiftEnd),
 });
 
 contextBridge.exposeInMainWorld('attendanceAPI', {
