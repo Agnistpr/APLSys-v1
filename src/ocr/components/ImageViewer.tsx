@@ -164,6 +164,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const [parsing, setParsing] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null); // offscreen loader
   const isGlobalProcessing = useOcrStore(s => s.isProcessing);
@@ -388,6 +389,116 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed, rotation, displayedToCanvasScale]);
 
+  // inverse mapping: original-image -> rotated-canvas coordinates
+  function origToRotatedUI(orig: SelectionBox, rotation: number, imgW: number, imgH: number): SelectionBox {
+    const r = ((rotation % 360) + 360) % 360;
+    switch (r) {
+      case 90:
+        return {
+          x: Math.round(imgW - orig.y - orig.height),
+          y: Math.round(orig.x),
+          width: Math.round(orig.height),
+          height: Math.round(orig.width)
+        };
+      case 180:
+        return {
+          x: Math.round(imgW - orig.x - orig.width),
+          y: Math.round(imgH - orig.y - orig.height),
+          width: Math.round(orig.width),
+          height: Math.round(orig.height)
+        };
+      case 270:
+        return {
+          x: Math.round(orig.y),
+          y: Math.round(imgH - orig.x - orig.width),
+          width: Math.round(orig.height),
+          height: Math.round(orig.width)
+        };
+      default:
+        return { ...orig };
+    }
+  }
+
+  function ensureOverlayCanvas() {
+    const base = canvasRef.current;
+    const container = containerRef.current;
+    if (!base || !container) return null;
+    let overlay = overlayRef.current;
+    if (!overlay) {
+      overlay = document.createElement("canvas");
+      overlayRef.current = overlay;
+      overlay.style.position = "absolute";
+      overlay.style.left = "0";
+      overlay.style.top = "0";
+      overlay.style.pointerEvents = "none";
+      overlay.style.zIndex = "11";
+      container.appendChild(overlay);
+    }
+    // sync pixel dims and visual size/transform to base canvas
+    overlay.width = base.width;
+    overlay.height = base.height;
+    overlay.style.width = base.style.width || `${base.width}px`;
+    overlay.style.height = base.style.height || `${base.height}px`;
+    overlay.style.transform = (base as HTMLCanvasElement).style.transform || "";
+    return overlay;
+  }
+
+  // Draw word boxes returned by server. Supports normalized (0..1) bbox or pixel bbox.
+  function drawWordBoxes(result: any) {
+    try {
+      const overlay = ensureOverlayCanvas();
+      if (!overlay || !imageRef.current) return;
+      const ctx = overlay.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+      const origW = imageRef.current.naturalWidth;
+      const origH = imageRef.current.naturalHeight;
+      const rot = rotation % 360;
+
+      const pages = Array.isArray(result?.pages) ? result.pages : [];
+      pages.forEach((page: any) => {
+        (page.blocks || []).forEach((block: any) => {
+          (block.lines || []).forEach((line: any) => {
+            (line.words || []).forEach((word: any) => {
+              const b = word.bbox || word.box || word; // tolerate shapes
+              if (!b) return;
+              // if normalized (values <= 1) convert -> original pixels
+              const isNormalized = [b.x, b.y, b.width, b.height].every((v: number) => typeof v === "number" && v <= 1);
+              const origBox = {
+                x: isNormalized ? Math.round(b.x * origW) : Math.round(b.x),
+                y: isNormalized ? Math.round(b.y * origH) : Math.round(b.y),
+                width: isNormalized ? Math.max(1, Math.round((b.width || 0) * origW)) : Math.max(1, Math.round(b.width || 0)),
+                height: isNormalized ? Math.max(1, Math.round((b.height || 0) * origH)) : Math.max(1, Math.round(b.height || 0))
+              };
+              const rotated = origToRotatedUI(origBox, rot, origW, origH);
+
+              // draw rect
+              ctx.strokeStyle = "rgba(255,80,80,0.95)";
+              ctx.lineWidth = Math.max(1, Math.round(Math.max(1, Math.min(4, overlay.width / 800))));
+              ctx.strokeRect(rotated.x, rotated.y, rotated.width, rotated.height);
+
+              // optional: draw text label (small)
+              const label = (word.value || word.text || "").toString().slice(0, 30);
+              if (label) {
+                ctx.fillStyle = "rgba(0,0,0,0.6)";
+                ctx.font = "12px sans-serif";
+                const padding = 3;
+                const textW = ctx.measureText(label).width + padding * 2;
+                ctx.fillRect(rotated.x, Math.max(0, rotated.y - 16), textW, 16);
+                ctx.fillStyle = "white";
+                ctx.fillText(label, rotated.x + padding, Math.max(0, rotated.y - 4));
+              }
+            });
+          });
+        });
+      });
+    } catch (e) {
+      console.warn("drawWordBoxes failed", e);
+    }
+  }
+
+
   // --- NEW helper: crop selection to a PNG dataURL, handles rotation (0/90/180/270) ---
   // New: crop against the main rotated canvas (canvasRef). Canvas already contains the rotated image pixels.
   async function cropSelectionToDataUrl(selection: SelectionBox): Promise<string> {
@@ -503,22 +614,6 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     const h = Math.abs(curY - s.y);
     setSelectionDisplay({ x, y, width: w, height: h });
   }, [isDragging, dragStart.x, dragStart.y, zoom, isSelecting]);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-    };
-
-    el.addEventListener("wheel", onWheel, { passive: false });
-
-    return () => {
-      el.removeEventListener("wheel", onWheel);
-    };
-  }, []);
-
 
   // Wheel zoom: only when cursor is inside the visible canvas; zoom around cursor point
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -638,6 +733,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       const imageData = canvas.toDataURL("image/png");
       const result = await ocrFullScan(imageData);
       console.log("OCR result:", result);
+
+      // draw per-word boxes if server returned bboxes
+      try {
+        drawWordBoxes(result);
+      } catch (e) {
+        console.warn("Failed to draw OCR boxes:", e);
+      }
 
       // If result is the doctr structured output:
       let items: ExtractedText[] = [];
