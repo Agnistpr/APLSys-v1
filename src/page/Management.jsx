@@ -34,6 +34,10 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   const scanToastId = `scan:${Date.now()}`;
   const OPEN_FOLDER_TOAST = "open-folder";
 
+  // Add top-level constants for image-limit enforcement
+  const MAX_BATCH_FILES = 5;
+  const IMAGE_EXTS = new Set(["png","jpg","jpeg","tif","tiff","bmp"]);
+
   // helper to call backend create-task
   const createServerTask = async (payload) => {
    const resp = await fetch(`${API_BASE_URL}/ocr/create-task`, {
@@ -582,8 +586,34 @@ useEffect(() => {
     setSelectedDocs(prev => {
       const next = new Set(prev);
       const key = normalizeName(name);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      const already = next.has(key);
+
+      if (already) {
+        next.delete(key);
+        return next;
+      }
+
+      // If selecting, enforce image count limit
+      const doc = docs.find(d => normalizeName(d.name) === key);
+      const isImage = doc && IMAGE_EXTS.has(String(doc.type || "").toLowerCase());
+      if (isImage) {
+        let selectedImageCount = 0;
+        next.forEach(k => {
+          const d = docs.find(dd => normalizeName(dd.name) === k);
+          if (d && IMAGE_EXTS.has(String(d.type || "").toLowerCase())) selectedImageCount++;
+        });
+        if (selectedImageCount >= MAX_BATCH_FILES) {
+          toast(`Only up to ${MAX_BATCH_FILES} images can be scanned simultaneously`, {
+            id: "max-batch-limit",
+            description: `You already selected ${selectedImageCount} images.`,
+            icon: "⚠️",
+            duration: 5000,
+          });
+          return next;
+        }
+      }
+
+      next.add(key);
       return next;
     });
   };
@@ -591,11 +621,37 @@ useEffect(() => {
   const selectAllVisible = (select) => {
     setSelectedDocs(prev => {
       const next = new Set(prev);
-      filtered.forEach(d => {
-        const k = normalizeName(d.name);
-        if (select) next.add(k);
-        else next.delete(k);
-      });
+      if (select) {
+        // Count currently selected images
+        let currentImages = 0;
+        next.forEach(k => {
+          const d = docs.find(dd => normalizeName(dd.name) === k);
+          if (d && IMAGE_EXTS.has(String(d.type || "").toLowerCase())) currentImages++;
+        });
+
+        // Identify visible images that would be newly added
+        const visible = filtered || [];
+        let willAdd = 0;
+        visible.forEach(d => {
+          const k = normalizeName(d.name);
+          if (!next.has(k) && IMAGE_EXTS.has(String(d.type || "").toLowerCase())) willAdd++;
+        });
+
+        if (currentImages + willAdd > MAX_BATCH_FILES) {
+          toast(`Only up to ${MAX_BATCH_FILES} images can be scanned simultaneously`, {
+            id: "max-batch-limit",
+            description: `Select fewer images (max ${MAX_BATCH_FILES}).`,
+            icon: "⚠️",
+            duration: 5000,
+          });
+          return next;
+        }
+
+        visible.forEach(d => next.add(normalizeName(d.name)));
+      } else {
+        // Unselect visible items
+        (filtered || []).forEach(d => next.delete(normalizeName(d.name)));
+      }
       return next;
     });
   };
