@@ -1196,7 +1196,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           >
             { (isProcessingOCR || isGlobalProcessing) ? "Processing..." : "Full Scan OCR" }
           </Button>
-          <Button
+          {/* <Button
             variant={mode === 'select' ? 'default' : 'outline'}
             size="sm"
             disabled={isProcessingOCR || isGlobalProcessing}
@@ -1209,7 +1209,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
            >
              <Square className="w-4 h-4 mr-1" />
              Region Scan
-           </Button>
+           </Button> */}
         </div>
       </div>
     );
