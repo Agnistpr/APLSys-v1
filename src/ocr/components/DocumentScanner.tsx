@@ -358,6 +358,56 @@ export const DocumentScanner: React.FC = () => {
       });
     }
   }, [currentFile, currentFileData, selectedFolder]);
+  
+  // NEW: Save current crop preview to documents / selectedFolder
+  const handleSaveCrop = useCallback(async () => {
+    const canvas = previewCanvasRef.current;
+    if (!canvas) {
+      toast.error("No preview available to save");
+      return;
+    }
+
+    try {
+      const dataUrl = canvas.toDataURL("image/png");
+      const base64 = dataUrl.split(",")[1];
+      const baseName = (currentFile && currentFile.name) ? currentFile.name.replace(/\.[^/.]+$/, "") : "crop";
+      const fileName = `${baseName}-crop-${Date.now()}.png`;
+
+      toast.loading("Saving cropped image...", { id: "save-crop" });
+
+      const res = await window.fileAPI.saveUploadedFile({ fileName, base64Data: base64 });
+      if (!res || !res.success) {
+        toast.error("Failed to save cropped image", { id: "save-crop", description: res?.error || "Unknown error" });
+        return;
+      }
+
+      // If user has selected a folder, move the saved file there
+      if (selectedFolder) {
+        const mv = await window.fileAPI.moveFileToFolder(res.path, selectedFolder);
+        if (mv && mv.success) {
+          toast.success("Cropped image saved to selected folder", {
+            id: "save-crop",
+            description: `${fileName} -> ${selectedFolder}`,
+            duration: 4000
+          });
+        } else {
+          toast.error("Saved but failed to move to folder", {
+            id: "save-crop",
+            description: mv?.error || "Move failed"
+          });
+        }
+      } else {
+        toast.success("Cropped image saved to documents", {
+          id: "save-crop",
+          description: fileName,
+          duration: 4000
+        });
+      }
+    } catch (err) {
+      console.error("Save crop failed:", err);
+      toast.error("Saving cropped image failed", { id: "save-crop", description: String(err) });
+    }
+  }, [previewCanvasRef, currentFile, selectedFolder]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -686,37 +736,18 @@ export const DocumentScanner: React.FC = () => {
                               }
                               setCropPanelPayload(null);
                             }}>Close</Button>
-                            {/* <Button variant="ghost" onClick={async () => {
-                              // Debug: save preview canvas to disk
-                              const canvas = previewCanvasRef.current;
-                              if (!canvas) {
+
+                            {/* NEW: Save the preview crop to Documents / selected folder */}
+                            <Button variant="ghost" onClick={async () => {
+                              if (!previewCanvasRef.current) {
                                 toast.error("No preview available");
                                 return;
                               }
-                              const dataUrl = canvas.toDataURL('image/png');
-                              const base64 = dataUrl.split(',')[1];
-                              // Try window.fileAPI if available, otherwise trigger download
-                              if ((window as any).fileAPI && typeof (window as any).fileAPI.saveUploadedFile === 'function') {
-                                try {
-                                  const name = `crop-${Date.now()}.png`;
-                                  const res = await (window as any).fileAPI.saveUploadedFile({ fileName: name, base64Data: base64 });
-                                  if (res && res.success) toast.success(`Saved ${name}`);
-                                  else toast.error("Save failed");
-                                } catch (err) {
-                                  console.error("save crop failed", err);
-                                  toast.error("Save failed");
-                                }
-                              } else {
-                                // fallback: trigger download
-                                const a = document.createElement('a');
-                                a.href = dataUrl;
-                                a.download = `crop-${Date.now()}.png`;
-                                document.body.appendChild(a);
-                                a.click();
-                                a.remove();
-                                toast.success("Download started");
-                              }
-                            }}>Save Crop (Debug)</Button> */}
+                              await handleSaveCrop();
+                            }}>
+                              Save Crop
+                            </Button>
+
                              <Button
                                onClick={async () => {
                                  if (!cropPanelPayload) return;
