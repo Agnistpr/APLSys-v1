@@ -16,8 +16,8 @@ import { API_BASE_URL, DEV_TEST_URL } from '../../../config';
 import type { ExtractedText } from './DocumentScanner';
 import axios from "axios";
 import { useOcrStore } from '../../electron/ocrStore';
-
-
+import ReactCrop, { Crop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 
 //Mapping function for NER entity to tag
 export function entityToTag(entity: string): string | null {
@@ -102,6 +102,27 @@ interface ImageViewerProps {
   fileName: string;
   onTextExtracted: (extraction: ExtractedText | ExtractedText[]) => void;
   extractedData: ExtractedText[];
+  /**
+   * Called when the user finishes a drag-selection and the editor should open.
+   * Payload contains a snapshot (dataUrl) of the rotated canvas and an initial px crop
+   * along with the preview display size so the caller can size the preview image.
+   */
+  onOpenCropEditor?: (payload: { dataUrl: string; crop: Crop; previewSize: { width:number; height:number } }) => void;
+  /**
+   * Register a handler that DocumentScanner can call to ask ImageViewer to perform OCR
+   * for a provided crop (px or %). ImageViewer will normalize to displayed pixels and call performOCR().
+   */
+  registerPerformCrop?: (fn: (crop: Crop, previewSize?: { width:number; height:number } | null) => Promise<void>) => void;
+  /**
+   * Register a handler so parent can request removal of a persisted bbox.
+   * The parent calls the provided function with the Crop (px) and ImageViewer will remove a matching persisted box.
+   */
+  registerRemovePersisted?: (fn: (crop: Crop) => void) => void;
+  /**
+   * Called when a persisted region is moved/resized in the main viewer.
+   * crop is in displayed px coordinates (unit: 'px').
+   */
+  onCropChange?: (crop: Crop, previewSize: { width:number; height:number }) => void;
 }
 
 interface SelectionBox {
@@ -110,7 +131,6 @@ interface SelectionBox {
   width: number;
   height: number;
 }
-
 
 // Update the classification function
 export async function classifyTextWithAI(text: string) {
@@ -139,6 +159,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   fileName,
   onTextExtracted,
   extractedData
+  , onOpenCropEditor, registerPerformCrop, registerRemovePersisted
+  , onCropChange
  }) => {
   const [isRegionMode, setIsRegionMode] = useState<boolean>(false);
   const [zoom, setZoom] = useState(1);
@@ -158,6 +180,33 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const [persistedSelections, setPersistedSelections] = useState<SelectionBox[]>([]); // persist boxes after creation
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [parsing, setParsing] = useState(false);
+
+  const editRef = useRef<{
+    index: number | null;
+    mode: 'move' | 'resize-se' | null;
+    startX: number;
+    startY: number;
+    origBox?: SelectionBox;
+  } | null>(null);
+
+  // --- NEW: ReactCrop integration state ---
+  const [crop, setCrop] = useState<Crop | null>(null);
+  const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
+  const cropImgRef = useRef<HTMLImageElement | null>(null);
+
+  // NEW: preview size for crop editor (match canvas display dims)
+  const [cropPreviewSize, setCropPreviewSize] = useState<{ width: number; height: number } | null>(null);
+  const normalizeCropToPx = useCallback((c: Crop | null, imgW: number, imgH: number) : Crop | null => {
+    if (!c) return null;
+    const unit = (c.unit || 'px') as 'px' | '%';
+    if (unit === 'px') return c;
+    // convert percent -> px using image displayed dimensions
+    const cx = Math.round(((c.x || 0) / 100) * imgW);
+    const cy = Math.round(((c.y || 0) / 100) * imgH);
+    const cw = Math.max(1, Math.round(((c.width || 0) / 100) * imgW));
+    const ch = Math.max(1, Math.round(((c.height || 0) / 100) * imgH));
+    return { unit: 'px', x: cx, y: cy, width: cw, height: ch };
+  }, []);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -191,6 +240,33 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     const sx = canvas.width / rect.width;
     const sy = canvas.height / rect.height;
     return { sx, sy, rect };
+  }, []);
+
+  // Helper: convert a ReactCrop crop -> displayed-pixel SelectionBox
+  const cropToDisplayedSelection = useCallback((c: Crop | null, imgEl: HTMLImageElement | null): SelectionBox | null => {
+    if (!c || !imgEl) return null;
+    const unit = (c.unit || 'px') as 'px' | '%';
+    const dispW = imgEl.width;
+    const dispH = imgEl.height;
+    let x = 0, y = 0, width = 0, height = 0;
+    if (unit === '%') {
+      x = Math.round((Number(c.x || 0) / 100) * dispW);
+      y = Math.round((Number(c.y || 0) / 100) * dispH);
+      width = Math.round((Number(c.width || 0) / 100) * dispW);
+      height = Math.round((Number(c.height || 0) / 100) * dispH);
+    } else {
+      x = Math.round(Number(c.x || 0));
+      y = Math.round(Number(c.y || 0));
+      width = Math.max(1, Math.round(Number(c.width || 0)));
+      height = Math.max(1, Math.round(Number(c.height || 0)));
+    }
+
+    // clamp to image bounds
+    x = Math.max(0, Math.min(dispW - 1, x));
+    y = Math.max(0, Math.min(dispH - 1, y));
+    width = Math.max(1, Math.min(dispW - x, width));
+    height = Math.max(1, Math.min(dispH - y, height));
+    return { x, y, width, height };
   }, []);
 
   const getPreTransformMetrics = () => {
@@ -611,8 +687,69 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     setCurrentSelection(null);
   }, []);
 
+   // Begin editing (move) when overlay is pressed
+  const handlePersistedMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const imgRect = canvasRef.current?.getBoundingClientRect();
+    if (!imgRect) return;
+    editRef.current = { index: idx, mode: 'move', startX: e.clientX, startY: e.clientY, origBox: { ...persistedSelections[idx] } };
+    // attach global listeners
+    const onMove = (ev: MouseEvent) => {
+      if (!editRef.current) return;
+      const dX = ev.clientX - editRef.current.startX;
+      const dY = ev.clientY - editRef.current.startY;
+      const orig = editRef.current.origBox!;
+      const canvasRect = canvasRef.current!.getBoundingClientRect();
+      const maxW = Math.round(canvasRect.width);
+      const maxH = Math.round(canvasRect.height);
+      const nx = Math.max(0, Math.min(maxW - orig.width, Math.round(orig.x + dX)));
+      const ny = Math.max(0, Math.min(maxH - orig.height, Math.round(orig.y  + dY)));
+      setPersistedSelections(prev => {
+        const copy = prev.slice();
+        copy[idx] = { ...copy[idx], x: nx, y: ny };
+        return copy;
+      });
+      // notify crop panel
+      const previewSize = { width: Math.round(canvasRect.width), height: Math.round(canvasRect.height) };
+      onCropChange?.({ unit: 'px', x: nx, y: ny, width: persistedSelections[idx].width, height: persistedSelections[idx].height }, previewSize);
+    };
+    const onUp = () => { editRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [persistedSelections, onCropChange]);
+
+  // Resize (bottom-right corner) handler
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
+    e.stopPropagation();
+    e.preventDefault();
+    editRef.current = { index: idx, mode: 'resize-se', startX: e.clientX, startY: e.clientY, origBox: { ...persistedSelections[idx] } };
+    const onMove = (ev: MouseEvent) => {
+      if (!editRef.current) return;
+      const dX = ev.clientX - editRef.current.startX;
+      const dY = ev.clientY - editRef.current.startY;
+      const orig = editRef.current.origBox!;
+      const canvasRect = canvasRef.current!.getBoundingClientRect();
+      const maxW = Math.round(canvasRect.width);
+      const maxH = Math.round(canvasRect.height);
+      const nw = Math.max(10, Math.min(maxW - orig.x, Math.round(orig.width + dX)));
+      const nh = Math.max(10, Math.min(maxH - orig.y, Math.round(orig.height + dY)));
+      setPersistedSelections(prev => {
+        const copy = prev.slice();
+        copy[idx] = { ...copy[idx], width: nw, height: nh };
+        return copy;
+      });
+      // notify crop panel
+      const previewSize = { width: Math.round(canvasRect.width), height: Math.round(canvasRect.height) };
+      onCropChange?.({ unit: 'px', x: persistedSelections[idx].x, y: persistedSelections[idx].y, width: nw, height: nh }, previewSize);
+    };
+    const onUp = () => { editRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [persistedSelections, onCropChange]);
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-     if (!canvasRef.current || !containerRef.current) return;
+    if (!canvasRef.current || !containerRef.current) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const imgRect = canvas.getBoundingClientRect();
@@ -749,19 +886,50 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     if (!isSelecting) return;
     setIsSelecting(false);
  
-    // IMPORTANT: selectionDisplay is in displayed-image pixels relative to image top-left.
-    // Pass that directly to performOCR which will convert it to natural pixels exactly once.
+    // Instead of calling performOCR directly, open the ReactCrop editor for adjustment.
     if (selectionDisplay && selectionDisplay.width > 5 && selectionDisplay.height > 5 && canvasRef.current) {
-       // capture selection, perform OCR and persist the visual box
+       // capture selection and notify host (DocumentScanner) to open the side-panel crop editor
        const sel = { ...selectionDisplay };
-       await performOCR(sel);
-       setPersistedSelections(prev => [...prev, sel]);
+       try {
+         const canvas = canvasRef.current;
+         const dataUrl = canvas.toDataURL("image/png");
+         const rect = canvas.getBoundingClientRect();
+         const previewSize = { width: Math.round(rect.width), height: Math.round(rect.height) };
+         // Prepare a px crop that matches displayed canvas coordinates
+         const initialCrop: Crop = {
+           unit: 'px',
+           x: sel.x,
+           y: sel.y,
+           width: sel.width,
+           height: sel.height
+         };
+
+        // Persist the selection so it stays visible and editable on the main canvas
+        setPersistedSelections(prev => [...prev, sel]);
+        
+        // Notify parent immediately so the crop panel shows the same region preview
+        if (typeof onCropChange === 'function') {
+          onCropChange(initialCrop, previewSize);
+        }
+
+         // Notify parent so it can show the crop UI in the side panel (no modal here)
+         if (typeof onOpenCropEditor === 'function') {
+           onOpenCropEditor({ dataUrl, crop: initialCrop, previewSize });
+         } else {
+           // fallback: keep internal state (shouldn't normally happen)
+           setCropPreviewSize(previewSize);
+           setCropImageUrl(dataUrl);
+           setCrop(initialCrop);
+         }
+       } catch (err) {
+         console.warn("Failed to open crop editor:", err);
+       }
     }
  
-    // clear
+    // clear transient selection
     selectionStartRef.current = null;
     setSelectionDisplay(null);
-  }, [isDragging, isSelecting, selectionDisplay, performOCR]);
+  }, [isDragging, isSelecting, selectionDisplay, onOpenCropEditor, onCropChange]);
 
   const handleFullScanOCR = useCallback(async () => {
     if (!imageRef.current) return;
@@ -885,6 +1053,131 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       toast.dismiss(toastId); // Dismiss "Processing Full scan..." toast
     }
   }, [fileName, onTextExtracted, setGlobalProcessing, setProcessingMap, addResult, setCurrentExtractedData, markFileProcessed]);
+
+  // User action: send the current crop to OCR (explicit button)
+  // keep the internal handler around but the UI will be hosted by DocumentScanner.
+  // Register a handler so DocumentScanner can ask ImageViewer to run OCR for a given crop.
+  useEffect(() => {
+    if (typeof registerPerformCrop !== 'function') return;
+    const handler = async (c: Crop, previewSize?: { width:number; height:number } | null) => {
+      // This handler crops the rotated canvas to a PNG and sends the PNG to the server via ocrRegion.
+      try {
+        // Normalize crop -> displayed px selection
+        let norm: Crop = c;
+        if (c.unit === '%' && previewSize) {
+          norm = {
+            unit: 'px',
+            x: Math.round((c.x || 0) * previewSize.width / 100),
+            y: Math.round((c.y || 0) * previewSize.height / 100),
+            width: Math.max(1, Math.round((c.width || 0) * previewSize.width / 100)),
+            height: Math.max(1, Math.round((c.height || 0) * previewSize.height / 100))
+          };
+        }
+        const selection: SelectionBox = {
+          x: Math.max(0, Math.round(norm.x || 0)),
+          y: Math.max(0, Math.round(norm.y || 0)),
+          width: Math.max(1, Math.round(norm.width || 1)),
+          height: Math.max(1, Math.round(norm.height || 1))
+        };
+
+        // Create cropped PNG from rotated canvas (canvasRef already contains rotated image)
+        const dataUrl = await cropSelectionToDataUrl(selection);
+
+        // Send cropped PNG to server using ocrRegion (rotation = 0 because canvas is already rotated)
+        setIsProcessingOCR(true);
+        const toastId = `ocr-region-${Date.now()}`;
+        toast.loading("Processing region OCR...", { id: toastId, duration: 10000 });
+        const resp = await ocrRegion(dataUrl, 0, undefined);
+        const text = resp?.text || "";
+        const confidence = resp?.confidence || 0;
+
+        if (text && text.trim()) {
+          // optional: try to classify tags (reuse existing classifier logic)
+          let tags: string[] = [];
+          try {
+            const payload = { text: String(text || "").trim() };
+            const r = await axios.post(`${API_BASE_URL}/ai/classify`, payload, { validateStatus: () => true });
+            if (r.status === 204) {
+              tags = [];
+            } else if (r.data) {
+              const tag = (r.data.tag || r.data || "").toString().trim();
+              if (tag) tags = [tag];
+            }
+          } catch (e) {
+            tags = [];
+          }
+
+          const extractedItems = [{
+            id: Date.now().toString(),
+            text: String(text).trim(),
+            bbox: selection,
+            tags,
+            confidence: typeof confidence === "number" ? confidence : undefined
+          }];
+
+          const resultPayload = {
+            filename: fileName || `unnamed-${Date.now()}`,
+            extractedData: extractedItems,
+            customTags: [],
+            timestamp: new Date().toISOString()
+          };
+          try {
+            if (typeof setCurrentExtractedData === "function") setCurrentExtractedData(resultPayload.extractedData);
+            if (typeof addResult === "function") addResult(resultPayload);
+            if (typeof markFileProcessed === "function") markFileProcessed(resultPayload.filename);
+          } catch (err) {
+            console.warn("Failed to persist region OCR result:", err);
+          }
+
+          onTextExtracted(extractedItems);
+          toast.success("Region OCR complete", { id: toastId });
+        } else {
+          toast(`No text found in region`, { id: toastId, duration: 4000, icon: "⚠️" });
+        }
+      } catch (err) {
+        console.error("performCrop handler failed:", err);
+        toast.error("Region OCR failed");
+        throw err;
+      } finally {
+        setIsProcessingOCR(false);
+      }
+    };
+     registerPerformCrop(handler);
+   }, [registerPerformCrop, performOCR]);
+
+  // Register removal handler so parent can request deletion of a persisted selection
+  useEffect(() => {
+    if (typeof registerRemovePersisted !== 'function') return;
+    const remover = (c: Crop) => {
+      try {
+        // normalize px crop if unit is '%' (defensive)
+        let rx = Math.round(c.x || 0), ry = Math.round(c.y || 0), rw = Math.max(1, Math.round(c.width || 1)), rh = Math.max(1, Math.round(c.height || 1));
+        if (c.unit === '%') {
+          // best-effort: map % to current canvas display size
+          const rect = canvasRef.current?.getBoundingClientRect();
+          if (rect) {
+            rx = Math.round(((c.x || 0) / 100) * rect.width);
+            ry = Math.round(((c.y || 0) / 100) * rect.height);
+            rw = Math.max(1, Math.round(((c.width || 0) / 100) * rect.width));
+            rh = Math.max(1, Math.round(((c.height || 0) / 100) * rect.height));
+          }
+        }
+
+        setPersistedSelections(prev => {
+          // remove the first persisted box that matches coordinates (allow small tolerance)
+          const tol = 2;
+          const idx = prev.findIndex(p => Math.abs(p.x - rx) <= tol && Math.abs(p.y - ry) <= tol && Math.abs(p.width - rw) <= tol && Math.abs(p.height - rh) <= tol);
+          if (idx === -1) return prev;
+          const copy = prev.slice();
+          copy.splice(idx, 1);
+          return copy;
+        });
+      } catch (err) {
+        console.warn("removePersisted handler failed", err);
+      }
+    };
+    registerRemovePersisted(remover);
+  }, [registerRemovePersisted, setPersistedSelections, canvasRef]);
 
   useEffect(() => {
     const handleGlobalMouseUp = () => {
@@ -1173,12 +1466,37 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
               height: `${sel.height}px`,
               border: "2px dashed rgba(0,120,215,0.9)",
               background: "rgba(0,120,215,0.06)",
-              pointerEvents: "none" as const,
+              pointerEvents: "auto" as const,
               zIndex: 12,
+              boxSizing: 'border-box' as const,
+              touchAction: 'none' as const,
             };
-            return <div key={`persisted-${i}`} style={style} />;
+            return (
+              <div key={`persisted-${i}`} style={style}
+                   onMouseDown={(ev) => handlePersistedMouseDown(ev, i)}
+              >
+                {/* bottom-right handle */}
+                <div
+                  onMouseDown={(ev) => handleResizeMouseDown(ev, i)}
+                  style={{
+                    position: 'absolute',
+                    right: -6,
+                    bottom: -6,
+                    width: 12,
+                    height: 12,
+                    background: 'white',
+                    border: '2px solid rgba(0,120,215,0.9)',
+                    borderRadius: 2,
+                    cursor: 'se-resize'
+                  }}
+                />
+              </div>
+            );
           })
         )}
+
+        {/* NOTE: crop editor UI is hosted in DocumentScanner side panel.
+            ImageViewer only emits onOpenCropEditor and registers a performCrop handler. */}
 
         {/* toolbar (absolute) */}
         <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-10 pointer-events-auto">
@@ -1196,7 +1514,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           >
             { (isProcessingOCR || isGlobalProcessing) ? "Processing..." : "Full Scan OCR" }
           </Button>
-          {/* <Button
+          <Button
             variant={mode === 'select' ? 'default' : 'outline'}
             size="sm"
             disabled={isProcessingOCR || isGlobalProcessing}
@@ -1209,7 +1527,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
            >
              <Square className="w-4 h-4 mr-1" />
              Region Scan
-           </Button> */}
+           </Button>
         </div>
       </div>
     );

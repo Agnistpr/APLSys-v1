@@ -20,6 +20,9 @@ import { DocumentUploadOCRPanel } from "./DocumentUploadOCRPanel";
 import { MetadataExtractorPanel } from './MetadataExtractorPanel';
 import { toast } from 'sonner';
 import { useOcrStore } from '../../electron/ocrStore';
+import ReactCrop, { Crop, type PixelCrop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
+import { cropCanvasPreview } from '../lib/cropcanvaspreview';
 
 export interface ExtractedText {
   id: string;
@@ -83,13 +86,19 @@ export const DocumentScanner: React.FC = () => {
   const [extractedData, setExtractedData] = useState<ExtractedText[]>([]);
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activePanel, setActivePanel] = useState<'viewer' | 'ocr' | 'tags' | 'docupload' >('ocr');
+  const [activePanel, setActivePanel] = useState<'viewer' | 'ocr' | 'tags' | 'docupload' | 'crop' >('ocr');
   const [inputText, setInputText] = useState("");
   const [entities, setEntities] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [showUploadWarning, setShowUploadWarning] = useState(false); // <<< NEW
   const [pendingFile, setPendingFile] = useState<File | null>(null); // <<< NEW
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Crop panel state
+  const [cropPanelPayload, setCropPanelPayload] = useState<{ dataUrl: string; crop: Crop; previewSize: { width:number; height:number } } | null>(null);
+  const performCropHandlerRef = useRef<null | ((crop: Crop, previewSize?: { width:number;height:number }|null) => Promise<void> )>(null);
+  const performRemoveHandlerRef = useRef<null | ((crop: Crop) => void)>(null);
+  const previewImgRef = useRef<HTMLImageElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // --- store selectors ---
   const addFileMeta = useOcrStore(s => s.addFile);
@@ -385,6 +394,51 @@ export const DocumentScanner: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!cropPanelPayload || !previewImgRef.current || !previewCanvasRef.current) return;
+
+    const imgEl = previewImgRef.current;
+    const canvasEl = previewCanvasRef.current;
+    const payload = cropPanelPayload;
+
+    // --- Normalize crop to PixelCrop ---
+    const crop = payload.crop;
+    const previewSize = payload.previewSize;
+
+    const pixelCrop: PixelCrop = (crop.unit === '%' ? {
+      unit: 'px',
+      x: Math.round((crop.x || 0) * previewSize.width / 100),
+      y: Math.round((crop.y || 0) * previewSize.height / 100),
+      width: Math.max(1, Math.round((crop.width || 0) * previewSize.width / 100)),
+      height: Math.max(1, Math.round((crop.height || 0) * previewSize.height / 100)),
+    } : {
+      unit: 'px',
+      x: Math.round(crop.x || 0),
+      y: Math.round(crop.y || 0),
+      width: Math.max(1, Math.round(crop.width || 0)),
+      height: Math.max(1, Math.round(crop.height || 0)),
+    });
+
+    // Set canvas size to match the bbox
+    canvasEl.style.width = `${pixelCrop.width}px`;
+    canvasEl.style.height = `${pixelCrop.height}px`;
+
+    // Ensure image is loaded
+    const draw = async () => {
+      if (!imgEl.complete) {
+        await new Promise<void>((res) => {
+          imgEl.onload = () => res();
+          imgEl.onerror = () => res();
+        });
+      }
+
+      // Draw the crop
+      cropCanvasPreview(imgEl, canvasEl, pixelCrop, 1, 0);
+    };
+
+    draw();
+  }, [cropPanelPayload]);
+
   return (
     <div className="h-screen bg-background overflow-hidden">
       {/*NEW: Upload Warning Modal */}
@@ -485,6 +539,21 @@ export const DocumentScanner: React.FC = () => {
                   fileName={currentFile?.name || "untitled"}
                   onTextExtracted={handleTextExtracted}
                   extractedData={extractedData}
+                  onOpenCropEditor={({ dataUrl, crop, previewSize }) => {
+                    setCropPanelPayload({ dataUrl, crop, previewSize });
+                    setActivePanel('crop');
+                  }}
+                  registerPerformCrop={(fn) => {
+                    performCropHandlerRef.current = fn;
+                  }}
+                  registerRemovePersisted={(fn) => {
+                    performRemoveHandlerRef.current = fn;
+                    console.debug('[DocumentScanner] removePersisted handler registered');
+                  }}
+                  onCropChange={(crop, previewSize) => {
+                    // update current payload's crop so preview refreshes as the user moves/resizes in viewer
+                    setCropPanelPayload(prev => prev ? { ...prev, crop } : prev);
+                  }}
                 />
               </div>
             </div>
@@ -496,7 +565,7 @@ export const DocumentScanner: React.FC = () => {
               {/* Panel header (fixed) */}
               <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
                 {/* keep navigation / tabs here */}
-                <div className="grid grid-cols-2 gap-1 bg-muted rounded-lg p-1">
+                <div className="flex gap-1 bg-muted rounded-lg p-1">
                   {[
                     //{ id: 'viewer', icon: Eye, label: 'View' },
                     { id: 'ocr', icon: FileText, label: 'OCR' },
@@ -506,6 +575,7 @@ export const DocumentScanner: React.FC = () => {
                     //{ id: 'batch', icon: Upload, label: 'Batch OCR' },
                     //{id: 'parse', icon: Upload, label: 'Parse'}
                     //{ id: 'metadata', icon: FileText, label: 'Metadata'},
+                    { id: 'crop', icon: Settings, label: 'Crop' },
                   ].map(({ id, icon: Icon, label }) => (
                     <Button
                       key={id}
@@ -524,18 +594,18 @@ export const DocumentScanner: React.FC = () => {
                   ))}
                 </div>
               </div>
-
-              {/* Panel Content */}
-              <div className="flex-1 min-h-0">
-                <div className="h-full overflow-auto custom-scrollbar p-4">
-                  {activePanel === 'viewer' && (
-                    <div className="text-center text-muted-foreground">
-                      <Eye className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                      <p className="text-sm">
-                        Upload a document to start viewing and extracting text with OCR
-                      </p>
-                    </div>
-                  )}
+ 
+               {/* Panel Content */}
+               <div className="flex-1 min-h-0">
+                 <div className="h-full overflow-auto custom-scrollbar p-4">
+                   {activePanel === 'viewer' && (
+                     <div className="text-center text-muted-foreground">
+                       <Eye className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                       <p className="text-sm">
+                         Upload a document to start viewing and extracting text with OCR
+                       </p>
+                     </div>
+                   )}
                   
                   {activePanel === 'ocr' && (
                     <div className="space-y-4 h-full">
@@ -559,24 +629,122 @@ export const DocumentScanner: React.FC = () => {
                     />
                   )}
                   
-                  {/* {activePanel === 'export' && (
-                    <ExportPanel
-                      documentData={documentData}
-                      hasData={extractedData.length > 0}
-                    />
-                  )} */}
-                  {/* {activePanel === 'batch' && (
-                    <BatchOCRPanel />
-                  )} */}
-                  {/* {activePanel === 'docupload' && (
-                    <DocumentUploadOCRPanel />
-                  )} */}
-                  {/* {activePanel === 'metadata' && (
-                    <MetadataExtractorPanel file={currentFile} fileUrl={currentFileUrl} />
-                  )} */}
-                  {/* {activePanel === 'parse' && (
-                    <GeneralDocumentParser />
-                  )} */}
+                  {activePanel === 'crop' && (
+                    <div className="space-y-4">
+                      {!cropPanelPayload && (
+                        <div className="text-sm text-muted-foreground">
+                          Create a region in the viewer to edit here.
+                        </div>
+                      )}
+                      {cropPanelPayload && (
+                        <div className="flex flex-col gap-3">
+                          <div className="text-sm text-muted-foreground">
+                            Preview of the selected region.
+                          </div>
+
+                          {/* Cropped region preview only */}
+                          <div className="flex justify-center items-start gap-3 overflow-auto bg-black p-2">
+                            <div style={{ position: 'relative' }}>
+                              {/* Hidden but sized snapshot image used as source for cropCanvasPreview.
+                                  Use offscreen positioning so image.width / image.naturalWidth are correct. */}
+                              <img
+                                ref={previewImgRef}
+                                src={cropPanelPayload.dataUrl}
+                                alt="crop-snapshot"
+                                style={{
+                                  position: 'absolute',
+                                  left: -9999,
+                                  top: -9999,
+                                  width: `${cropPanelPayload.previewSize.width}px`,
+                                  height: `${cropPanelPayload.previewSize.height}px`,
+                                  objectFit: 'contain',
+                                }}
+                              />
+
+                              <div className="flex flex-col items-center" style={{ minWidth: 10 }}>
+                                <div className="text-xs text-muted-foreground mb-2">
+                                  Crop Preview
+                                </div>
+                                <canvas
+                                  ref={previewCanvasRef}
+                                  style={{
+                                    border: '1px solid rgba(0,0,0,0.12)',
+                                    objectFit: 'contain',
+                                    display: 'block',
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Buttons */}
+                          <div className="flex gap-2 justify-end mt-3">
+                            <Button variant="outline" onClick={() => {
+                              // remove corresponding bbox in ImageViewer (if registered)
+                              if (cropPanelPayload && typeof performRemoveHandlerRef.current === 'function') {
+                                try { performRemoveHandlerRef.current(cropPanelPayload.crop); } catch (e) { console.warn("removePersisted call failed", e); }
+                              }
+                              setCropPanelPayload(null);
+                            }}>Close</Button>
+                            {/* <Button variant="ghost" onClick={async () => {
+                              // Debug: save preview canvas to disk
+                              const canvas = previewCanvasRef.current;
+                              if (!canvas) {
+                                toast.error("No preview available");
+                                return;
+                              }
+                              const dataUrl = canvas.toDataURL('image/png');
+                              const base64 = dataUrl.split(',')[1];
+                              // Try window.fileAPI if available, otherwise trigger download
+                              if ((window as any).fileAPI && typeof (window as any).fileAPI.saveUploadedFile === 'function') {
+                                try {
+                                  const name = `crop-${Date.now()}.png`;
+                                  const res = await (window as any).fileAPI.saveUploadedFile({ fileName: name, base64Data: base64 });
+                                  if (res && res.success) toast.success(`Saved ${name}`);
+                                  else toast.error("Save failed");
+                                } catch (err) {
+                                  console.error("save crop failed", err);
+                                  toast.error("Save failed");
+                                }
+                              } else {
+                                // fallback: trigger download
+                                const a = document.createElement('a');
+                                a.href = dataUrl;
+                                a.download = `crop-${Date.now()}.png`;
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                toast.success("Download started");
+                              }
+                            }}>Save Crop (Debug)</Button> */}
+                             <Button
+                               onClick={async () => {
+                                 if (!cropPanelPayload) return;
+                                 const handler = performCropHandlerRef.current;
+                                 if (typeof handler !== 'function') {
+                                   console.error('[DocumentScanner] performCrop handler missing or invalid:', handler);
+                                   toast.error("Crop handler not available");
+                                   return;
+                                 }
+                                 try {
+                                   await handler(cropPanelPayload.crop, cropPanelPayload.previewSize);
+                                   // close panel after sending
+                                   setCropPanelPayload(null);
+                                   setActivePanel('ocr');
+                                 } catch (err) {
+                                   console.error('[DocumentScanner] performCrop call failed:', err);
+                                   toast.error("Region OCR failed");
+                                 }
+                               }}
+                             >
+                               Send Region OCR
+                             </Button>
+                           </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               </div>
             
