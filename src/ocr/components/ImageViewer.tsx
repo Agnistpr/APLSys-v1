@@ -1087,6 +1087,15 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         // Create cropped PNG from rotated canvas (canvasRef already contains rotated image)
         const dataUrl = await cropSelectionToDataUrl(selection);
 
+        // Persist the cropped preview into the global store so Crop tab / OCRPanel can read it even if the side panel is closed
+        try {
+          useOcrStore.setState({ currentCropDataUrl: dataUrl });
+        } catch (e) {
+          console.warn("Failed to persist crop preview to store:", e);
+        }
+        // Keep a local copy too (optional UI usage)
+        setCropImageUrl(dataUrl);
+
         // Send cropped PNG to server using ocrRegion (rotation = 0 because canvas is already rotated)
         setIsProcessingOCR(true);
         const toastId = `ocr-region-${Date.now()}`;
@@ -1155,6 +1164,33 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
      };
      registerPerformCrop(handler);
    }, [registerPerformCrop, performOCR]);
+
+  useEffect(() => {
+    const key = fileUrl || fileName || 'unsaved';
+    try {
+      const s = useOcrStore.getState();
+      const vs = s.viewerState?.[key];
+      if (vs) {
+        if (typeof vs.zoom === 'number') setZoom(vs.zoom);
+        if (vs.pan) setPan(vs.pan);
+        if (Array.isArray(vs.persistedSelections)) setPersistedSelections(vs.persistedSelections);
+      }
+    } catch (e) {
+      // noop
+    }
+  }, [fileUrl, fileName]);
+  
+  useEffect(() => {
+    const key = fileUrl || fileName || 'unsaved';
+    try {
+      const s = useOcrStore.getState();
+      const existing = s.viewerState || {};
+      existing[key] = { ...(existing[key] || {}), zoom, pan, persistedSelections };
+      useOcrStore.setState({ viewerState: existing });
+    } catch (e) {
+      // noop
+    }
+  }, [zoom, pan, persistedSelections, fileUrl, fileName]);
 
   // Register removal handler so parent can request deletion of a persisted selection
   useEffect(() => {

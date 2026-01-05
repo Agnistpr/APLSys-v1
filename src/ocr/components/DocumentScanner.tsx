@@ -116,6 +116,7 @@ export const DocumentScanner: React.FC = () => {
   const isOcrProcessing = useOcrStore(s => s.isProcessing);
   const setOcrProcessing = useOcrStore(s => s.setProcessing);
   const selectedFolder = useOcrStore(s => s.selectedFolder);
+  const processingMap = useOcrStore(s => s.processingMap);
 
   // Load persisted state on mount
   useEffect(() => {
@@ -128,8 +129,25 @@ export const DocumentScanner: React.FC = () => {
     if (storedExtractedData) {
       setExtractedData(storedExtractedData);
     }
+
+    // restore persisted crop preview (if any)
+    try {
+      const persistedCrop = useOcrStore.getState().currentCropDataUrl;
+      if (persistedCrop) setCurrentCropDataUrl(persistedCrop);
+    } catch (e) {
+      // noop
+    }
   }, [currentStoredFile, storedExtractedData]);
 
+  // Persist current crop preview dataURL into store
+  useEffect(() => {
+    try {
+      useOcrStore.setState({ currentCropDataUrl });
+    } catch (e) {
+      // noop
+    }
+  }, [currentCropDataUrl]);
+  
   //to delete
   // const handleImageUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
   //   const file = event.target.files?.[0];
@@ -265,6 +283,10 @@ export const DocumentScanner: React.FC = () => {
     setExtractedData([]); // This is key
     setCustomTags([]); // Also clear custom tags
     setActivePanel("ocr"); // Reset to OCR panel
+
+    // Clear crop preview (explicit when file cleared)
+    setCurrentCropDataUrl(null);
+    try { useOcrStore.setState({ currentCropDataUrl: null }); } catch (e) { /* noop */ }
     
     // Clear stored file and extracted data from Zustand store
     setCurrentStoredFile(null);
@@ -526,10 +548,14 @@ export const DocumentScanner: React.FC = () => {
     draw();
   }, [cropPanelPayload]);
  
-  // When crop panel is closed / cleared, clear the preview data URL
-  useEffect(() => {
-    if (!cropPanelPayload) setCurrentCropDataUrl(null);
-  }, [cropPanelPayload]);
+  // When crop panel is closed / cleared, clear the preview data URL (UNUSED YET)
+  // useEffect(() => {
+  //   if (!cropPanelPayload) setCurrentCropDataUrl(null);
+  //   // also clear persisted store crop preview
+  //   if (!cropPanelPayload) {
+  //     try { useOcrStore.setState({ currentCropDataUrl: null }); } catch (e) { /* noop */ }
+  //   }
+  // }, [cropPanelPayload]);
 
   return (
     <div className="h-screen bg-background overflow-hidden">
@@ -810,8 +836,10 @@ export const DocumentScanner: React.FC = () => {
                                    toast.error("Region OCR failed");
                                  }
                                }}
+                                disabled={ isOcrProcessing || (processingMap && Object.keys(processingMap || {}).length > 0) }
+                                title={ (isOcrProcessing || (processingMap && Object.keys(processingMap || {}).length > 0)) ? "OCR in progress" : "Scan Cropped Area" }
                              >
-                               Send Region OCR
+                               Scan Cropped Area
                              </Button>
                            </div>
                         </div>

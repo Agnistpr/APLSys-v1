@@ -18,7 +18,6 @@ import {
 import type { ExtractedText } from './DocumentScanner';
 import { toast } from 'sonner';
 import { Download } from 'lucide-react';
-import Select from 'react-select';
 import { useOcrStore } from '../../electron/ocrStore';
 interface OCRPanelProps {
   extractedData: ExtractedText[];
