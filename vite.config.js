@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => ({
         "pdfjs-dist/build/pdf.worker.min.js"
       ],
     },
+    ...(process.env.NODE_ENV === 'production' ? { sourcemap: true } : { sourcemap: true })
   },
   resolve: {
     alias: {

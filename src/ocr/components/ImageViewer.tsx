@@ -1060,11 +1060,15 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   useEffect(() => {
     if (typeof registerPerformCrop !== 'function') return;
     const handler = async (c: Crop, previewSize?: { width:number; height:number } | null) => {
-      // This handler crops the rotated canvas to a PNG and sends the PNG to the server via ocrRegion.
-      try {
-        // Normalize crop -> displayed px selection
-        let norm: Crop = c;
-        if (c.unit === '%' && previewSize) {
+      const processingKey = `scanner:${fileName}`;
+      // mark global/store processing so Sidebar shows spinner
+      try { setGlobalProcessing(true); } catch (e) { /* noop */ }
+      setProcessingMap(prev => ({ ...(prev || {}), [processingKey]: true }));
+       // This handler crops the rotated canvas to a PNG and sends the PNG to the server via ocrRegion.
+       try {
+         // Normalize crop -> displayed px selection
+         let norm: Crop = c;
+         if (c.unit === '%' && previewSize) {
           norm = {
             unit: 'px',
             x: Math.round((c.x || 0) * previewSize.width / 100),
@@ -1086,7 +1090,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         // Send cropped PNG to server using ocrRegion (rotation = 0 because canvas is already rotated)
         setIsProcessingOCR(true);
         const toastId = `ocr-region-${Date.now()}`;
-        toast.loading("Processing region OCR...", { id: toastId, duration: 10000 });
+        toast("Processing region OCR...", { id: toastId, duration: 10000, dismissible: true});
         const resp = await ocrRegion(dataUrl, 0, undefined);
         const text = resp?.text || "";
         const confidence = resp?.confidence || 0;
@@ -1132,16 +1136,23 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
           onTextExtracted(extractedItems);
           toast.success("Region OCR complete", { id: toastId });
         } else {
-          toast(`No text found in region`, { id: toastId, duration: 4000, icon: "⚠️" });
+          toast(`No text found in region`, { id: toastId, duration: 4000, icon: "⚠️", dismissible: true });
         }
-      } catch (err) {
-        console.error("performCrop handler failed:", err);
-        toast.error("Region OCR failed");
-        throw err;
-      } finally {
-        setIsProcessingOCR(false);
-      }
-    };
+       } catch (err) {
+         console.error("performCrop handler failed:", err);
+         toast.error("Region OCR failed");
+         throw err;
+       } finally {
+         setIsProcessingOCR(false);
+         // clear processing map / global flag so Sidebar spinner clears
+         setProcessingMap(prev => {
+           const updated = { ...(prev || {}) };
+           delete updated[processingKey];
+           return updated;
+         });
+         try { setGlobalProcessing(false); } catch (e) { /* noop */ }
+       }
+     };
      registerPerformCrop(handler);
    }, [registerPerformCrop, performOCR]);
 
@@ -1544,37 +1555,4 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       </div>
     );
   }
-  /**
-   * else if (fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
-    // DOCX preview not natively supported, show a message + Parse button
-    return (
-      <div className="flex flex-col items-center justify-center h-full w-full">
-        <div className="mb-4 text-muted-foreground">
-          DOCX preview not supported. You can still parse the document.
-        </div>
-        <Button onClick={handleParseDocument} disabled={parsing}>
-          {parsing ? "Parsing..." : "Parse Document"}
-        </Button>
-      </div>
-    );
-  }
-   */
-
-  /*
-  *else if (fileType === "application/pdf") {
-    // PDF preview + Parse button
-    return (
-      <div className="flex flex-col items-center justify-center h-full w-full">
-        <iframe
-          src={fileUrl}
-          title="PDF Preview"
-          style={{ width: "100%", height: "60vh", border: "1px solid #ccc", marginBottom: 16 }}
-        />
-        <Button onClick={handleParseDocument} disabled={parsing}>
-          {parsing ? "Parsing..." : "Parse Document"}
-        </Button>
-      </div>
-    );
-  } 
-  */
 };

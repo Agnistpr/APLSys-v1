@@ -100,6 +100,9 @@ export const DocumentScanner: React.FC = () => {
   const previewImgRef = useRef<HTMLImageElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // expose the currently-rendered crop preview (data URL) so OCRPanel can save it
+  const [currentCropDataUrl, setCurrentCropDataUrl] = useState<string | null>(null);
+ 
   // --- store selectors ---
   const addFileMeta = useOcrStore(s => s.addFile);
   const addTask = useOcrStore(s => s.addTask);
@@ -149,7 +152,7 @@ export const DocumentScanner: React.FC = () => {
     }
 
     const url = URL.createObjectURL(file);
-    
+
     // Store File object immediately
     setCurrentFile(file);
     setCurrentFileUrl(url);
@@ -158,7 +161,36 @@ export const DocumentScanner: React.FC = () => {
     setCustomTags([]); // ✅ Clear custom tags
     setActivePanel("ocr"); // Reset panel
 
+    // Read file to data URL so other components can save the original file later
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const dataUrl = String(reader.result);
+        setCurrentFileData(dataUrl); // ensure local state is set
+        // Also persist into the global stored-file so other components (OCRPanel) can read it immediately
+        try {
+          setCurrentStoredFile({
+            file,
+            url,
+            type: file.type,
+            name: file.name,
+            data: dataUrl,            // <-- add data field
+            dataUrl
+          });
+        } catch (e) {
+          console.warn("Failed to update stored file with dataUrl:", e);
+        }
+      } catch (e) {
+        console.warn("Failed to set currentFileData:", e);
+      }
+    };
+    reader.onerror = (e) => {
+      console.warn("Failed to read file as dataURL:", e);
+    };
+    reader.readAsDataURL(file);
+ 
     // Store in Zustand
+    // keep initial minimal stored file (will be updated with data in reader.onload)
     setCurrentStoredFile({
       file,
       url,
@@ -170,7 +202,7 @@ export const DocumentScanner: React.FC = () => {
 
     // Clear store's extracted data
     setStoredExtractedData([]); // ✅ NEW
-    
+
     toast.success('Document loaded successfully', {
       description: file.name,
       duration: 4000,
@@ -446,11 +478,9 @@ export const DocumentScanner: React.FC = () => {
 
   useEffect(() => {
     if (!cropPanelPayload || !previewImgRef.current || !previewCanvasRef.current) return;
-
     const imgEl = previewImgRef.current;
     const canvasEl = previewCanvasRef.current;
     const payload = cropPanelPayload;
-
     // --- Normalize crop to PixelCrop ---
     const crop = payload.crop;
     const previewSize = payload.previewSize;
@@ -484,9 +514,21 @@ export const DocumentScanner: React.FC = () => {
 
       // Draw the crop
       cropCanvasPreview(imgEl, canvasEl, pixelCrop, 1, 0);
+      // update data url after preview draw so children (OCRPanel) can save cropped image
+      try {
+        setCurrentCropDataUrl(canvasEl.toDataURL("image/png"));
+      } catch (e) {
+        console.warn("Failed to read preview canvas dataURL:", e);
+        setCurrentCropDataUrl(null);
+      }
     };
 
     draw();
+  }, [cropPanelPayload]);
+ 
+  // When crop panel is closed / cleared, clear the preview data URL
+  useEffect(() => {
+    if (!cropPanelPayload) setCurrentCropDataUrl(null);
   }, [cropPanelPayload]);
 
   return (
@@ -664,6 +706,7 @@ export const DocumentScanner: React.FC = () => {
                         availableTags={allTags}
                         currentFileName={currentFile?.name || "document"}
                         currentFileData={currentFileData}  //Now properly set after delay
+                        currentCropData={currentCropDataUrl}
                         onUpdateExtraction={handleUpdateExtraction}
                         onDeleteExtraction={handleDeleteExtraction}
                         onClearFile={handleClearFile} // <<< pass clear handler
@@ -738,7 +781,7 @@ export const DocumentScanner: React.FC = () => {
                             }}>Close</Button>
 
                             {/* NEW: Save the preview crop to Documents / selected folder */}
-                            <Button variant="ghost" onClick={async () => {
+                            {/* <Button variant="ghost" onClick={async () => {
                               if (!previewCanvasRef.current) {
                                 toast.error("No preview available");
                                 return;
@@ -746,7 +789,7 @@ export const DocumentScanner: React.FC = () => {
                               await handleSaveCrop();
                             }}>
                               Save Crop
-                            </Button>
+                            </Button> */}
 
                              <Button
                                onClick={async () => {

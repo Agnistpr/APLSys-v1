@@ -25,6 +25,7 @@ interface OCRPanelProps {
   availableTags: string[];
   currentFileName?: string;
   currentFileData?: string;
+  currentCropData?: string; // <<< new prop: dataURL of preview crop (png)
   onUpdateExtraction: (id: string, updates: Partial<ExtractedText>) => void;
   onDeleteExtraction: (id: string) => void;
   onClearFile?: () => void; // <<< added prop
@@ -35,10 +36,13 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
   availableTags,
   currentFileName = "document",
   currentFileData,
+  currentCropData,
   onUpdateExtraction,
   onDeleteExtraction,
   onClearFile // <<< destructure prop
 }) => {
+  // also check global store for stored data (fallback)
+  const globalFileData = useOcrStore(s => s.currentFileData ?? s.currentFile?.data);
   //Guard: ensure extractedData is always an array
   const safeExtractedData = Array.isArray(extractedData) ? extractedData : [];
   
@@ -71,7 +75,7 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
   };
 
   // Combined handler: save metadata JSON + original file to documents
-  const handleSaveToDocuments = async () => {
+  const handleSaveToDocuments = async (preferCropped = false) => {
     // use safeExtractedData (guarded) instead of raw prop
     if (safeExtractedData.length === 0) {
       toast.error("No data to save");
@@ -96,10 +100,13 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
 
       // 2. Save original file (robustly handle different shapes)
       let fileSaved = false;
-
-      // Try prop first, then fall back to store
-      const fileDataRaw = currentFileData ?? useOcrStore.getState().currentFileData;
-
+ 
+      // If user requested cropped save, prefer the crop preview dataURL passed from parent
+      // Otherwise fallback to prop/store file bytes
+      const fileDataRaw = preferCropped
+        ? (currentCropData ?? useOcrStore.getState().currentFile?.data ?? null)
+        : (currentFileData ?? useOcrStore.getState().currentFileData ?? useOcrStore.getState().currentFile?.data);
+ 
       console.log("DEBUG fileDataRaw type:", typeof fileDataRaw, fileDataRaw);
 
       // Helper to actually call saveUploadedFile with a base64 payload (no data: prefix)
@@ -152,6 +159,29 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
         }
       } else {
         console.warn("⚠️ fileData missing or not usable:", typeof fileDataRaw);
+      }
+
+      // FALLBACK: try to fetch blob URL from store and convert -> base64 if earlier attempts failed
+      if (!fileSaved) {
+        try {
+          const stored = useOcrStore.getState().currentFile;
+          const maybeUrl = stored?.url;
+          if (maybeUrl) {
+            console.log("DEBUG: attempting fallback fetch of stored.url", maybeUrl);
+            const resp = await fetch(maybeUrl);
+            const blob = await resp.blob();
+            const reader = new FileReader();
+            const base64Str: string = await new Promise((resolve, reject) => {
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            fileSaved = await callSave(base64Str);
+            if (!fileSaved) console.warn("⚠️ fallback saveUploadedFile returned falsy");
+          }
+        } catch (e) {
+          console.warn("⚠️ fallback fetch->save failed:", e);
+        }
       }
 
       toast.success("Saved to Documents", {
@@ -253,12 +283,23 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
             <Button 
               size="sm" 
               variant="outline" 
-              onClick={handleSaveToDocuments}
-              disabled={safeExtractedData.length === 0}
-              title="Save metadata JSON to ocr_results and original file to documents"
+              onClick={() => handleSaveToDocuments(false)}
+              disabled={safeExtractedData.length === 0 || !(currentFileData ?? globalFileData)}
+              title="Save metadata JSON + full original image to documents"
             >
               <Download className="w-4 h-4 mr-1" /> 
-              Save All
+              Save Full IMG
+            </Button>
+
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => handleSaveToDocuments(true)}
+              disabled={safeExtractedData.length === 0 || !(currentCropData ?? globalFileData)}
+              title="Save metadata JSON  currently cropped preview to documents"
+            >
+              <Download className="w-4 h-4 mr-1" />
+              Save Cropped IMG
             </Button>
           </div>
         </div>
