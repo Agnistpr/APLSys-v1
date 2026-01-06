@@ -116,6 +116,7 @@ export const DocumentScanner: React.FC = () => {
   const isOcrProcessing = useOcrStore(s => s.isProcessing);
   const setOcrProcessing = useOcrStore(s => s.setProcessing);
   const selectedFolder = useOcrStore(s => s.selectedFolder);
+  const setSelectedFolder = useOcrStore(s => s.setSelectedFolder);
   const processingMap = useOcrStore(s => s.processingMap);
 
   // Load persisted state on mount
@@ -363,10 +364,48 @@ export const DocumentScanner: React.FC = () => {
     timestamp: new Date().toISOString()
   };
 
+  // NEW: Ensure selected folder is set, prompt if not
+  // Helper: if no selectedFolder, prompt user to pick one and update store
+  const ensureFolderSelected = useCallback(async () => {
+    if (selectedFolder) return selectedFolder;
+    if (!window.fileAPI?.openFolder) {
+      toast.error("Folder picker unavailable");
+      return null;
+    }
+    try {
+      const picked = await window.fileAPI.openFolder("");
+      if (!picked) return null;
+      let pickedPath = "";
+      if (typeof picked === "string" && picked) pickedPath = picked;
+      else if (Array.isArray(picked) && picked.length > 0) pickedPath = picked[0];
+      else if (picked?.filePaths?.length) pickedPath = picked.filePaths[0];
+      else if (picked?.path) pickedPath = picked.path;
+      if (!pickedPath) return null;
+      try { setSelectedFolder(pickedPath); } catch (e) { useOcrStore.getState().setSelectedFolder?.(pickedPath); }
+      const folderName = String(pickedPath).split(/[\\/]/).pop() || pickedPath;
+      toast.success(`Selected folder: ${folderName}`);
+      // small delay to allow other components to react
+      await new Promise(r => setTimeout(r, 40));
+      return pickedPath;
+    } catch (err) {
+      console.warn("Folder pick cancelled / failed:", err);
+      return null;
+    }
+  }, [selectedFolder, setSelectedFolder]);
+
   const handleSaveUploadedFile = useCallback(async () => {
     if (!currentFile || !currentFile.name) {
       toast.error("No file to save");
       return;
+    }
+
+    // Ensure a folder is selected (prompt on first save)
+    if (!selectedFolder) {
+      const picked = await ensureFolderSelected();
+      if (!picked) {
+        toast.error("Save cancelled — no folder selected");
+        return;
+      }
     }
 
     try {
@@ -419,6 +458,15 @@ export const DocumentScanner: React.FC = () => {
     if (!canvas) {
       toast.error("No preview available to save");
       return;
+    }
+
+    // Ensure a folder is selected (prompt on first save)
+    if (!selectedFolder) {
+      const picked = await ensureFolderSelected();
+      if (!picked) {
+        toast.error("Save cancelled — no folder selected");
+        return;
+      }
     }
 
     try {
