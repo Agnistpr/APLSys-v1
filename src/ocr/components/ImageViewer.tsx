@@ -130,6 +130,7 @@ interface SelectionBox {
   y: number;
   width: number;
   height: number;
+  frozen?: boolean; // <-- NEW: mark boxes frozen after OCR
 }
 
 // Update the classification function
@@ -693,6 +694,11 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     e.preventDefault();
     const imgRect = canvasRef.current?.getBoundingClientRect();
     if (!imgRect) return;
+    // If this persisted selection is frozen (sent to OCR), do not allow edits
+    if (persistedSelections[idx]?.frozen) {
+      toast?.("This region has been scanned and is locked", { duration: 2000, dismissible: true });
+      return;
+    }
     editRef.current = { index: idx, mode: 'move', startX: e.clientX, startY: e.clientY, origBox: { ...persistedSelections[idx] } };
     // attach global listeners
     const onMove = (ev: MouseEvent) => {
@@ -723,6 +729,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const handleResizeMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
     e.stopPropagation();
     e.preventDefault();
+    if (persistedSelections[idx]?.frozen) {
+      toast?.("This region has been scanned and is locked", { duration: 2000, dismissible: true });
+      return;
+    }
     editRef.current = { index: idx, mode: 'resize-se', startX: e.clientX, startY: e.clientY, origBox: { ...persistedSelections[idx] } };
     const onMove = (ev: MouseEvent) => {
       if (!editRef.current) return;
@@ -905,7 +915,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
          };
 
         // Persist the selection so it stays visible and editable on the main canvas
-        setPersistedSelections(prev => [...prev, sel]);
+        setPersistedSelections(prev => [...prev, { ...sel, frozen: false }]);
         
         // Notify parent immediately so the crop panel shows the same region preview
         if (typeof onCropChange === 'function') {

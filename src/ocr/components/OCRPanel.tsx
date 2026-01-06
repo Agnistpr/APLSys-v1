@@ -24,7 +24,7 @@ interface OCRPanelProps {
   availableTags: string[];
   currentFileName?: string;
   currentFileData?: string;
-  currentCropData?: string; // <<< new prop: dataURL of preview crop (png)
+  currentCropData?: string;
   onUpdateExtraction: (id: string, updates: Partial<ExtractedText>) => void;
   onDeleteExtraction: (id: string) => void;
   onClearFile?: () => void; // <<< added prop
@@ -99,6 +99,8 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
 
       // 2. Save original file (robustly handle different shapes)
       let fileSaved = false;
+      // track the filename we attempted to save so toast can reflect exact saved name
+      let attemptedFileName: string | null = null;
  
       // If user requested cropped save, prefer the crop preview dataURL passed from parent
       // Otherwise fallback to prop/store file bytes
@@ -109,37 +111,52 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
       console.log("DEBUG fileDataRaw type:", typeof fileDataRaw, fileDataRaw);
 
       // Helper to actually call saveUploadedFile with a base64 payload (no data: prefix)
-      const callSave = async (maybeBase64: string) => {
+      const callSave = async (maybeBase64: string, filenameOverride?: string) => {
         if (!maybeBase64) return false;
         const base64Part = maybeBase64.includes(",") ? maybeBase64.split(",")[1] : maybeBase64;
+        const targetName = filenameOverride || currentFileName || "document";
+        attemptedFileName = targetName;
         const result = await window.fileAPI.saveUploadedFile({
-          fileName: currentFileName,
+          fileName: targetName,
           base64Data: base64Part
         });
         return result?.success === true;
       };
-
+ 
       if (!window.fileAPI?.saveUploadedFile) {
         console.warn("⚠️ window.fileAPI.saveUploadedFile not available");
       } else if (typeof fileDataRaw === "string") {
         // string could be data:<mime>;base64,AAAA... or raw base64
         try {
-          fileSaved = await callSave(fileDataRaw);
-          if (!fileSaved) console.warn("⚠️ saveUploadedFile returned falsy for string input");
-        } catch (err) {
+          // if preferring cropped, save with _CROPPED suffix
+          if (preferCropped) {
+            const base = (currentFileName || "document").replace(/\.[^/.]+$/, "");
+            const croppedName = `${base}_CROPPED_${Date.now()}.png`;
+            fileSaved = await callSave(fileDataRaw, croppedName);
+          } else {
+            fileSaved = await callSave(fileDataRaw);
+          }
+           if (!fileSaved) console.warn("⚠️ saveUploadedFile returned falsy for string input");
+         } catch (err) {
           console.warn("⚠️ saveUploadedFile error for string input:", err);
-        }
+         }
       } else if (fileDataRaw && typeof fileDataRaw === "object") {
         // possible shapes: { data: 'data:...base64,...' } or { base64: 'AAA...' }
         const maybe = (fileDataRaw.data || fileDataRaw.base64 || fileDataRaw.content) as any;
         if (typeof maybe === "string") {
           try {
-            fileSaved = await callSave(maybe);
-            if (!fileSaved) console.warn("⚠️ saveUploadedFile returned falsy for object.data input");
-          } catch (err) {
-            console.warn("⚠️ saveUploadedFile error for object.data input:", err);
-          }
-        } else if (fileDataRaw instanceof Blob || fileDataRaw instanceof File) {
+            if (preferCropped) {
+              const base = (currentFileName || "document").replace(/\.[^/.]+$/, "");
+              const croppedName = `${base}_CROPPED_${Date.now()}.png`;
+              fileSaved = await callSave(maybe, croppedName);
+            } else {
+              fileSaved = await callSave(maybe);
+            }
+             if (!fileSaved) console.warn("⚠️ saveUploadedFile returned falsy for object.data input");
+           } catch (err) {
+             console.warn("⚠️ saveUploadedFile error for object.data input:", err);
+           }
+         } else if (fileDataRaw instanceof Blob || fileDataRaw instanceof File) {
           // convert Blob/File -> base64 then save
           try {
             const reader = new FileReader();
@@ -148,17 +165,23 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
               reader.onerror = reject;
               reader.readAsDataURL(fileDataRaw as Blob);
             });
-            fileSaved = await callSave(base64Str);
+            if (preferCropped) {
+              const base = (currentFileName || "document").replace(/\.[^/.]+$/, "");
+              const croppedName = `${base}_CROPPED_${Date.now()}.png`;
+              fileSaved = await callSave(base64Str, croppedName);
+            } else {
+              fileSaved = await callSave(base64Str);
+            }
           } catch (err) {
             console.warn("⚠️ Error converting Blob/File to base64:", err);
           }
-        } else {
+         } else {
           // unexpected object shape — log for debugging
           console.warn("⚠️ Unexpected fileDataRaw shape:", fileDataRaw);
-        }
-      } else {
-        console.warn("⚠️ fileData missing or not usable:", typeof fileDataRaw);
-      }
+         }
+       } else {
+         console.warn("⚠️ fileData missing or not usable:", typeof fileDataRaw);
+       }
 
       // FALLBACK: try to fetch blob URL from store and convert -> base64 if earlier attempts failed
       if (!fileSaved) {
@@ -183,11 +206,15 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
         }
       }
 
+      // Build an informative toast message that includes the actual saved file name
+      const metadataFileName = `${currentFileName}.json`;
+      const filePart = fileSaved
+        ? (attemptedFileName || currentFileName)
+        : `${currentFileName} (file data unavailable)`;
+
       toast.success("Saved to Documents", {
         id: "save-docs",
-        description: fileSaved
-          ? `${currentFileName}.json + ${currentFileName}`
-          : `${currentFileName}.json only (file data unavailable)`,
+        description: `${metadataFileName} + ${filePart}`,
         duration: 4000,
       });
 

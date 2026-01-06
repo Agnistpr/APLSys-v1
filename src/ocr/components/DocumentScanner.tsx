@@ -425,7 +425,8 @@ export const DocumentScanner: React.FC = () => {
       const dataUrl = canvas.toDataURL("image/png");
       const base64 = dataUrl.split(",")[1];
       const baseName = (currentFile && currentFile.name) ? currentFile.name.replace(/\.[^/.]+$/, "") : "crop";
-      const fileName = `${baseName}-crop-${Date.now()}.png`;
+      // Mark cropped images clearly and include timestamp to avoid collisions
+      const fileName = `${baseName}_CROPPED_${Date.now()}.png`;
 
       toast.loading("Saving cropped image...", { id: "save-crop" });
 
