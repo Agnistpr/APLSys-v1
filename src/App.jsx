@@ -529,7 +529,7 @@ useEffect(() => {
   return (
     <div>
       {/* Onboarding banner: prompt to pick documents folder (only when none selected) */}
-      {showOnboard && user && (
+      {/* {showOnboard && user && (
         <div style={{ margin: 12, padding: 12, borderRadius: 8, background: "#fff3cd", border: "1px solid #ffeeba", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ color: "#856404", fontSize: 14 }}>
             No documents folder selected. Select a folder now so scanned images and scripts are saved there automatically.
@@ -539,7 +539,7 @@ useEffect(() => {
             <button className="btn" onClick={() => { setShowOnboard(false); try { localStorage.setItem('docs:onboardDismissed','1'); } catch {} }} style={{ padding: "6px 10px", borderRadius: 6 }}>Dismiss</button>
           </div>
         </div>
-      )}
+      )} */}
       {user && <Sidebar 
         activePage={activePage} 
         setActivePage={setActivePage} 
