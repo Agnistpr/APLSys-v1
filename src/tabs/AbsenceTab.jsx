@@ -27,9 +27,9 @@ const DashboardAbsence = ({ uid, setActivePage, setSelectedEmployeeId }) => {
   const [itemsPerPage, setItemsPerPage] = useState(5);
   const [loading, setLoading] = useState(true);
 
-  const columns = ["date", "fullName", "role", "department", "position", "shift"];
+  const columns = ["fullName", "role", "department", "position", "shift"];
   const columnLabelMap = {
-    date: "Date",
+    // date: "Date",
     fullName: "Name",
     role: "Role",
     department: "Department",
@@ -171,16 +171,7 @@ const DashboardAbsence = ({ uid, setActivePage, setSelectedEmployeeId }) => {
                     setSelectedEmployeeId(row.employeeid);
                     setActivePage("EmployeeInformation");
                   }}
-                >
-                  <td>
-                    {row.date
-                      ? new Date(row.date).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })
-                      : "-"}
-                  </td>                  
+                >               
                   <td>{row.fullName}</td>
                   <td>{row.role}</td>
                   <td>{row.department}</td>

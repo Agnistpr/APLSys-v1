@@ -1864,8 +1864,12 @@ ipcMain.handle("getAttendance", async (event, date = null) => {
 
 ipcMain.handle("getAbsent", async (event, date) => {
   try {
-    const targetDate = date ? formatDateToISO(date) : null;
+    const targetDate = date || null;
+    console.log("---- getAbsent called ----");
+    console.log("Original input date:", date);
+    console.log("Target date used for query:", targetDate);
 
+    // Fetch employees
     const { data: employees, error: empErr } = await supabase
       .from("employee")
       .select(
@@ -1875,26 +1879,9 @@ ipcMain.handle("getAbsent", async (event, date) => {
       )
       .order("lastname", { ascending: true });
     if (empErr) throw empErr;
+    console.log("Employees fetched:", employees.length);
 
-    const { data: applicants, error: appErr } = await supabase
-      .from("applicant")
-      .select(
-        `applicantid, lastname, firstname, middlename, shiftstart, shiftend,
-         department:departmentid ( departmentname ),
-         position:positionid ( positionname )`
-      )
-      .order("lastname", { ascending: true });
-    if (appErr) throw appErr;
-
-    const profiles = [
-      ...employees.map((e) => ({ ...e, profileid: e.employeeid, role: "Employee" })),
-      ...applicants.map((a) => ({ ...a, profileid: a.applicantid, role: "Applicant" })),
-    ];
-
-    const { data: attendance } = targetDate
-      ? await supabase.from("attendance").select("profileid, role").eq("date", targetDate)
-      : await supabase.from("attendance").select("profileid, role");
-
+    // Fetch leaves (approved & paid)
     let leaves = [];
     if (targetDate) {
       const { data: allLeaves } = await supabase
@@ -1902,6 +1889,7 @@ ipcMain.handle("getAbsent", async (event, date) => {
         .select("employeeid, start_date, end_date, is_paid")
         .eq("is_paid", true)
         .eq("status", "Approved");
+      console.log("All leaves fetched:", allLeaves?.length || 0);
 
       const d = new Date(targetDate);
       leaves = (allLeaves || []).filter((l) => {
@@ -1909,40 +1897,45 @@ ipcMain.handle("getAbsent", async (event, date) => {
         const e = new Date(l.end_date);
         return d >= s && d <= e;
       });
-    } else {
-      const { data: allLeaves } = await supabase
-        .from("leave")
-        .select("employeeid")
-        .eq("is_paid", true);
-      leaves = allLeaves || [];
+      console.log("Leaves on target date:", leaves.length);
     }
 
+    // Fetch attendance for targetDate only
+    const { data: attendance } = await supabase
+      .from("attendance")
+      .select("profileid, role, date")
+      .eq("date", targetDate);
+
+    console.log("Attendance records fetched:", attendance?.length || 0);
+    if (attendance?.length > 0) {
+      console.log("First few attendance records:", attendance.slice(0, 5));
+    }
+
+    // Build Sets for present and on-leave employees
     const present = new Set(
-      (attendance || []).map((r) => `${r.role.toLowerCase()}-${r.profileid}`)
+      (attendance || []).map((r) => `employee-${String(r.profileid)}`)
     );
     const onleave = new Set(
-      (leaves || []).map((r) => `employee-${r.employeeid}`)
+      (leaves || []).map((r) => `employee-${String(r.employeeid)}`)
     );
 
-    const absent = profiles.filter(
-      (p) =>
-        !present.has(`${p.role.toLowerCase()}-${p.profileid}`) &&
-        !onleave.has(`${p.role.toLowerCase()}-${p.profileid}`)
+    // Determine absent employees (exclude those present or on leave)
+    const absent = employees.filter(
+      (e) => !present.has(`employee-${e.employeeid}`) && !onleave.has(`employee-${e.employeeid}`)
     );
 
+    console.log("Absent profiles count for target date:", absent.length);
+
+    // Return formatted absent records
     return absent.map((r) => ({
-      profileid: r.profileid,
-      role: r.role,
-      fullName: `${r.lastname}, ${r.firstname}${
-        r.middlename ? ` ${r.middlename.charAt(0)}.` : ""
-      }`,
+      profileid: r.employeeid,
+      role: "Employee",
+      fullName: `${r.lastname}, ${r.firstname}${r.middlename ? ` ${r.middlename.charAt(0)}.` : ""}`,
       department: r.department?.departmentname ?? "",
       position: r.position?.positionname ?? "",
-      shift:
-        r.shiftstart && r.shiftend
-          ? `${formatTime12(r.shiftstart)} - ${formatTime12(r.shiftend)}`
-          : "",
-      date: targetDate,
+      shift: r.shiftstart && r.shiftend
+        ? `${formatTime12(r.shiftstart)} - ${formatTime12(r.shiftend)}`
+        : "",
     }));
   } catch (err) {
     console.error("getAbsent error:", err);
