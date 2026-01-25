@@ -94,25 +94,23 @@ export const ResumeTable = ({
   onFieldChange?: (field: string, value: string) => void;
 }) => {
   console.log("DEBUG ResumeTable render resume:", resume);
-  // -------------------------
-  // Create safe local copies
-  // -------------------------
+  
   const profile = resume?.profile ?? {};
-  const profileName = typeof profile.name === "string" ? profile.name : "";
-  const { firstName, middleName, lastName } = splitFullName(profileName);
 
+  // FIXED: Use nullish coalescing (??) instead of logical OR (||)
+  // This prevents empty strings from being replaced with split values
   const safeProfile = {
-    name: profileName,
-    firstName: profile.firstName || firstName,
-    middleName: profile.middleName || middleName,
-    lastName: profile.lastName || lastName,
-    email: profile.email || "",
-    phone: profile.phone || "",
-    location: profile.location || "",
-    age: profile.age || "",
-    gender: profile.gender || "",
-    url: profile.url || "",
-    summary: profile.summary || "",
+    name: profile.name ?? "",
+    firstName: profile.firstName ?? "",
+    middleName: profile.middleName ?? "",
+    lastName: profile.lastName ?? "",
+    email: profile.email ?? "",
+    phone: profile.phone ?? "",
+    location: profile.location ?? "",
+    age: profile.age ?? "",
+    gender: profile.gender ?? "",
+    url: profile.url ?? "",
+    summary: profile.summary ?? "",
   };
 
   const educations = Array.isArray(resume?.educations) && resume.educations.length > 0

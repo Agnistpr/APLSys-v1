@@ -527,11 +527,24 @@ export default function ResumeParser
   // Previously we passed an updater function to the store setter which stored a function instead of the object.
   const handleFieldPathChange = useCallback((fieldPath: string, value: any) => {
     try {
-      // read current resume from store (fallback to default)
-      const prev = useAnalysisStore.getState().editableResume || defaultResume;
-      const next = JSON.parse(JSON.stringify(prev || defaultResume));
+      // 1. Get the current state from the store
+      const currentState = useAnalysisStore.getState();
+      const prev = currentState.editableResume || defaultResume;
+      
+      // 2. Create a deep copy to avoid mutations
+      const next = JSON.parse(JSON.stringify(prev));
+      
+      // 3. Set the new value at the path
       setByPath(next, fieldPath, value);
+      
+      // 4. Immediately update the store (this triggers re-render)
       setEditableResume(next);
+      
+      // 5. Force a store state update to ensure persistence
+      // This ensures the store's internal state is updated
+      useAnalysisStore.setState({ editableResume: next });
+      
+      console.log("Field updated:", fieldPath, "New value:", value, "Full resume:", next);
     } catch (e) {
       console.error("handleFieldPathChange failed for", fieldPath, e);
     }
