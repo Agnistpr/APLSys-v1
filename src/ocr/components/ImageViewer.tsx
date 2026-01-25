@@ -373,27 +373,27 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         // Classify region text using the /classify endpoint.
         // If the classifier returns nothing (204) or errors, continue without tags.
         let tags: string[] = [];
-        try {
-          const payload = { text: String(text || "").trim() };
-          const r = await axios.post(`${API_BASE_URL}/ai/classify`, payload, { validateStatus: () => true });
-          if (r.status === 204) {
-            // no content / rate-limited — leave tags empty
-            tags = [];
-            toast(`Warning: No Tags`, {
-              id: toastId,
-              description: "Extracted text weren't tagged due to rate limit",
-              icon: "⚠️",
-              dismissible: true,
-              duration: 5000,
-            });
-          } else if (r.data) {
-            const tag = (r.data.tag || r.data || "").toString().trim();
-            if (tag) tags = [tag];
-          }
-        } catch (e) {
-          console.warn("Classifier call failed:", e);
-          tags = [];
-        }
+        // try {
+        //   const payload = { text: String(text || "").trim() };
+        //   const r = await axios.post(`${API_BASE_URL}/ai/classify`, payload, { validateStatus: () => true });
+        //   if (r.status === 204) {
+        //     // no content / rate-limited — leave tags empty
+        //     tags = [];
+        //     toast(`Warning: No Tags`, {
+        //       id: toastId,
+        //       description: "Extracted text weren't tagged due to rate limit",
+        //       icon: "⚠️",
+        //       dismissible: true,
+        //       duration: 5000,
+        //     });
+        //   } else if (r.data) {
+        //     const tag = (r.data.tag || r.data || "").toString().trim();
+        //     if (tag) tags = [tag];
+        //   }
+        // } catch (e) {
+        //   console.warn("Classifier call failed:", e);
+        //   tags = [];
+        // }
  
         // build items array from OCR result (items was undefined)
         const extractedItems = [
@@ -1117,18 +1117,18 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         if (text && text.trim()) {
           // optional: try to classify tags (reuse existing classifier logic)
           let tags: string[] = [];
-          try {
-            const payload = { text: String(text || "").trim() };
-            const r = await axios.post(`${API_BASE_URL}/ai/classify`, payload, { validateStatus: () => true });
-            if (r.status === 204) {
-              tags = [];
-            } else if (r.data) {
-              const tag = (r.data.tag || r.data || "").toString().trim();
-              if (tag) tags = [tag];
-            }
-          } catch (e) {
-            tags = [];
-          }
+          // try {
+          //   const payload = { text: String(text || "").trim() };
+          //   const r = await axios.post(`${API_BASE_URL}/ai/classify`, payload, { validateStatus: () => true });
+          //   if (r.status === 204) {
+          //     tags = [];
+          //   } else if (r.data) {
+          //     const tag = (r.data.tag || r.data || "").toString().trim();
+          //     if (tag) tags = [tag];
+          //   }
+          // } catch (e) {
+          //   tags = [];
+          // }
 
           const extractedItems = [{
             id: Date.now().toString(),
