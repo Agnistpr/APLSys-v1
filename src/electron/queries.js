@@ -8,9 +8,10 @@ const logPath = app.isPackaged
   ? path.join(app.getPath("userData"), "log.txt")
   : path.join(process.cwd(), "log.txt");
 
-function logMessage(message) {
+export function logMessage(message) {
   const time = new Date().toISOString();
   fs.appendFileSync(logPath, `[${time}] ${message}\n`);
+  console.log(`[queries.js] ${message}`);
 }
 
 process.on("uncaughtException", (err) => {
@@ -2105,6 +2106,7 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, ty
             type,
             is_paid: isPaid,
             status,
+            timestamp: new Date.toISOString(),
           },
         ]);
 
@@ -2170,7 +2172,11 @@ ipcMain.handle('updateLeaveStatus', async (event, { ids, status }) => {
       }
     }
 
-    const { error } = await supabase.from('leave').update({ status }).in('leaveid', ids);
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from('leave')
+      .update({ status, timestamp: now })
+      .in('leaveid', ids);
     if (error) throw new Error(error.message);
 
     return { success: true };
@@ -2753,7 +2759,7 @@ ipcMain.handle('updateApplicantsStatus', async (event, ids, options) => {
     const { status, setTrainingDate, resetTraining, setApplicationDate } = options || {};
     const nowISO = new Date().toISOString();
 
-    const updates = { status };
+    const updates = { status, timestamp: nowISO };
     if (setTrainingDate) updates.trainingdate = nowISO;
     if (resetTraining) updates.trainingdate = null;
     if (setApplicationDate) updates.applicationdate = nowISO;

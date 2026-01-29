@@ -9,8 +9,7 @@ import { API_BASE_URL } from '../../config';
 
 const Management = ({ onTaskStart, onTaskEnd }) => {
   const { docs, setDocs, setProcessingMap, batchId, setBatchId, ocrMatches, setOcrMatches } = useOcrStore();
-  const selectedFolder = useOcrStore(s => s.selectedFolder); // <<< new: ensure we know which folder is active
-  // global flag setter used to show/hide global OCR processing state
+  const selectedFolder = useOcrStore(s => s.selectedFolder);
   const setGlobalProcessing = useOcrStore(s => s.setProcessing);
   // subscribe to processingMap and derive context flags
   const processingMap = useOcrStore(s => s.processingMap || {});
@@ -18,6 +17,7 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   const scannerProcessing = Boolean(Object.keys(processingMap).some(k => String(k).startsWith('scanner:')));
   // keep any global overlay separate if you still use it
   const globalProcessing = useOcrStore(s => s.isProcessing);
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState({});
@@ -25,10 +25,16 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showJumpInput, setShowJumpInput] = useState(false);
   const [jumpPage, setJumpPage] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedDocs, setSelectedDocs] = useState(new Set());
+  
+  // NEW: Modal state for directory info
+  const [showDirModal, setShowDirModal] = useState(false);
+  const [dirPath, setDirPath] = useState("");
+  const [dirModalShown, setDirModalShown] = useState(false);
+  
   const filterRef = useRef(null);
   const isOpeningFolder = useRef(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [selectedDocs, setSelectedDocs] = useState(new Set()); // <<< new
   const columnLabelMap = { type: "Type" };
   const PROCESSING_STATE_KEY = "documentProcessingState";
   const scanToastId = `scan:${Date.now()}`;
@@ -59,7 +65,6 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
     try {
       const picked = await window.fileAPI.openFolder();
 
-      // Electron dialog: if cancelled, picked may be { canceled: true }
       if (!picked || (picked && picked.canceled === true)) {
         isOpeningFolder.current = false;
         return;
@@ -71,7 +76,6 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
       else if (picked?.filePaths?.length) pickedPath = picked.filePaths[0];
       else if (picked?.path) pickedPath = picked.path;
 
-      // If user cancelled, pickedPath will be empty or falsy
       if (!pickedPath) {
         isOpeningFolder.current = false;
         return;
@@ -79,38 +83,166 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
 
       const folderName = String(pickedPath).split(/[\\/]/).pop() || pickedPath;
 
-      toast.dismiss(OPEN_FOLDER_TOAST);
-      toast.loading(`Opening ${folderName}. Please wait`, {
-        id: OPEN_FOLDER_TOAST,
-        icon: "⏳",
-        dismissible: true
-      });
-
-      // update store now
+      // Update store locally first
       useOcrStore.getState().setSelectedFolder(pickedPath);
 
-      await new Promise(r => setTimeout(r, 50));
+      // Show loading toast IMMEDIATELY
+      console.log('[Management] Showing loading toast');
+      toast.loading(`Loading documents from: ${folderName}...`, {
+        id: "loading-docs",
+        duration: 999999
+      });
 
+      // Give store time to update
+      await new Promise(r => setTimeout(r, 150));
+
+      // ✅ CRITICAL: Notify main process and AWAIT the response
+      console.log('[Management] Calling setSelectedFolder with path:', pickedPath);
+      let setFolderResponse = null;
+      try {
+        setFolderResponse = await window.fileAPI.setSelectedFolder(pickedPath);
+        console.log('[Management] setSelectedFolder response:', setFolderResponse);
+        
+        if (!setFolderResponse?.success) {
+          throw new Error(setFolderResponse?.error || 'Failed to set folder');
+        }
+      } catch (setErr) {
+        console.error('[Management] setSelectedFolder failed:', setErr);
+        toast.dismiss("loading-docs");
+        toast.error("Failed to change directory", {
+          description: String(setErr),
+          duration: 4000
+        });
+        isOpeningFolder.current = false;
+        return;
+      }
+
+      // Wait for main process to broadcast event
+      console.log('[Management] Waiting for broadcast event...');
+      await new Promise(r => setTimeout(r, 300));
+
+      // Fetch documents from new directory
+      console.log('[Management] Fetching documents from new directory...');
       const newDocs = await window.fileAPI.listDocuments();
-      setDocs(newDocs);
+      
+      console.log('[Management] Received documents:', newDocs?.length);
+      setDocs(newDocs || []);
 
-      toast.success(`Opened: ${folderName}`, {
-        id: OPEN_FOLDER_TOAST,
-        description: pickedPath,
-        icon: "✅",
-        dismissible: true,
-        duration: 10000
+      // Dismiss loading toast and show success
+      toast.dismiss("loading-docs");
+      toast.success(`Documents loaded from: ${folderName}`, {
+        description: `Found ${newDocs?.length || 0} document(s)`,
+        duration: 4000
       });
 
     } catch (err) {
+      console.error('[Management] Folder open error:', err);
+      toast.dismiss("loading-docs");
       toast.error("Failed to open folder", {
-        id: OPEN_FOLDER_TOAST,
-        description: String(err)
+        description: String(err),
+        duration: 4000
       });
     } finally {
       isOpeningFolder.current = false;
     }
   };
+
+  useEffect(() => {
+    const initializeScanDir = async () => {
+      try {
+        console.log('=== Management.jsx initialization START ===');
+        
+        // Try to get current scan dir
+        let dir = null;
+        try {
+          dir = await window.fileAPI.getScanDataDir();
+          console.log('[Management] getScanDataDir returned:', dir);
+        } catch (err) {
+          console.error('[Management] getScanDataDir error:', err);
+        }
+        
+        // Show modal only if we got a valid directory
+        if (dir && !dirModalShown) {
+          console.log('[Management] ✅ Showing directory modal with path:', dir);
+          setDirPath(dir);
+          setShowDirModal(true);
+          setDirModalShown(true);
+        } else if (!dir) {
+          console.warn('[Management] No initial dir - waiting for registry event');
+          // Don't mark as shown - wait for registry event from main process
+        }
+        
+        // Fetch documents
+        try {
+          const docsList = await window.fileAPI.listDocuments();
+          console.log('[Management] listDocuments returned:', docsList?.length, 'files');
+          setDocs(docsList || []);
+        } catch (docErr) {
+          console.error('[Management] listDocuments failed:', docErr);
+          setDocs([]);
+        }
+        
+        // Register listener for directory changes from main process
+        try {
+          console.log('[Management] Registering onRegistryScanDir listener...');
+          const unsubscribe = window.fileAPI.onRegistryScanDir?.((scanDir) => {
+            console.log('[Management] Registry scan dir event RECEIVED:', scanDir);
+            
+            if (scanDir) {
+              // Show modal on FIRST registry event (if not already shown)
+              if (!dirModalShown) {
+                console.log('[Management] Showing initial directory modal');
+                setDirPath(scanDir);
+                setShowDirModal(true);
+                setDirModalShown(true);
+              } else {
+                // Subsequent events = directory changed
+                console.log('[Management] Directory changed from existing selection');
+                useOcrStore.getState().setSelectedFolder(scanDir);
+                
+                toast.success('Documents directory changed', {
+                  description: scanDir,
+                  duration: 5000,
+                  id: 'dir-changed'
+                });
+                
+                // Refresh documents
+                toast.loading('Reloading documents...', {
+                  id: 'reload-docs',
+                  duration: 999999
+                });
+                
+                window.fileAPI.listDocuments()
+                  .then(newDocs => {
+                    console.log('[Management] Documents reloaded:', newDocs?.length, 'files');
+                    setDocs(newDocs || []);
+                    toast.dismiss('reload-docs');
+                    toast.success('Documents reloaded', {
+                      description: `Found ${newDocs?.length || 0} document(s)`,
+                      duration: 4000
+                    });
+                  })
+                  .catch(err => {
+                    console.error('[Management] Failed to reload docs:', err);
+                    toast.dismiss('reload-docs');
+                    toast.error('Failed to reload documents');
+                  });
+              }
+            }
+          });
+          
+          console.log('[Management] Listener registered');
+          return unsubscribe;
+        } catch (err) {
+          console.warn('[Management] Could not register listener:', err);
+        }
+      } catch (err) {
+        console.error('[Management] Initialization failed:', err);
+      }
+    };
+
+    initializeScanDir();
+  }, []); // Run once on mount
 
   useEffect(() => {
     const fetchDocs = async () => {
@@ -133,10 +265,15 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
         }
       } catch (err) {
         console.error("Failed to fetch documents:", err);
-        toast.error("Failed to load documents");
+        // Show more specific error message
+        const errorMsg = err?.message || "Unknown error";
+        toast.error("Failed to load documents", {
+          description: `${errorMsg}. Please check if the folder exists and is accessible.`,
+          duration: 5000
+        });
+        setDocs([]); // Set empty array instead of undefined
       }
     };
-
 
     fetchDocs();
 
@@ -820,35 +957,68 @@ useEffect(() => {
 
   return (
     <div className="managementContainer">
+      {/* NEW: Directory Modal */}
+      {showDirModal && (
+        <div className="modalOverlay" onClick={() => setShowDirModal(false)}>
+          <div className="modalContent" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <h2>📁 Documents Directory</h2>
+              <button 
+                className="modalCloseBtn" 
+                onClick={() => setShowDirModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modalBody">
+              <p style={{ marginBottom: '16px', color: '#666' }}>
+                APLSys will store and scan documents from:
+              </p>
+              <div className="dirPathBox">
+                {dirPath}
+              </div>
+              <p style={{ marginTop: '16px', fontSize: '13px', color: '#888' }}>
+                You can change this directory anytime using the "Open Folder" button.
+              </p>
+            </div>
+            <div className="modalFooter">
+              <button 
+                className="modalBtn"
+                onClick={() => setShowDirModal(false)}
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="managementHeaderRow">
         <div className="managementHeader">
           <h1>Documents</h1>
-             {/* Button: open/select folder */}
-            <button 
-                className="openFolderBtn" 
-                onClick={handleFolderOpen}
-              >
-                <FaFolderOpen />
-                {/* Open Folder */}
-            </button>
-            <button
-              className="ocrProcessBtn"
-              onClick={processFolderOcr}
-              // block only when a batch is already running (or local prepare state)
-              disabled={batchProcessing || isProcessing}
-              title={batchProcessing ? "Batch OCR running" : isProcessing ? "Preparing batch OCR" : "Scan all files"}
-            >
-              {batchProcessing ? 'Processing...' : isProcessing ? 'Preparing...' : 'Scan all files'}
-            </button>
-            <button
-              className="ocrProcessBtn"
-              onClick={processSelectedOcr}
-              disabled={selectedDocs.size === 0 || batchProcessing || isProcessing}
-              title={selectedDocs.size === 0 ? "Select files to scan" : "Scan only selected files"}
-              style={{ marginLeft: 8 }}
-            >
-              {isProcessing ? 'Processing...' : `Scan Selected (${selectedDocs.size})`}
-            </button>
+          <button 
+            className="openFolderBtn" 
+            onClick={handleFolderOpen}
+          >
+            <FaFolderOpen />
+          </button>
+          <button
+            className="ocrProcessBtn"
+            onClick={processFolderOcr}
+            disabled={batchProcessing || isProcessing}
+            title={batchProcessing ? "Batch OCR running" : isProcessing ? "Preparing batch OCR" : "Scan all files"}
+          >
+            {batchProcessing ? 'Processing...' : isProcessing ? 'Preparing...' : 'Scan all files'}
+          </button>
+          <button
+            className="ocrProcessBtn"
+            onClick={processSelectedOcr}
+            disabled={selectedDocs.size === 0 || batchProcessing || isProcessing}
+            title={selectedDocs.size === 0 ? "Select files to scan" : "Scan only selected files"}
+            style={{ marginLeft: 8 }}
+          >
+            {isProcessing ? 'Processing...' : `Scan Selected (${selectedDocs.size})`}
+          </button>
         </div>
 
         <div className="managementControls">
@@ -922,7 +1092,7 @@ useEffect(() => {
                 }}
               />
               <div className="searchTooltip">
-                  (Use =&quot;text&quot; for looking for specific texts that is within documents)
+                  (Use ="text" for looking for specific texts that is within documents)
                 </div>
             </div>
             <button className="searchIconBtn">

@@ -359,8 +359,8 @@ export default function ResumeParser
    goBack,
    onParsingStateChange,
   setShowAnalyzer }: ResumeParserProps = {}) {
-  console.log("DEBUG ResumeTable:", typeof ResumeTable, ResumeTable);
-  console.log("DEBUG CandidateScoreCard:", typeof CandidateScoreCard, CandidateScoreCard);
+  // console.log("DEBUG ResumeTable:", typeof ResumeTable, ResumeTable);
+  // console.log("DEBUG CandidateScoreCard:", typeof CandidateScoreCard, CandidateScoreCard);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [fileType, setFileType] = useState<string | null>(null);
   const [textItems, setTextItems] = useState<TextItems>([]);
@@ -955,7 +955,7 @@ export default function ResumeParser
 
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/parser/ner-extract-resume-profile`,
+        `${DEV_TEST_URL}/parser/ner-extract-resume-profile`,
         { text: safeText },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -985,7 +985,7 @@ export default function ResumeParser
 
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/ai/gemini-extract-resume-profile`,
+        `${DEV_TEST_URL}/ai/gemini-extract-resume-profile`,
         { text: safeText },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -1009,7 +1009,7 @@ export default function ResumeParser
 
     try {
       // Use the unified endpoint that supports PDF, images, and DOCX
-      const response = await axios.post(`${API_BASE_URL}/parser/extract-resume-text`, formData, {
+      const response = await axios.post(`${DEV_TEST_URL}/parser/extract-resume-text`, formData, {
         headers: { "Content-Type": "multipart/form-data" }
       });
       console.log("Text extraction response:", response);

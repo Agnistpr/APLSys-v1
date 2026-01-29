@@ -22,6 +22,8 @@ declare global {
       moveFileToFolder: (sourcePath: string, targetDir: string) => Promise<any>;
 
       // === Directory Operations ===
+      getScanDataDir: () => Promise<string>;
+      setSelectedFolder: (folderPath: string) => Promise<{ success: boolean; path?: string; error?: string }>;
       createDirectory: (path: string) => Promise<any>;
       readDirectory: (path: string) => Promise<any>;
       readFile: (path: string) => Promise<any>;
@@ -32,6 +34,9 @@ declare global {
       onOcrProgress: (
         cb: (data: any) => void
       ) => () => void; // returns unsubscribe fn
+
+      // == Event Listeners ==
+      onRegistryScanDir: (callback: (dir: string) => void) => () => void;
     },
     applicantAPI: {
       getApplicant: (applicantId: any) => Promise<any>;

@@ -30,6 +30,6 @@ export default defineConfig(({ mode }) => ({
       home: resolve(__dirname, "src/app/home"),
       data: resolve(__dirname, "src/app/data"),
     },
-    extensions: [".mjs", ".js", ".ts", ".jsx", ".tsx", ".json"], // ✅ include both configs' extensions
+    extensions: [".mjs", ".js", ".ts", ".jsx", ".tsx", ".json"], //include both configs' extensions
   },
 }));

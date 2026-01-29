@@ -1,5 +1,4 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
-import { toast } from "sonner";
 import { Toaster } from "sonner";
 import { Toaster as SonnerToaster } from "./ocr/components/ui/sonner.tsx";
 import Toasts from "./components/Toast.jsx";
@@ -9,7 +8,6 @@ import Dashboard from './page/Dashboard.jsx';
 import EmployeeInformation from './page/EmployeeInformation.jsx';
 import ApplicantInformation from './page/ApplicantInformation.jsx';
 import Employee from './page/Employees.jsx';
-// import Attendance from './page/Attendance.jsx';
 import Shifting from './page/Shifting.jsx';
 import Training from './page/Training.jsx';
 import Management from './page/Management.jsx';
@@ -21,6 +19,7 @@ import ocrCssPath from './ocr/ocrstyles.css?url';
 import { useOcrStore } from './electron/ocrStore';
 import { useAnalysisStore, defaultResume } from './electron/aiStore';
 import {API_BASE_URL} from './config';
+import { toast } from 'sonner';
 
 const Analyzer = lazy(() => import('./app/resume-parser/page.tsx'));
 const Screening = lazy(() => import('./page/Screening.jsx'));
@@ -173,6 +172,18 @@ useEffect(() => {
   }, []);
 
   useEffect(() => {
+    window.electron?.ipcRenderer?.on('notify-documents-dir', (_, dir) => {
+      // Use your preferred notification/modal system
+      alert(`APLSys will use this folder for documents:\n${dir}`);
+      // Or use a custom modal/toast here
+    });
+
+    return () => {
+      window.electron?.ipcRenderer?.removeAllListeners('notify-documents-dir');
+    };
+  }, []);
+
+  useEffect(() => {
     let link;
     if (activePage === "Scanner") {
       link = document.createElement("link");
@@ -187,9 +198,34 @@ useEffect(() => {
     };
   }, [activePage]);
 
-  const handleLogin = (user) => {
+  const [showDocsDirModal, setShowDocsDirModal] = useState(false);
+  const [docsDirPath, setDocsDirPath] = useState("");
+
+  const handleLogin = async (user) => {
     setUser(user);
     setActivePage("Dashboard");
+    
+    // Show directory notification after successful login
+    // Use a longer delay to ensure Sonner is ready
+    setTimeout(async () => {
+      try {
+        const dir = await window.fileAPI?.getScanDataDir?.();
+        console.log('[App] getScanDataDir returned:', dir);
+        
+        if (dir) {
+          console.log('[App] Showing directory toast');
+          toast.info("📁 Documents Directory", {
+            description: dir,
+            duration: 6000,
+            position: 'top-right'
+          });
+        } else {
+          console.warn('[App] getScanDataDir returned empty/null');
+        }
+      } catch (err) {
+        console.warn("Failed to get scan dir for notification:", err);
+      }
+    }, 2000); // Increased delay to ensure Sonner is fully mounted
   };
 
   const handleLogout = async () => {
@@ -528,18 +564,6 @@ useEffect(() => {
 
   return (
     <div>
-      {/* Onboarding banner: prompt to pick documents folder (only when none selected) */}
-      {/* {showOnboard && user && (
-        <div style={{ margin: 12, padding: 12, borderRadius: 8, background: "#fff3cd", border: "1px solid #ffeeba", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ color: "#856404", fontSize: 14 }}>
-            No documents folder selected. Select a folder now so scanned images and scripts are saved there automatically.
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn" onClick={handlePickFolderFromBanner} style={{ background: "#0b5ed7", color: "white", padding: "6px 10px", borderRadius: 6 }}>Select Folder</button>
-            <button className="btn" onClick={() => { setShowOnboard(false); try { localStorage.setItem('docs:onboardDismissed','1'); } catch {} }} style={{ padding: "6px 10px", borderRadius: 6 }}>Dismiss</button>
-          </div>
-        </div>
-      )} */}
       {user && <Sidebar 
         activePage={activePage} 
         setActivePage={setActivePage} 
@@ -580,6 +604,52 @@ useEffect(() => {
           className: 'toast-persistent-class'
         }}
       />
+
+      {/* {showDocsDirModal && (
+        <div style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 9999,
+          backgroundColor: "#fff",
+          padding: "24px",
+          borderRadius: "8px",
+          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+          maxWidth: "400px",
+          textAlign: "center"
+        }}>
+          <h2 style={{ margin: "0 0 12px 0", color: "#333" }}>📁 Documents Directory</h2>
+          <p style={{ margin: "0 0 16px 0", color: "#666", fontSize: "14px" }}>
+            APLSys will store and scan documents from:
+          </p>
+          <div style={{
+            backgroundColor: "#f5f5f5",
+            padding: "12px",
+            borderRadius: "4px",
+            marginBottom: "16px",
+            wordBreak: "break-all",
+            fontSize: "12px",
+            color: "#333"
+          }}>
+            {docsDirPath}
+          </div>
+          <button
+            onClick={() => setShowDocsDirModal(false)}
+            style={{
+              padding: "8px 16px",
+              backgroundColor: "#0066cc",
+              color: "#fff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontSize: "14px"
+            }}
+          >
+            Got it
+          </button>
+        </div>
+      )} */}
     </div>
   );
 };
