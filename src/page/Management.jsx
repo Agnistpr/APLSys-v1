@@ -31,7 +31,11 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
   // NEW: Modal state for directory info
   const [showDirModal, setShowDirModal] = useState(false);
   const [dirPath, setDirPath] = useState("");
-  const [dirModalShown, setDirModalShown] = useState(false);
+  // CHANGED: Use sessionStorage instead of local state
+  const [dirModalShown, setDirModalShown] = useState(() => {
+    // Initialize from sessionStorage (persists across page navigations within same session)
+    return sessionStorage.getItem("dirModalShown") === "true";
+  });
   
   const filterRef = useRef(null);
   const isOpeningFolder = useRef(false);
@@ -161,12 +165,14 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
           console.error('[Management] getScanDataDir error:', err);
         }
         
-        // Show modal only if we got a valid directory
+        // Show modal only if we got a valid directory AND haven't shown it yet this session
         if (dir && !dirModalShown) {
           console.log('[Management] ✅ Showing directory modal with path:', dir);
           setDirPath(dir);
           setShowDirModal(true);
           setDirModalShown(true);
+          //Mark as shown in sessionStorage
+          sessionStorage.setItem("dirModalShown", "true");
         } else if (!dir) {
           console.warn('[Management] No initial dir - waiting for registry event');
           // Don't mark as shown - wait for registry event from main process
@@ -190,11 +196,12 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
             
             if (scanDir) {
               // Show modal on FIRST registry event (if not already shown)
-              if (!dirModalShown) {
+              if (!dirModalShown && !sessionStorage.getItem("dirModalShown")) {
                 console.log('[Management] Showing initial directory modal');
                 setDirPath(scanDir);
                 setShowDirModal(true);
                 setDirModalShown(true);
+                sessionStorage.setItem("dirModalShown", "true");
               } else {
                 // Subsequent events = directory changed
                 console.log('[Management] Directory changed from existing selection');
