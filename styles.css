@@ -2193,6 +2193,39 @@ ocr-root
   z-index: 99999 !important;
 }
 
+.btn-outline {
+  background: transparent;
+  border: 1px solid rgba(0,0,0,0.08);
+  color: inherit;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: none;
+  color: inherit;
+}
+.btn-destructive { background:#c33; }
+.btn-sm { padding: 6px 10px; font-size: 0.9rem; }
+.btn-xs { padding: 4px 8px; font-size: 0.8rem; }
+
+.card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e6e6e6);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.04);
+}
+
+.badge {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  align-items: center;
+}
+.badge-default { background: var(--primary-soft, #f5f7fb); color: hsl(var(--primary)); }
+.badge-secondary { background: #f3f4f6; color: #444; }
+
 #ocr-root 
 .ocr-toast button[aria-label="Close"]:hover,
 .toast-persistent-class button[aria-label="Close"]:hover {
@@ -3432,6 +3465,7 @@ ocr-root
 
 .btn:hover {
   background-color: #8f2122;
+  opacity: 0.95;
 }
 
 .create {
@@ -3510,6 +3544,24 @@ ocr-root
 }
 
 /* #endregion OCR Styles */
+:root {
+  /* primary (deep red used across app) */
+  --app-primary-hex: #a5292a;
+  --app-primary: 0 70% 35%; /* H S L numbers (optional, used by hsl(var(--app-primary))) */
+
+  /* general surface / bg / text */
+  --app-background-hex: #f6f6f6;
+  --app-foreground-hex: #1b1b1b;
+  --app-surface-hex: #ffffff;
+  --app-border-hex: #e6e6e6;
+
+  /* fallbacks for OCR which may use hsl(var(--primary)) style */
+  --primary: var(--app-primary);
+  --background: var(--app-background-hex);
+  --foreground: var(--app-foreground-hex);
+  --surface: var(--app-surface-hex);
+  --border: var(--app-border-hex);
+}
 
 /* #region [Logs] */
 .logsContainer {
@@ -4152,3 +4204,22 @@ ocr-root
 .modalBtn:active {
   background-color: #0d47a1;
 }
+
+/* Employee Link modal sizing and layout fixes */
+.employeeLinkModal {
+  width: 760px;                /* smaller fixed modal width */
+  max-width: calc(100% - 48px);
+  margin: 0 auto;              /* center in overlay */
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+  background: #fff;
+}
+
+/* internal grid shortcuts */
+.employeeLinkContent {
+  display: grid;
+  grid-template-columns: 40% 60%;
+  gap: 16px;
+  height: 65vh;
+}
+

@@ -17,12 +17,12 @@ import { ImageViewer, entityToTag } from './ImageViewer';
 import { OCRPanel } from './OCRPanel';
 import { TagsPanel } from './TagsPanel';
 import { DocumentUploadOCRPanel } from "./DocumentUploadOCRPanel";
-import { MetadataExtractorPanel } from './MetadataExtractorPanel';
 import { toast } from 'sonner';
 import { useOcrStore } from '../../electron/ocrStore';
 import ReactCrop, { Crop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { cropCanvasPreview } from '../lib/cropcanvaspreview';
+import { EmployeeLinkPanel } from './EmployeeLinkPanel';
 
 export interface ExtractedText {
   id: string;
@@ -92,6 +92,9 @@ export const DocumentScanner: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showUploadWarning, setShowUploadWarning] = useState(false); // <<< NEW
   const [pendingFile, setPendingFile] = useState<File | null>(null); // <<< NEW
+  const [showEmployeeLink, setShowEmployeeLink] = useState(false);
+  const [linkedEmployeeId, setLinkedEmployeeId] = useState<number | null>(null);
+  const [selectedExtractionForLink, setSelectedExtractionForLink] = useState<ExtractedText | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Crop panel state
   const [cropPanelPayload, setCropPanelPayload] = useState<{ dataUrl: string; crop: Crop; previewSize: { width:number; height:number } } | null>(null);
@@ -227,8 +230,14 @@ export const DocumentScanner: React.FC = () => {
       duration: 4000,
     });
 
-    addFileMeta({ name: file.name, type: file.type, url, addedAt: Date.now() });
-    addTask({ id: `local-${Date.now()}`, filename: file.name, status: 'pending', createdAt: Date.now() });
+    // ✅ FIX: Call store methods correctly via getState()
+    try {
+      const state = useOcrStore.getState();
+      state.addFile({ name: file.name, type: file.type, url, addedAt: Date.now() });
+      state.addTask({ id: `local-${Date.now()}`, filename: file.name, status: 'pending', createdAt: Date.now() });
+    } catch (err) {
+      console.warn("Failed to add file/task to store:", err);
+    }
 
     // Close modal and reset pending
     setShowUploadWarning(false);
@@ -249,7 +258,7 @@ export const DocumentScanner: React.FC = () => {
     } else {
       // No existing file, proceed directly
       handleConfirmUpload(file);
-      // ✅ Reset input after upload succeeds
+      // Reset input after upload succeeds
       event.target.value = '';
     }
   }, [currentFile, extractedData.length, handleConfirmUpload]);
@@ -734,14 +743,10 @@ export const DocumentScanner: React.FC = () => {
                 {/* keep navigation / tabs here */}
                 <div className="flex gap-1 bg-muted rounded-lg p-1">
                   {[
-                    //{ id: 'viewer', icon: Eye, label: 'View' },
                     { id: 'ocr', icon: FileText, label: 'OCR' },
                     { id: 'tags', icon: Settings, label: 'Tags' },
-                    //{ id: 'export', icon: Download, label: 'Export' },
                     //{id: 'docupload', icon: Upload, label: 'Doc Parse'},
                     //{ id: 'batch', icon: Upload, label: 'Batch OCR' },
-                    //{id: 'parse', icon: Upload, label: 'Parse'}
-                    //{ id: 'metadata', icon: FileText, label: 'Metadata'},
                     { id: 'crop', icon: Settings, label: 'Crop' },
                   ].map(({ id, icon: Icon, label }) => (
                     <Button
@@ -775,17 +780,36 @@ export const DocumentScanner: React.FC = () => {
                    )}
                   
                   {activePanel === 'ocr' && (
-                    <div className="space-y-4 h-full">
-                      <OCRPanel
-                        extractedData={extractedData}
-                        availableTags={allTags}
-                        currentFileName={currentFile?.name || "document"}
-                        currentFileData={currentFileData}  //Now properly set after delay
-                        currentCropData={currentCropDataUrl}
-                        onUpdateExtraction={handleUpdateExtraction}
-                        onDeleteExtraction={handleDeleteExtraction}
-                        onClearFile={handleClearFile} // <<< pass clear handler
-                      />
+                    <div className="flex flex-col h-full min-h-0 gap-4">
+                      <div className="flex-1 min-h-0">
+                        <OCRPanel
+                          extractedData={extractedData}
+                          availableTags={allTags}
+                          currentFileName={currentFile?.name || "document"}
+                          currentFileData={currentFileData}
+                          currentCropData={currentCropDataUrl}
+                          onUpdateExtraction={handleUpdateExtraction}
+                          onDeleteExtraction={handleDeleteExtraction}
+                          onClearFile={handleClearFile}
+                          showEmployeeLinkButton={extractedData.length > 0}
+                          linkedEmployeeId={linkedEmployeeId}
+                          onShowEmployeeLink={(extraction) => {
+                            setSelectedExtractionForLink(extraction ?? null);
+                            setShowEmployeeLink(true);
+                          }}
+                        />
+                      </div>
+                      
+                      {/* Employee Link Button - MOVED OUTSIDE OCRPanel */}
+                      {extractedData.length > 0 && (
+                        <Button
+                          onClick={() => setShowEmployeeLink(true)}
+                          variant={linkedEmployeeId ? "default" : "outline"}
+                          className="w-full"
+                        >
+                          {linkedEmployeeId ? "✓ Linked to Employee" : "🔗 Link to Employee"}
+                        </Button>
+                      )}
                     </div>
                   )}
                   
@@ -813,8 +837,6 @@ export const DocumentScanner: React.FC = () => {
                           {/* Cropped region preview only */}
                           <div className="flex justify-center items-start gap-3 overflow-auto bg-black p-2">
                             <div style={{ position: 'relative' }}>
-                              {/* Hidden but sized snapshot image used as source for cropCanvasPreview.
-                                  Use offscreen positioning so image.width / image.naturalWidth are correct. */}
                               <img
                                 ref={previewImgRef}
                                 src={cropPanelPayload.dataUrl}
@@ -847,50 +869,42 @@ export const DocumentScanner: React.FC = () => {
 
                           {/* Buttons */}
                           <div className="flex gap-2 justify-end mt-3">
-                            <Button variant="outline" onClick={() => {
-                              // remove corresponding bbox in ImageViewer (if registered)
-                              if (cropPanelPayload && typeof performRemoveHandlerRef.current === 'function') {
-                                try { performRemoveHandlerRef.current(cropPanelPayload.crop); } catch (e) { console.warn("removePersisted call failed", e); }
-                              }
-                              setCropPanelPayload(null);
-                            }}>Close</Button>
+                            <Button 
+                              variant="outline" 
+                              onClick={() => {
+                                if (cropPanelPayload && typeof performRemoveHandlerRef.current === 'function') {
+                                  try { performRemoveHandlerRef.current(cropPanelPayload.crop); } catch (e) { console.warn("removePersisted call failed", e); }
+                                }
+                                setCropPanelPayload(null);
+                              }}
+                            >
+                              Close
+                            </Button>
 
-                            {/* NEW: Save the preview crop to Documents / selected folder */}
-                            {/* <Button variant="ghost" onClick={async () => {
-                              if (!previewCanvasRef.current) {
-                                toast.error("No preview available");
-                                return;
-                              }
-                              await handleSaveCrop();
-                            }}>
-                              Save Crop
-                            </Button> */}
-
-                             <Button
-                               onClick={async () => {
-                                 if (!cropPanelPayload) return;
-                                 const handler = performCropHandlerRef.current;
-                                 if (typeof handler !== 'function') {
-                                   console.error('[DocumentScanner] performCrop handler missing or invalid:', handler);
-                                   toast.error("Crop handler not available");
-                                   return;
-                                 }
-                                 try {
-                                   await handler(cropPanelPayload.crop, cropPanelPayload.previewSize);
-                                   // close panel after sending
-                                   setCropPanelPayload(null);
-                                   setActivePanel('ocr');
-                                 } catch (err) {
-                                   console.error('[DocumentScanner] performCrop call failed:', err);
-                                   toast.error("Region OCR failed");
-                                 }
-                               }}
-                                disabled={ isOcrProcessing || (processingMap && Object.keys(processingMap || {}).length > 0) }
-                                title={ (isOcrProcessing || (processingMap && Object.keys(processingMap || {}).length > 0)) ? "OCR in progress" : "Scan Cropped Area" }
-                             >
-                               Scan Cropped Area
-                             </Button>
-                           </div>
+                            <Button
+                              onClick={async () => {
+                                if (!cropPanelPayload) return;
+                                const handler = performCropHandlerRef.current;
+                                if (typeof handler !== 'function') {
+                                  console.error('[DocumentScanner] performCrop handler missing or invalid:', handler);
+                                  toast.error("Crop handler not available");
+                                  return;
+                                }
+                                try {
+                                  await handler(cropPanelPayload.crop, cropPanelPayload.previewSize);
+                                  setCropPanelPayload(null);
+                                  setActivePanel('ocr');
+                                } catch (err) {
+                                  console.error('[DocumentScanner] performCrop call failed:', err);
+                                  toast.error("Region OCR failed");
+                                }
+                              }}
+                              disabled={isOcrProcessing || (processingMap && Object.keys(processingMap || {}).length > 0)}
+                              title={(isOcrProcessing || (processingMap && Object.keys(processingMap || {}).length > 0)) ? "OCR in progress" : "Scan Cropped Area"}
+                            >
+                              Scan Cropped Area
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -902,6 +916,30 @@ export const DocumentScanner: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Employee Link Modal - at root level */}
+      {showEmployeeLink && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-lg">
+            <EmployeeLinkPanel
+              extractedData={extractedData}
+              initialExtraction={selectedExtractionForLink ? { id: selectedExtractionForLink.id, text: selectedExtractionForLink.text } : null}
+              onLinked={(empId) => {
+                setLinkedEmployeeId(empId);
+                setShowEmployeeLink(false);
+                setSelectedExtractionForLink(null);
+                toast.success(`Linked to employee ID: ${empId}`, {
+                  duration: 3000,
+                });
+              }}
+              onClosed={() => {
+                setShowEmployeeLink(false);
+                setSelectedExtractionForLink(null);
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Hidden file input */} {/*application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document */}
       <input
@@ -915,3 +953,4 @@ export const DocumentScanner: React.FC = () => {
   </div>
   );
 };
+

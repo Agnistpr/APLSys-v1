@@ -46,6 +46,47 @@ declare global {
       updateApplicantsStatus: (ids: any[], options?: any) => Promise<any>;
       getTrainees: (status?: any) => Promise<any[]>;
     },
+    employeeAPI:
+    {
+      getEmployees: () => Promise<Array<{
+        employeeid: number;
+        name: string;
+        department: string;
+        position: string;
+        shift: string;
+        leavecredit: number;
+      }>>;
+      getEmployee: (id: number) => Promise<{
+        employeeid: number;
+        firstname: string;
+        middlename: string;
+        lastname: string;
+        department: string;
+        position: string;
+        contact: string;
+        email: string;
+        address: string;
+        gender: string;
+        age: number;
+        birthdate: string;
+        hiredate: string;
+        sss_number: string;
+        pagibig_number: string;
+        philhealth_number: string;
+        bir_number: string;
+        leavecredit: number;
+        shiftstart: string;
+        shiftend: string;
+        employeeimage: string | null;
+        type: string;
+        maritalstatus: string;
+      } | null>;
+      getEmployeeTableColumns: () => Promise<any[]>;
+      searchEmployees: (term: string) => Promise<any[]>;
+      updateEmployee: (employeeId: number, field: string, value: any) => Promise<{ success: boolean; error?: string }>;
+      getFilteredEmployees: (filters: any, mode: string) => Promise<any[]>;
+      getFilterOptions: () => Promise<any>;
+    },
     utilityAPI: {
       getDeptPos: () => Promise<Array<{ departmentid: number; departmentname: string; positionid: number; positionname: string }>>;
       getLogs: (date?: string) => Promise<any[]>;

@@ -27,7 +27,11 @@ interface OCRPanelProps {
   currentCropData?: string;
   onUpdateExtraction: (id: string, updates: Partial<ExtractedText>) => void;
   onDeleteExtraction: (id: string) => void;
-  onClearFile?: () => void; // <<< added prop
+  onClearFile?: () => void;
+  showEmployeeLinkButton?: boolean;
+  linkedEmployeeId?: number | null;
+  // if called with an extraction, open panel pre-selecting that extraction
+  onShowEmployeeLink?: (extraction?: ExtractedText) => void;
 }
 
 export const OCRPanel: React.FC<OCRPanelProps> = ({
@@ -38,7 +42,10 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
   currentCropData,
   onUpdateExtraction,
   onDeleteExtraction,
-  onClearFile // <<< destructure prop
+  onClearFile,
+  showEmployeeLinkButton = false,
+  linkedEmployeeId = null,
+  onShowEmployeeLink
 }) => {
   // also check global store for stored data (fallback)
   const globalFileData = useOcrStore(s => s.currentFileData ?? s.currentFile?.data);
@@ -329,12 +336,24 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
             </Button>
           </div>
         </div>
+{/* 
+        {showEmployeeLinkButton && (
+          <div className="mt-3">
+            <Button
+              onClick={() => onShowEmployeeLink?.()}
+              variant={linkedEmployeeId ? "default" : "outline"}
+              className="w-full"
+            >
+              {linkedEmployeeId ? "✓ Linked to Employee" : "🔗 Link to Employee"}
+            </Button>
+          </div>
+        )} */}
       </div>
 
       {/* scrollable content */}
       <div className="flex-1 overflow-y-auto p-4 min-h-0">
         {safeExtractedData.map((item) => (
-          <div key={item.id} className="mb-3 p-3 bg-muted rounded border border-border">
+          <div key={item.id} className="mb-3 p-3 bg-muted rounded border border-border flex flex-col">
             {editingId === item.id ? (
               <div className="space-y-2">
                 <textarea
@@ -444,11 +463,21 @@ export const OCRPanel: React.FC<OCRPanelProps> = ({
                   </div>
                 )}
 
-                {/* Action buttons */}
-                <div className="flex gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => handleStartEdit(item)}>Edit</Button>
-                  <Button size="sm" variant="ghost" onClick={() => onDeleteExtraction(item.id)}>Delete</Button>
-                </div>
+              <div className="ml-3 flex-shrink-0 flex flex-col gap-2">
+                {/* New: per-extraction link button */}
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => onShowEmployeeLink?.(item)}
+                  title="Link this extracted text to an employee"
+                >
+                  🔗 Link
+                </Button>
+
+                {/* existing action buttons */}
+                <Button size="sm" variant="ghost" onClick={() => handleStartEdit(item)}>Edit</Button>
+                <Button size="sm" variant="ghost" onClick={() => onDeleteExtraction(item.id)}>Delete</Button>
+              </div>
               </div>
             )}
           </div>
