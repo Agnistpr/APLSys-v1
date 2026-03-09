@@ -73,6 +73,7 @@ export const cspDirectives = {
     'https://word-telemetry.officeapps.live.com',
     'https://browser.events.data.microsoft.com',
     'https://*.officeapps.live.com',
-    'https://aplsys-backend-331525477255.asia-east1.run.app'
+    'https://aplsys-backend-331525477255.asia-east1.run.app',
+    'http://15.135.87.190:8080/docs'
   ]
 };
