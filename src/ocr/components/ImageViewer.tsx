@@ -89,7 +89,7 @@ const sendImageToClassifier = async (imageDataUrl: string) => {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await axios.post(`${API_BASE_URL}/parser/parse-document`, formData, {
+  const response = await axios.post(`${DEV_TEST_URL}/parser/parse-document`, formData, {
     headers: { "Content-Type": "multipart/form-data" }
   });
   return response.data;
@@ -136,7 +136,7 @@ interface SelectionBox {
 // Update the classification function
 export async function classifyTextWithAI(text: string) {
   try {
-    const res = await axios.post(`${API_BASE_URL}/ai/deepseek-label-extracted-text`, { 
+    const res = await axios.post(`${DEV_TEST_URL}/ai/deepseek-label-extracted-text`, { 
       text,
       fileName: "document.txt" // Add filename for context
     });
@@ -1109,7 +1109,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         // Send cropped PNG to server using ocrRegion (rotation = 0 because canvas is already rotated)
         setIsProcessingOCR(true);
         const toastId = `ocr-region-${Date.now()}`;
-        toast("Processing region OCR...", { id: toastId, duration: 10000, dismissible: true});
+        toast("Scanning cropped image...", { id: toastId, duration: 10000, dismissible: true});
         const resp = await ocrRegion(dataUrl, 0, undefined);
         const text = resp?.text || "";
         const confidence = resp?.confidence || 0;
@@ -1399,7 +1399,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     const blob = await fetch(fileUrl).then(r => r.blob());
     const formData = new FormData();
     formData.append("file", new File([blob], fileName || "document", { type: fileType || blob.type }));
-    const res = await axios.post(`${API_BASE_URL}/ocr/extract-full`, formData, {
+    const res = await axios.post(`${DEV_TEST_URL}/ocr/extract-full`, formData, {
         headers: { "Content-Type": "multipart/form-data" }
       });
     //const data = await res.json();

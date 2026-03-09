@@ -15,6 +15,7 @@ export const useOcrStore = create(
       currentExtractedData: [],
       ocrMatches: {},
       selectedFolder: null,
+      linkedEmployeeId: null, // <-- new linked employee ID state
 
       // Action methods to update state
       setRotation: (r) => set({ rotation: r }), // <- new setter
@@ -33,6 +34,18 @@ export const useOcrStore = create(
       setCurrentExtractedData: (data) => set({ currentExtractedData: data }),
       setOcrMatches: (matches) => set({ ocrMatches: matches }),
       setSelectedFolder: (folder) => set({ selectedFolder: folder }),
+      setLinkedEmployeeId: (id) => set({ linkedEmployeeId: id }), // <- new setter for linked employee ID
+      
+      // Lightweight helpers used by DocumentScanner
+      tasks: [],
+      addFile: (fileMeta) => set(state => ({
+        // keep docs as the primary list; append file meta so UI can show recent uploads
+        docs: [...(state.docs || []), fileMeta]
+      })),
+      addTask: (task) => set(state => ({
+        tasks: [...(state.tasks || []), task]
+      })),
+      setTasks: (tasks) => set({ tasks }),
       
       // Optional persistence helpers
       addResult: (result) => set(state => ({
@@ -59,6 +72,7 @@ export const useOcrStore = create(
           rotation, // persist rotation so it survives navigation (cleared when file cleared)
           currentExtractedData,
           ocrMatches,
+          linkedEmployeeId,  
         } = state;
         return {
           docs: docs || [],
@@ -67,6 +81,7 @@ export const useOcrStore = create(
           rotation: typeof rotation === 'number' ? rotation : 0,
           currentExtractedData: currentExtractedData || [],
           ocrMatches: ocrMatches || {},
+          linkedEmployeeId, 
         };
       },
       onRehydrateStorage: () => (state) => {

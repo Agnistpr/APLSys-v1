@@ -21,8 +21,13 @@ contextBridge.exposeInMainWorld('fileAPI', {
     ipcRenderer.on('ocr-progress', listener);
     return () => ipcRenderer.removeListener('ocr-progress', listener);
   },
-    createDirectory: (path) => ipcRenderer.invoke('file:createDirectory', path),
+  createDirectory: (path) => ipcRenderer.invoke('file:createDirectory', path),
+  getScanDataDir: () => ipcRenderer.invoke('file:getScanDataDir'),
   readDirectory: (path) => ipcRenderer.invoke('file:readDirectory', path),
+  setSelectedFolder: (folderPath) => {
+    console.log('[preload] setSelectedFolder called with:', folderPath);
+    return ipcRenderer.invoke('file:setSelectedFolder', folderPath);
+  },
   readFile: (path) => ipcRenderer.invoke('file:readFile', path),
   writeFile: (path, content) => ipcRenderer.invoke('file:writeFile', path, content),
   startBatchOcr: (opts) => ipcRenderer.invoke('ocr:startBatch', opts),
@@ -30,6 +35,20 @@ contextBridge.exposeInMainWorld('fileAPI', {
     const listener = (_event, data) => cb(data);
     ipcRenderer.on('ocr-progress', listener);
     return () => ipcRenderer.removeListener('ocr-progress', listener);
+  },
+  
+  // NEW: Listen for registry scan dir from main process
+  onRegistryScanDir: (callback) => {
+    console.log('[preload] Registering onRegistryScanDir listener');
+    const listener = (_event, scanDir) => {
+      console.log('[preload] onRegistryScanDir callback fired with:', scanDir);
+      callback(scanDir);
+    };
+    ipcRenderer.on('registry-scan-dir', listener);
+    return () => {
+      console.log('[preload] Removing onRegistryScanDir listener');
+      ipcRenderer.removeListener('registry-scan-dir', listener);
+    };
   },
 });
 

@@ -1,54 +1,167 @@
-import { app, ipcMain, dialog } from "electron";
+import { app, ipcMain, dialog, BrowserWindow } from "electron";
 import path from "path";
 import fs from "fs";
 import { shell } from "electron";
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
+import { debugLog } from "./logger.js";
 import os from "os";
-const FormData = (await import("form-data")).default;
+import FormData from "form-data";
+import axios from "axios";
 
-// Resolve API_BASE_URL / BACKEND_URL at runtime:
-// 1) prefer explicit env var (BACKEND_URL)
-// 2) try compiled config.js (when app is built)
-// 3) fallback to default localhost
-let API_BASE_URL_RUNTIME = process.env.BACKEND_URL || process.env.API_BASE_URL || process.env.VITE_API_URL || "https://aplsys-backend-production.up.railway.app";
-if (!API_BASE_URL_RUNTIME) {
+// CRITICAL: Clean corrupted store BEFORE importing Store class
+function cleanupCorruptedStore() {
+  const storePath = path.join(app.getPath("userData"), "config.json");
   try {
-    // try to import compiled config next to src (config.js) — works in production build
-    const cfg = await import(path.join(__dirname, "..", "config.js")).catch(() => null);
-    API_BASE_URL_RUNTIME = cfg?.API_BASE_URL || cfg?.BACKEND_URL || null;
-  } catch (e) {
-    API_BASE_URL_RUNTIME = null;
+    if (fs.existsSync(storePath)) {
+      const content = fs.readFileSync(storePath, 'utf-8').trim();
+      // Try to parse - if it fails, it's corrupted
+      try {
+        JSON.parse(content);
+        debugLog('[Store] Config file is valid JSON');
+      } catch (parseErr) {
+        debugLog('[Store] ❌ Corrupted config detected, deleting:', storePath);
+        fs.unlinkSync(storePath);
+        debugLog('[Store] ✅ Corrupted file deleted');
+      }
+    }
+  } catch (err) {
+    debugLog('[Store] Error during cleanup:', err.message);
   }
 }
 
-//Fallback URL
-const RAILWAY_URL = "https://aplsys-backend-production.up.railway.app";
+// Clean BEFORE creating Store instance
+cleanupCorruptedStore();
 
-// Backend URL used by Electron handlers. Set BACKEND_URL in the environment for production.
-const BACKEND_URL = API_BASE_URL_RUNTIME || RAILWAY_URL; // ✅ Always use Railway as fallback
-console.log("[files.js init] BACKEND_URL resolved to:", BACKEND_URL); // ✅ Log which URL is being used
+import Store from 'electron-store';
+const store = new Store();
 
+let API_BASE_URL_RUNTIME = process.env.API_BASE_URL
 
-const fileFilters = {
-  pdf: [{ name: "PDF Files", extensions: ["pdf"] }],
-  images: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }],
-  documents: [
-    { name: "Documents", extensions: ["pdf", "docx", "csv"] },
-    { name: "Images", extensions: ["png", "jpg", "jpeg"] },
+const BACKEND_URL = API_BASE_URL_RUNTIME
+console.log("[files.js init] BACKEND_URL resolved to:", BACKEND_URL)
+
+const fileFilters =
+{
+  pdf: [{name: "PDF Files", extensions: ["pdf"]}],
+  images: [{name: "Images", extensions: ["png","jpg","jpeg"]}],
+  documents:[
+    {name: "Documents", extensions: ["pdf", "docx", "csv"]},
+    {name: "Images", extensions: ["png", "jpg","jpeg"] }, 
   ],
-  all: [{ name: "All Files", extensions: ["*"] }],
-};
+  all: [{name: "All Files", extensions: ["*"]}],
+}
+
+//CRITICAL: Store the registry path in memory immediately, don't rely on store
+let registryScandataDir = null;
+
+// Setter function to be called from main.js
+export function setRegistryScanDataDir(dir) {
+  registryScandataDir = dir;
+  debugLog('[files.js] Registry scan dir cached in memory:', registryScandataDir);
+  try {
+    // CRITICAL: Clean corrupted store before writing
+    try {
+      const testValue = store.get('scanDataDir');
+      // If we can read it, it's okay to write
+    } catch (readErr) {
+      debugLog('[files.js] Store is corrupted, clearing it:', readErr.message);
+      // Delete the corrupted store file
+      try {
+        const storePath = store.path;
+        if (fs.existsSync(storePath)) {
+          fs.unlinkSync(storePath);
+          debugLog('[files.js] Deleted corrupted store file');
+        }
+      } catch (delErr) {
+        debugLog('[files.js] Could not delete store file:', delErr.message);
+      }
+    }
+    
+    store.set('scanDataDir', dir);
+    debugLog('[files.js] Also saved to store for backup');
+  } catch (err) {
+    debugLog('[files.js] Warning: Could not save to store, but in-memory value is safe:', err.message);
+  }
+}
 
 let selectedFolderPath = null;
 
 function getDocumentsFolder() {
-  if (selectedFolderPath && fs.existsSync(selectedFolderPath)) {
-    return selectedFolderPath; // user-chosen folder
+  try {
+    debugLog('[getDocumentsFolder] Checking for documents folder...');
+    
+    // FIRST: Check if user selected a folder (from app UI)
+    if (selectedFolderPath && fs.existsSync(selectedFolderPath)) {
+      debugLog('[getDocumentsFolder] Using selectedFolderPath:', selectedFolderPath);
+      return selectedFolderPath;
+    }
+
+    // SECOND: Check persisted selection in store
+    try {
+      const persisted = store.get('selectedFolderPath');
+      if (persisted && fs.existsSync(persisted)) {
+        selectedFolderPath = persisted;
+        debugLog('[getDocumentsFolder] ✅ Using persisted selection from store:', persisted);
+        return persisted;
+      }
+    } catch (storeErr) {
+      debugLog('[getDocumentsFolder] Warning: Could not read from store:', storeErr.message);
+    }
+
+    // THIRD: Use the IN-MEMORY registry path (most reliable)
+    if (registryScandataDir && fs.existsSync(registryScandataDir)) {
+      debugLog('[getDocumentsFolder] Using IN-MEMORY registry path:', registryScandataDir);
+      return registryScandataDir;
+    }
+    debugLog('[getDocumentsFolder] Registry path not available or does not exist:', registryScandataDir);
+
+    // FOURTH: Try to read from store as fallback
+    try {
+      const storeRegistry = store.get('scanDataDir');
+      if (storeRegistry && fs.existsSync(storeRegistry)) {
+        debugLog('[getDocumentsFolder] Using scanDataDir from store:', storeRegistry);
+        return storeRegistry;
+      }
+    } catch (storeErr) {
+      debugLog('[getDocumentsFolder] Could not read scanDataDir from store:', storeErr.message);
+    }
+
+    // FIFTH: Try to read from Windows registry directly
+    debugLog('[getDocumentsFolder] Attempting direct registry query...');
+    try {
+      const result = execSync(
+        'reg query "HKCU\\Software\\APLSys" /v ScanDataDir',
+        { encoding: 'utf-8' }
+      );
+      const match = result.match(/ScanDataDir\s+REG_SZ\s+(.+)/);
+      if (match) {
+        const regPath = match[1].trim();
+        debugLog('[getDocumentsFolder] Found in registry:', regPath);
+        if (fs.existsSync(regPath)) {
+          registryScandataDir = regPath; // Cache it
+          try {
+            store.set('scanDataDir', regPath);
+          } catch (e) {
+            // noop
+          }
+          return regPath;
+        }
+      }
+    } catch (regErr) {
+      debugLog('[getDocumentsFolder] Registry query failed (this is OK if on non-Windows):', regErr.message);
+    }
+
+    // FALLBACK: Use app userData directory
+    const fallback = path.join(app.getPath("userData"), "documents");
+    debugLog('[getDocumentsFolder] Using fallback directory:', fallback);
+    fs.mkdirSync(fallback, { recursive: true });
+    return fallback;
+  } catch (err) {
+    debugLog('[getDocumentsFolder] Critical error:', err.message);
+    const fallback = path.join(app.getPath("userData"), "documents");
+    fs.mkdirSync(fallback, { recursive: true });
+    return fallback;
   }
-  const isDev = !app.isPackaged;
-  return isDev
-    ? path.resolve(process.cwd(), "documents")
-    : path.join(path.dirname(app.getPath("exe")), "documents");
 }
 
 // open file
@@ -62,6 +175,55 @@ ipcMain.handle("dialog:openFile", async (event, { type = "all", multi = false } 
 
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths;
+});
+
+//get selected directory from installation
+ipcMain.handle('file:getScanDataDir', async () => {
+  try {
+    debugLog('[file:getScanDataDir] Handler called');
+    
+    // FIRST: Use in-memory registry value (most reliable)
+    if (registryScandataDir) {
+      debugLog('[file:getScanDataDir] ✅ Using in-memory registry path:', registryScandataDir);
+      return registryScandataDir;
+    }
+    
+    // SECOND: Try store (may be corrupted)
+    try {
+      const scanDir = store.get('scanDataDir');
+      if (scanDir) {
+        debugLog('[file:getScanDataDir] ✅ Using store value:', scanDir);
+        registryScandataDir = scanDir; // Cache it for next time
+        return scanDir;
+      }
+    } catch (storeErr) {
+      debugLog('[file:getScanDataDir] Store read failed (expected if corrupted):', storeErr.message);
+    }
+    
+    // THIRD: Fallback to direct registry query
+    try {
+      const result = execSync(
+        'reg query "HKCU\\Software\\APLSys" /v ScanDataDir',
+        { encoding: 'utf-8' }
+      );
+      const match = result.match(/ScanDataDir\s+REG_SZ\s+(.+)/);
+      const regPath = match ? match[1].trim() : null;
+      if (regPath) {
+        debugLog('[file:getScanDataDir] ✅ Found in registry:', regPath);
+        registryScandataDir = regPath; // Cache it
+        return regPath;
+      }
+    } catch (regErr) {
+      debugLog('[file:getScanDataDir] Registry query failed:', regErr.message);
+    }
+    
+    // FALLBACK: Return null and let frontend handle it
+    debugLog('[file:getScanDataDir] No scan dir found');
+    return null;
+  } catch (err) {
+    debugLog('[file:getScanDataDir] Unexpected error:', err.message);
+    return null;
+  }
 });
 
 // Save file to documents folder (for now)
@@ -120,43 +282,84 @@ ipcMain.handle('file:saveUploadedFile', async (event, { fileName, base64Data }) 
 });
 
 ipcMain.handle("file:listDocuments", async () => {
-  const baseDir = getDocumentsFolder();
-  const ocrDir = path.join(baseDir, "ocr_results"); // Directory for OCR results
-  
-  fs.mkdirSync(baseDir, { recursive: true }); // ensure folder exists
-  fs.mkdirSync(ocrDir, { recursive: true }); // ensure OCR results folder exists
-
-  // Get list of processed files (files that have OCR results)
-  const processedFiles = new Set(
-    fs.readdirSync(ocrDir)
-      .filter(f => f.endsWith('.json'))
-      .map(f => f.replace('.json', ''))
-  );
-
-  // Only include regular files (skip directories like 'ocr_results')
-  const entries = fs.readdirSync(baseDir);
-  const files = entries.filter((name) => {
-    try {
-      const full = path.join(baseDir, name);
-      return fs.statSync(full).isFile();
-    } catch (e) {
-      return false;
+  try {
+    debugLog('[file:listDocuments] Handler called');
+    const baseDir = getDocumentsFolder();
+    debugLog('[file:listDocuments] getDocumentsFolder() returned:', baseDir);
+    
+    // Ensure base directory exists
+    if (!fs.existsSync(baseDir)) {
+      debugLog('[file:listDocuments] Creating base directory:', baseDir);
+      fs.mkdirSync(baseDir, { recursive: true });
     }
-  });
 
-  //const files = fs.readdirSync(baseDir);
-  return files.map((file) => {
-    const filePath = path.join(baseDir, file);
-    const stat = fs.statSync(filePath);
-    return {
-      name: file,
-      type: path.extname(file).substring(1),
-      size: `${(stat.size / 1024).toFixed(1)} KB`,
-      date: stat.mtime,
-      path: filePath,
-      isProcessed: processedFiles.has(file)
-    };
-  });
+    const ocrDir = path.join(baseDir, "ocr_results");
+    debugLog('[file:listDocuments] OCR results dir:', ocrDir);
+    
+    // Create ocr_results directory if missing
+    try {
+      fs.mkdirSync(ocrDir, { recursive: true });
+    } catch (err) {
+      debugLog('[file:listDocuments] Non-critical: Failed to create ocr_results:', err.message);
+    }
+
+    // Get processed files
+    let processedFiles = new Set();
+    try {
+      const ocrFiles = fs.readdirSync(ocrDir);
+      processedFiles = new Set(
+        ocrFiles
+          .filter(f => f.endsWith('.json'))
+          .map(f => f.replace(/\.json$/i, '').trim())
+      );
+      debugLog('[file:listDocuments] Found', processedFiles.size, 'processed files');
+    } catch (err) {
+      debugLog('[file:listDocuments] Warning: Could not read ocr_results:', err.message);
+    }
+
+    // Read files from base directory
+    let files = [];
+    try {
+      files = fs.readdirSync(baseDir).filter(f => f !== 'ocr_results');
+      debugLog('[file:listDocuments] Found', files.length, 'files in baseDir');
+    } catch (err) {
+      debugLog('[file:listDocuments] Error reading baseDir:', err.message);
+      throw new Error(`Cannot read documents folder: ${err.message}`);
+    }
+
+    // Map files with metadata
+    const documents = files.map(filename => {
+      const filePath = path.join(baseDir, filename);
+      let stats;
+      try {
+        stats = fs.statSync(filePath);
+      } catch (err) {
+        debugLog(`[file:listDocuments] Failed to stat ${filename}:`, err.message);
+        return null;
+      }
+
+      if (stats.isDirectory()) return null;
+
+      const ext = path.extname(filename).substring(1).toLowerCase();
+      const baseName = filename.replace(/\.[^/.]+$/, '').trim();
+      const isProcessed = processedFiles.has(baseName);
+
+      return {
+        name: filename,
+        path: filePath,
+        size: `${(stats.size / 1024).toFixed(2)} KB`,
+        date: stats.mtime,
+        type: ext || 'unknown',
+        isProcessed: isProcessed
+      };
+    }).filter(f => f !== null);
+
+    debugLog(`[file:listDocuments] Returning ${documents.length} documents from ${baseDir}`);
+    return documents;
+  } catch (err) {
+    debugLog('[file:listDocuments] Error:', err.message);
+    throw err;
+  }
 });
 
 ipcMain.handle("file:delete", async (event, filePath) => {
@@ -199,6 +402,7 @@ ipcMain.handle("file:openDocument", async (_, filePath) => {
   }
 });
 
+// Update open-folder handler to persist selection
 ipcMain.handle("open-folder", async () => {
   try {
     const result = await dialog.showOpenDialog({
@@ -206,12 +410,21 @@ ipcMain.handle("open-folder", async () => {
       title: "Select a Folder",
       message: "Choose a folder path",
     });
-
+    
     if (result.canceled || !result.filePaths.length) {
       return { success: false, canceled: true, error: "No folder selected" };
     }
 
-    selectedFolderPath = result.filePaths[0]; // save user selection
+    selectedFolderPath = result.filePaths[0];
+    
+    // ✅ Try to persist, but don't fail if store is corrupted
+    try {
+      store.set('selectedFolderPath', selectedFolderPath);
+    } catch (storeErr) {
+      debugLog('[open-folder] Warning: Could not persist to store:', storeErr.message);
+      // Continue anyway - selectedFolderPath is cached in memory
+    }
+    
     return { success: true, path: selectedFolderPath };
   } catch (err) {
     console.error("Error opening folder:", err);
@@ -308,11 +521,8 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [], batch_task_id = nul
         const ocrDir = path.join(baseDir, "ocr_results");
         fs.mkdirSync(ocrDir, { recursive: true });
 
-        const axios = (await import("axios")).default;
-        const FormData = (await import("form-data")).default;
-
-  // Use the module-level BACKEND_URL (reads process.env.BACKEND_URL) so it can be
-  // configured when launching the Electron app in production.
+        // Use the module-level BACKEND_URL (reads process.env.BACKEND_URL) so it can be
+        // configured when launching the Electron app in production.
 
         // helper: sleep
         const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -427,5 +637,58 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [], batch_task_id = nul
   } catch (err) {
     console.error("ocr:startBatch handler failed:", err);
     return { success: false, error: err?.message || String(err) };
+  }
+});
+
+// NEW: Handle folder selection from renderer and update registry
+ipcMain.handle('file:setSelectedFolder', async (event, folderPath) => {
+  try {
+    debugLog('[file:setSelectedFolder] Handler called with path:', folderPath);
+    
+    if (!folderPath || !fs.existsSync(folderPath)) {
+      debugLog('[file:setSelectedFolder] Invalid path:', folderPath);
+      return { success: false, error: 'Invalid folder path' };
+    }
+    
+    // Update in-memory cache
+    selectedFolderPath = folderPath;
+    registryScandataDir = folderPath;
+    debugLog('[file:setSelectedFolder] Updated in-memory values');
+    
+    // Persist to store
+    try {
+      store.set('selectedFolderPath', folderPath);
+      store.set('scanDataDir', folderPath);
+      debugLog('[file:setSelectedFolder] Saved to store');
+    } catch (storeErr) {
+      debugLog('[file:setSelectedFolder] Warning: store save failed:', storeErr.message);
+    }
+    
+    // Update Windows Registry
+    try {
+      execSync(
+        `reg add "HKCU\\Software\\APLSys" /v ScanDataDir /t REG_SZ /d "${folderPath}" /f`,
+        { encoding: 'utf-8' }
+      );
+      debugLog('[file:setSelectedFolder] Updated Windows Registry');
+    } catch (regErr) {
+      debugLog('[file:setSelectedFolder] Warning: registry update failed:', regErr.message);
+    }
+    
+    //CRITICAL: Broadcast to renderer
+    const windows = BrowserWindow.getAllWindows();
+    debugLog('[file:setSelectedFolder] Broadcasting to', windows.length, 'window(s)');
+    
+    windows.forEach((window, idx) => {
+      if (window && !window.isDestroyed()) {
+        debugLog('[file:setSelectedFolder] Sending registry-scan-dir to window', idx);
+        window.webContents.send('registry-scan-dir', folderPath);
+      }
+    });
+    
+    return { success: true, path: folderPath };
+  } catch (err) {
+    debugLog('[file:setSelectedFolder] Error:', err.message);
+    return { success: false, error: err.message };
   }
 });
