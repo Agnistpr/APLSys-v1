@@ -74,6 +74,6 @@ export const cspDirectives = {
     'https://browser.events.data.microsoft.com',
     'https://*.officeapps.live.com',
     'https://aplsys-backend-331525477255.asia-east1.run.app',
-    'http://15.135.87.190:8080/docs'
+    'http://15.135.87.190:8080'
   ]
 };
