@@ -1,5 +1,5 @@
 // Frontend config used by files inside `src/`
-export const API_BASE_URL = "http://15.135.87.190:8080/docs";
+export const API_BASE_URL = "http://15.135.87.190:8080";
 
 export const DEV_TEST_URL = "http://localhost:8080";
 
