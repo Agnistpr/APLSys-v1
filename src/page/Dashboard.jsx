@@ -104,10 +104,8 @@ const Dashboard = ({
     function handleClickOutside(event) {
       const modal = document.querySelector(".confirmModalOverlay");
 
-      // If modal is open and the click is INSIDE it → do nothing
       if (modal && modal.contains(event.target)) return;
 
-      // Normal notification dropdown closing logic
       if (notifRef.current && !notifRef.current.contains(event.target)) {
         if (showNotif) {
           const unreadIds = notifications.filter(n => !n.read).map(n => n.id);

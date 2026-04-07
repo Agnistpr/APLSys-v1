@@ -87,7 +87,6 @@ const ApplicantInformation = ({ uid, applicantId, goBack }) => {
     const fetchApplicant = async () => {
       const data = await window.applicantAPI.getApplicant(applicantId);
       if (!data) return;
-      // NOTE: your getApplicant now returns firstname/middlename/lastname (unbuilt name).
       setApplicant(data);
     };
     fetchApplicant();
@@ -219,7 +218,6 @@ const ApplicantInformation = ({ uid, applicantId, goBack }) => {
     return `${digits.slice(0, 4)}-${digits.slice(4, 7)}-${digits.slice(7, 11)}`;
   };
 
-  // 12-hour time formatter for times like "08:00" -> "8:00 AM"
   const formatTime12Hour = (timeString) => {
     if (!timeString) return "";
     const parts = timeString.split(":");
@@ -227,7 +225,7 @@ const ApplicantInformation = ({ uid, applicantId, goBack }) => {
     const hour = parseInt(parts[0], 10);
     const minute = parts[1];
     const suffix = hour >= 12 ? "PM" : "AM";
-    const h = ((hour + 11) % 12) + 1; // convert 0 -> 12
+    const h = ((hour + 11) % 12) + 1;
     return `${h}:${minute.padStart(2, "0")} ${suffix}`;
   };
 
@@ -355,7 +353,6 @@ const ApplicantInformation = ({ uid, applicantId, goBack }) => {
   };
 
   const handleFieldBlur = (field, isDate) => {
-    // For name we compare against the separate firstname/lastname fields; for others compare stored value
     if (field === "name") {
       const currentBuilt = `${applicant?.lastname || ""}, ${applicant?.firstname || ""}`;
       if ((fieldValue.lastname || "") !== (applicant?.lastname || "") ||

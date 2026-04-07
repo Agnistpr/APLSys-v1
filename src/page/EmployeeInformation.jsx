@@ -596,7 +596,7 @@ const EmployeeInformation = ({ uid, employeeId, goBack }) => {
                   className="editableField"
                   onBlurCapture={(e) => {
                     if (!e.currentTarget.contains(e.relatedTarget)) {
-                      handleBlurName(); // user left the name group entirely
+                      handleBlurName();
                     }
                   }}
                 >

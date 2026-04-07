@@ -11,7 +11,6 @@ const Auth = ({ onLogin }) => {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // NEW STATES
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -68,7 +67,6 @@ const Auth = ({ onLogin }) => {
     }
   };
 
-  // ENTER KEY HANDLER
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
       handleAuth();
