@@ -16,7 +16,7 @@
     "browser": "cross-env NODE_ENV=development electron .",
     "cleanpack": "powershell -Command \"if (Test-Path '__package') { Remove-Item '__package' -Recurse -Force }; New-Item -ItemType Directory -Path '__package' | Out-Null; if (Test-Path 'dist-react') { robocopy 'dist-react' '__package\\dist-react' /E }; if (Test-Path 'src') { robocopy 'src' '__package\\src' /E }; if (Test-Path 'backend') { robocopy 'backend' '__package\\backend' /E }; if (Test-Path 'aplsys_db.sql') { Copy-Item 'aplsys_db.sql' '__package\\' }; if (Test-Path 'package.json') { Copy-Item 'package.json' '__package\\' }; if (Test-Path 'package-lock.json') { Copy-Item 'package-lock.json' '__package\\' }; if (Test-Path 'vite.config.js') { Copy-Item 'vite.config.js' '__package\\' }; if (Test-Path 'styles.css') { Copy-Item 'styles.css' '__package\\' }; if (Test-Path 'dbd.js') { Copy-Item 'dbd.js' '__package\\' }; if (Test-Path 'index.html') { Copy-Item 'index.html' '__package\\' }\"",
     "prodpack": "npm run cleanpack && cd __package && npm install --omit=dev && npm run build && npx electron-builder build",
-    "testdevpack": "electron-builder build --config.npmRebuild=false",
+    "package": "electron-builder build --config.npmRebuild=false",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
