@@ -10,7 +10,7 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-const GEMINI_MODEL = "gemini-2.5-pro"
+const GEMINI_MODEL = "gemini-2.5-flash"
 const BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 const GEMINI_API_URL = `${BASE_URL}/models/${GEMINI_MODEL}:generateText`;
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;

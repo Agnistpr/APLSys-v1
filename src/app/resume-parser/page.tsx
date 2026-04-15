@@ -6,10 +6,9 @@ import type { TextItems } from "../lib/parse-resume-from-pdf/types";
 import { ResumeDropzone } from "../components/ResumeDropzone";
 import { ResumeTable } from "./ResumeTable";
 import { analyzeResumeWithDS } from "../../../conn/genAnalysis";
-import { persistNERResult } from "./aiActions";
 import { JOB_ROLES } from "../data/jobRoles";
 import axios from "axios";
-import { API_BASE_URL, DEV_TEST_URL} from '../../../config';
+import { API_BASE_URL} from '../../../config';
 import { useAnalysisStore, defaultResume } from '../../electron/aiStore';
 import * as pdfjsLib from "pdfjs-dist";
 import {
@@ -875,9 +874,7 @@ export default function ResumeParser
     }
   }, [selectedCategory, selectedJobRole]);
 
-  function mapNERToResumeFormat(nerResult: any) {
-    const { parsed_entities } = nerResult;
-    
+  function mapGeminiToResumeFormat(geminiResult: any) {
     // Default empty resume structure
     const mappedResume = {
       profile: {
@@ -888,6 +885,7 @@ export default function ResumeParser
         phone: "",
         location: "",
         name: "",
+        summary: "",
       },
       educations: [],
       workExperiences: [],
@@ -896,80 +894,53 @@ export default function ResumeParser
       custom: { descriptions: [] }
     };
 
-    if (!parsed_entities) return mappedResume;
+    if (!geminiResult) return mappedResume;
 
-    // Map NER fields to resume structure
-    if (parsed_entities.PERSON_NAME) {
-      const names = parsed_entities.PERSON_NAME[0].split(" ");
-      mappedResume.profile.firstName = names[0] || "";
-      mappedResume.profile.lastName = names[names.length - 1] || "";
-      mappedResume.profile.middleName = names.slice(1, -1).join(" ");
-      mappedResume.profile.name = parsed_entities.PERSON_NAME[0];
+    // Map profile
+    if (geminiResult.profile) {
+      mappedResume.profile.firstName = geminiResult.profile.firstName || "";
+      mappedResume.profile.middleName = geminiResult.profile.middleName || "";
+      mappedResume.profile.lastName = geminiResult.profile.lastName || "";
+      mappedResume.profile.email = geminiResult.profile.email || "";
+      mappedResume.profile.phone = geminiResult.profile.phone || "";
+      mappedResume.profile.location = geminiResult.profile.location || "";
+      mappedResume.profile.summary = geminiResult.profile.summary || "";
+      mappedResume.profile.name = [mappedResume.profile.firstName, mappedResume.profile.middleName, mappedResume.profile.lastName].filter(Boolean).join(" ");
     }
-    
-    if (parsed_entities.EMAIL) {
-      mappedResume.profile.email = parsed_entities.EMAIL[0];
+
+    // Map educations
+    if (Array.isArray(geminiResult.educations)) {
+      mappedResume.educations = geminiResult.educations.map((edu: any) => ({
+        school: edu.school || "",
+        degree: edu.degree || "",
+        field: edu.gpa || "",  // Map gpa to field
+        date: edu.date || "",
+      }));
     }
-    
-    if (parsed_entities.PHONE) {
-      mappedResume.profile.phone = parsed_entities.PHONE[0];
-    }
-    
-    if (parsed_entities.LOCATION) {
-      mappedResume.profile.location = parsed_entities.LOCATION[0];
+
+    // Map work experiences
+    if (Array.isArray(geminiResult.workExperiences)) {
+      mappedResume.workExperiences = geminiResult.workExperiences.map((exp: any) => ({
+        company: exp.company || "",
+        jobTitle: exp.jobTitle || "",
+        date: exp.date || "",
+        descriptions: Array.isArray(exp.descriptions) ? exp.descriptions : [],
+      }));
     }
 
     // Map skills
-    if (parsed_entities.SKILL) {
-      mappedResume.skills.featuredSkills = parsed_entities.SKILL;
+    if (Array.isArray(geminiResult.skills)) {
+      mappedResume.skills.featuredSkills = geminiResult.skills;
     }
 
-    // Map education
-    if (parsed_entities.EDUCATION) {
-      mappedResume.educations = parsed_entities.EDUCATION.map((edu: string) => ({
-        school: edu,
-        degree: "",
-        field: "",
-        date: ""
-      }));
+    // If there's a summary, add to custom descriptions
+    if (mappedResume.profile.summary) {
+      mappedResume.custom.descriptions = [mappedResume.profile.summary];
     }
 
     return mappedResume;
   }
   
-  function handleNERExtraction(nerResult: any) {
-    const mappedResume = mapNERToResumeFormat(nerResult);
-    setEditableResume(mappedResume);
-  }
-
-  async function NERResumeProfile(text: string): Promise<any> {
-    if (!text || typeof text !== "string") {
-      throw new Error("NERResumeProfile requires a text string");
-    }
-
-    // Trim and guard against accidental large non-string payloads
-    const safeText = text.trim();
-    if (safeText.length < 20) {
-      throw new Error("Extracted text is too short for resume extraction");
-    }
-
-    try {
-      const response = await axios.post(
-        `${API_BASE_URL}/parser/ner-extract-resume-profile`,
-        { text: safeText },
-        { headers: { "Content-Type": "application/json" } }
-      );
-      return response.data;
-    } catch (err: any) {
-      console.error("Resume Parsing failed:", {
-        error: err,
-        request: err?.request,
-        response: err?.response?.data,
-      });
-      // bubble a useful message to caller
-      throw new Error(err?.response?.data?.error || err?.message || "Resume Parsing failed");
-    }
-  }
   
   // AI PARSING FALLBACK
   async function geminiExtractResumeProfile(text: string): Promise<any> {
@@ -1308,85 +1279,30 @@ export default function ResumeParser
 
       if (!file) throw new Error("Could not prepare file for parsing");
 
-      
-      // Extract text first
-      // Decide parsing path: images -> existing flow; pdf/docx -> new parsing service
-      let nerResult: any = null;
-      let usedStructuredService = false;
+      // Extract text from the file
+      const extractedText = await extractResumeText(file);
 
-      if (file.type && file.type.toLowerCase().startsWith("image")) {
-        // Image: keep existing flow (extract -> Gemini NER)
-        const extractedText = await extractResumeText(file);
-        const gResult = await geminiExtractResumeProfile(extractedText);
-        if (gResult?.error) throw new Error(gResult.error);
-        nerResult = gResult;
-      } else {
-          // PDF/DOCX: extract text first, then call the NER endpoint (NER expects text, not files)
-          try {
-            // 1) Extract plain text from the file (server endpoint that accepts file uploads)
-            const extractedText = await extractResumeText(file);
-
-            if (extractedText && typeof extractedText === "string" && extractedText.trim().length > 20) {
-              // 2) First try server-side NER which accepts text
-              let nerResp = null;
-              try {
-                nerResp = await NERResumeProfile(extractedText);
-              } catch (err) {
-                console.warn("Server NER failed, will fallback to Gemini:", err);
-                nerResp = null;
-              }
-
-              if (nerResp && nerResp.parsed_entities && Object.keys(nerResp.parsed_entities).length > 0) {
-                // use server NER result
-                nerResult = nerResp;
-              } else {
-                // fallback to Gemini NER on the extracted text
-                const gResult = await geminiExtractResumeProfile(extractedText);
-                if (gResult?.error) throw new Error(gResult.error);
-                nerResult = gResult;
-              }
-            } else {
-              // extracted text too short -> try Gemini extraction as last resort
-              const textForGemini = extractedText || (await extractResumeText(file));
-              const gResult = await geminiExtractResumeProfile(textForGemini);
-              if (gResult?.error) throw new Error(gResult.error);
-              nerResult = gResult;
-            }
-          } catch (svcErr) {
-            console.warn("Parsing/extraction failed, falling back to extraction+Gemini path:", svcErr);
-            const fallbackText = await extractResumeText(file);
-            const gResult = await geminiExtractResumeProfile(fallbackText);
-            if (gResult?.error) throw new Error(gResult.error);
-            nerResult = gResult;
-          }
-        }
+      // Parse the extracted text using Gemini
+      const parseResult = await geminiExtractResumeProfile(extractedText);
+      if (parseResult?.error) throw new Error(parseResult.error);
  
-       console.log("DEBUG NER result:", nerResult);
+       console.log("DEBUG Gemini result:", parseResult);
        
        // Check for Gemini error response
-       if (nerResult?.error) {
-         throw new Error(nerResult.error);
+       if (parseResult?.error) {
+         throw new Error(parseResult.error);
        }
 
-      // If we already persisted the structured service result above, skip re-mapping/persisting.
-      if (!usedStructuredService) {
-        // First, manually update the local state BEFORE persisting (Gemini flow)
-        const mappedResume = mapNERToResumeFormat(nerResult);
-        setEditableResume(mappedResume);  // Update UI immediately
-        setParsed(true);  // Mark as parsed
+      // Manually update the local state BEFORE persisting
+      const mappedResume = mapGeminiToResumeFormat(parseResult);
+      setEditableResume(mappedResume);  // Update UI immediately
+      setParsed(true);  // Mark as parsed
 
-        // Persist appropriately depending on result shape
-        try {
-          // Server NER returns { parsed_entities: { ... } } — use NER persister
-          if (nerResult && (nerResult.parsed_entities || nerResult.parsedEntities)) {
-            await persistNERResult(nerResult);
-          } else {
-            // Gemini / AI shaped result -> use Gemini persister
-            await persistGeminiAnalysisResult(nerResult);
-          }
-        } catch (persistErr) {
-          console.warn("Failed to persist parsed result:", persistErr);
-        }
+      // Persist the Gemini result
+      try {
+        await persistGeminiAnalysisResult(parseResult);
+      } catch (persistErr) {
+        console.warn("Failed to persist parsed result:", persistErr);
       }
  
       // Reduce timeout since we already synced UI
@@ -1421,19 +1337,17 @@ export default function ResumeParser
             duration: 3000,
           });
 
-          // Show the rate-limit advisory only for image parsing (image parsing uses Gemini and needs spacing)
-          if (file && file.type && file.type.toLowerCase().startsWith("image")) {
-            setTimeout(() => {
-              //Show rate limit advisory
-              toast.info("Rate limit advisory", {
-                id: "rate-limit-parse",
-                description: `After parsing completes, wait at least ${recommended}s before analyzing to avoid rate limits.`,
-                icon: "⏱️",
-                dismissible: true,
-                duration: 3000,
-              });
-            }, 4000);
-          }
+          // Show the rate-limit advisory for Gemini parsing
+          setTimeout(() => {
+            //Show rate limit advisory
+            toast.info("Rate limit advisory", {
+              id: "rate-limit-parse",
+              description: `After parsing completes, wait at least ${recommended}s before analyzing to avoid rate limits.`,
+              icon: "⏱️",
+              dismissible: true,
+              duration: 3000,
+            });
+          }, 4000);
 
         } catch (waitErr) {
           // If waiting failed, still attempt to use what's in the store and notify parent

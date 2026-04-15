@@ -100,7 +100,7 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
       // Give store time to update
       await new Promise(r => setTimeout(r, 150));
 
-      // ✅ CRITICAL: Notify main process and AWAIT the response
+      // CRITICAL: Notify main process and AWAIT the response
       console.log('[Management] Calling setSelectedFolder with path:', pickedPath);
       let setFolderResponse = null;
       try {
