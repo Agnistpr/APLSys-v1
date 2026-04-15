@@ -24,7 +24,7 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
   const [uploadMessage, setUploadMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [pendingApplicants, setPendingApplicants] = useState([]);
-  const [approvedApplicants, setApprovedApplicants] = useState([]);
+  // const [approvedApplicants, setApprovedApplicants] = useState([]);
   const [rejectedApplicants, setRejectedApplicants] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [positions, setPositions] = useState([]);
@@ -118,10 +118,10 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
   const fetchAllApplicants = async () => {
     setLoading(true);
     const pendingData = await window.applicantAPI.getApplicants("Pending");
-    const approvedData = await window.applicantAPI.getApplicants("Approved");
+    // const approvedData = await window.applicantAPI.getApplicants("Approved");
     const rejectedData = await window.applicantAPI.getApplicants("Rejected");
     setPendingApplicants(Array.isArray(pendingData) ? pendingData : []);
-    setApprovedApplicants(Array.isArray(approvedData) ? approvedData : []);
+    // setApprovedApplicants(Array.isArray(approvedData) ? approvedData : []);
     setRejectedApplicants(Array.isArray(rejectedData) ? rejectedData : []);
     setLoading(false);
   };
@@ -135,23 +135,23 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
       case "Pending":
         setApplicants(pendingApplicants);
         break;
-      case "Approved":
-        setApplicants(approvedApplicants);
-        break;
+      // case "Approved":
+      //   setApplicants(approvedApplicants);
+      //   break;
       case "Rejected":
         setApplicants(rejectedApplicants);
         break;
       case "All":
-        setApplicants([...pendingApplicants, ...approvedApplicants, ...rejectedApplicants]);
+        setApplicants([...pendingApplicants, ...rejectedApplicants]);
         break;
       default:
         setApplicants([]);
     }
-  }, [selectedTab, pendingApplicants, approvedApplicants, rejectedApplicants]);
+  }, [selectedTab, pendingApplicants, rejectedApplicants]);
 
   const counts = {
     Pending: pendingApplicants.length,
-    Approved: approvedApplicants.length,
+    // Approved: approvedApplicants.length,
     Rejected: rejectedApplicants.length,
   };
 
@@ -213,8 +213,8 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
   }, [selectedIds, filtered.length]);
 
   const handleApprove = () => {
-    if (selectedTab === "Pending") updateStatus(selectedIds, { status: "Approved", setTrainingDate: false });
-    else if (selectedTab === "Approved") updateStatus(selectedIds, { status: "Training", setTrainingDate: true }); // here maybe idk
+    if (selectedTab === "Pending") updateStatus(selectedIds, { status: "Training", setTrainingDate: true });
+    // else if (selectedTab === "Approved") updateStatus(selectedIds, { status: "Training", setTrainingDate: true });
     else if (selectedTab === "Rejected") updateStatus(selectedIds, { status: "Pending", resetTraining: true, setApplicationDate: true });
   };
 
@@ -275,10 +275,10 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
             <div className="statValue">{counts.Pending}</div>
             <div className="statLabel">Current Applicants</div>
           </div>
-          <div className="statBox">
+          {/* <div className="statBox">
             <div className="statValue">{counts.Approved}</div>
             <div className="statLabel">Approved (Awaiting Document Completion)</div>
-          </div>
+          </div> */}
           <div className="statBox">
             <div className="statValue">{counts.Rejected}</div>
             <div className="statLabel">Rejected Applicants</div>
@@ -311,7 +311,7 @@ const Screening = ({ uid, setActivePage, setSelectedApplicantId, setPreviousPage
 
           <div className="tabContainer">
             <div className="tabs">
-              {["Pending", "Approved", "Rejected"].map((tab) => (
+              {["Pending", "Rejected"].map((tab) => (
                 <button key={tab} className={`tab ${selectedTab === tab ? "active" : ""}`} onClick={() => setSelectedTab(tab)}>
                   {tab}
                 </button>
