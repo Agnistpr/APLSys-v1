@@ -2,6 +2,7 @@ import { ipcMain, dialog, app } from "electron";
 import fs from "fs";
 import path from "path";
 import supabase from "./supabaseClient.js";
+import { maskSensitiveData } from "./encryption.js";
 
 // LOGGING -----------------------------------------------------------------------------
 const logPath = app.isPackaged
@@ -10,8 +11,13 @@ const logPath = app.isPackaged
 
 export function logMessage(message) {
   const time = new Date().toISOString();
-  fs.appendFileSync(logPath, `[${time}] ${message}\n`);
-  console.log(`[queries.js] ${message}`);
+  // Mask any sensitive data in the message if it's an object
+  let safeMessage = message;
+  if (typeof message === 'object' && message !== null) {
+    safeMessage = maskSensitiveData(message);
+  }
+  fs.appendFileSync(logPath, `[${time}] ${safeMessage}\n`);
+  console.log(`[queries.js] ${safeMessage}`);
 }
 
 process.on("uncaughtException", (err) => {
@@ -90,11 +96,12 @@ function buildCSV(rows) {
 // LOG ACTION--------------------------------------------------------------------
 async function logUserAction(uid, useraction, description = "") {
   const now = new Date().toLocaleString("sv-SE").replace(" ", "T");
+  const safeDescription = typeof description === 'object' ? JSON.stringify(maskSensitiveData(description)) : description;
   const { error } = await supabase.from("userlogs").insert([
     {
       user_id: uid,
       useraction,
-      description,
+      description: safeDescription,
       dateofaction: now
     },
   ]);

@@ -108,7 +108,11 @@ export async function batchProcessFolder(files: File[]) {
   const acceptedFiles = files.filter((f) => {
     if (!f) return false;
     const t = (f.type || "").toLowerCase();
-    const ok = allowedMimePrefixes.some(p => t.startsWith(p));
+    const name = f.name || "";
+    const ext = name.split('.').pop()?.toLowerCase() || "";
+    const ok = allowedMimePrefixes.some(p => t.startsWith(p)) || [
+      'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tif', 'tiff', 'webp', 'pdf'
+    ].includes(ext);
     if (!ok) {
       console.warn(`[OCR][client] Skipping unsupported file sent to batchProcessFolder: ${f.name} (${f.type})`);
     }
@@ -126,47 +130,46 @@ export async function batchProcessFolder(files: File[]) {
 
     // Create FormData for file upload
     const formData = new FormData();
-    //acceptedFiles.forEach(file => formData.append('files', file));
 
-    // Process each file
-    for (const file of files) {
+    // Process each accepted file
+    for (const file of acceptedFiles) {
       if (!file) continue;
       
-      const fileType = file.type.toLowerCase();
+      const fileType = (file.type || '').toLowerCase();
+      const filename = file.name || 'unknown';
       
-      // If PDF, convert pages to images first
-      if (fileType === 'application/pdf') {
+      // If PDF, convert first page to an image before upload
+      if (fileType === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
         try {
-          // Load PDF
+          //load PDF
           const arrayBuffer = await file.arrayBuffer();
           const pdf = await pdfjs.getDocument(arrayBuffer).promise;
           
           // Convert first page to image
           const page = await pdf.getPage(1);
-          const viewport = page.getViewport({ scale: 3.0 }); // Increase scale for better quality
-          
-          // Create canvas and render PDF page
+          const viewport = page.getViewport({ scale: 3.0 });
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
-          
           await page.render({
             canvasContext: canvas.getContext('2d')!,
-            canvas: canvas,
-            viewport: viewport
+            canvas,
+            viewport
           }).promise;
-          
-          const imageBlob = await new Promise<Blob>(resolve => {
-            canvas.toBlob(resolve, 'image/png', 1.0);
+
+          const imageBlob = await new Promise<Blob | null>((resolve) => {
+            canvas.toBlob((blob) => resolve(blob), 'image/png', 1.0);
           });
-          
-          
-          formData.append('files', new File([imageBlob], file.name.replace('.pdf', '.png'), {
+
+          if (!imageBlob) {
+            throw new Error(`PDF conversion failed for ${filename}: canvas.toBlob returned null`);
+          }
+
+          formData.append('files', new File([imageBlob], filename.replace(/\.pdf$/i, '.png'), {
             type: 'image/png'
-          }));// Add converted image to form data
-          
+          }));
         } catch (err) {
-          console.error(`[OCR] Failed to convert PDF ${file.name}:`, err);
+          console.error(`[OCR] Failed to convert PDF ${filename}:`, err);
           continue;
         }
       } else {
@@ -182,11 +185,13 @@ export async function batchProcessFolder(files: File[]) {
 
     // Save results
     for (const result of (res.data?.results || [])) {
-      const content = result?.result ? 
+      const filename = result?.filename || 'ocr_result';
+      const safeName = String(filename).replace(/\.(png|pdf|json)$/i, '');
+      const outName = `${safeName}.json`;
+      const content = result?.result ?
         JSON.stringify(result.result, null, 2) :
         JSON.stringify(result, null, 2);
-      await window.fileAPI.writeFile
-      (`ocr_results/${result.filename.replace('.png', '.pdf')}.json`, content);
+      await window.fileAPI.writeFile(`ocr_results/${outName}`, content);
     }
 
     return res.data.results;

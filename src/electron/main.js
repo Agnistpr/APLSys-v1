@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, screen } from "electron";
+import { app, BrowserWindow, Menu, screen, safeStorage } from "electron";
 import { initLogger, debugLog } from "./logger.js";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -12,13 +12,21 @@ import Store from "electron-store";
 import { logMessage } from "./queries.js";
 import "./files.js";
 import { setRegistryScanDataDir } from "./files.js";
+import { isEncryptionAvailable } from "./encryption.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 function initializeStore() {
   try {
-    const store = new Store();
+    let options = {};
+    if (isEncryptionAvailable()) {
+      // Generate an encryption key using safeStorage
+      const keyBuffer = safeStorage.encryptString('aplsys-encryption-key');
+      options.encryptionKey = keyBuffer.toString('hex');
+      debugLog('[Store] Encryption enabled for store');
+    }
+    const store = new Store(options);
     // Try to read a value to validate the store
     store.get("test");
     return store;
@@ -37,7 +45,12 @@ function initializeStore() {
     }
     
     // Create fresh store
-    return new Store();
+    let options = {};
+    if (isEncryptionAvailable()) {
+      const keyBuffer = safeStorage.encryptString('aplsys-encryption-key');
+      options.encryptionKey = keyBuffer.toString('hex');
+    }
+    return new Store(options);
   }
 }
 
@@ -241,5 +254,11 @@ async function createWindow() {
 
 
 app.on("ready", () => {
+  // Check encryption availability
+  if (isEncryptionAvailable()) {
+    debugLog('[Encryption] Safe storage encryption is available');
+  } else {
+    debugLog('[Encryption] Safe storage encryption is NOT available on this system');
+  }
   createWindow();
 });

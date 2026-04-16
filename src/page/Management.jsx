@@ -477,9 +477,19 @@ useEffect(() => {
             return next;
           });
           setTimeout(() => {
+            const details = [];
+            if (evt?.statusCode) details.push(`status ${evt.statusCode}`);
+            if (evt?.error) details.push(evt.error);
+            if (!evt?.error && evt?.responseData) {
+              details.push(typeof evt.responseData === 'string' ? evt.responseData : JSON.stringify(evt.responseData));
+            }
+            const description = details.length > 0
+              ? `${filename} was not scanned correctly. ${details.join(' - ')}`
+              : `${filename} was not scanned correctly. Please try again later.`;
+
             toast(`${filename} failed to extract.`, {
               id: task_id,
-              description: `${filename} was not scanned correctly. Please try again later.`,
+              description,
               icon: "❌",
               dismissible: true,
               duration: 10000,

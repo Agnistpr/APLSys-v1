@@ -7,6 +7,29 @@ import { debugLog } from "./logger.js";
 import os from "os";
 import FormData from "form-data";
 import axios from "axios";
+import { encryptData, decryptData, isEncryptionAvailable } from "./encryption.js";
+
+const getMimeTypeForFilename = (filename) => {
+  const ext = path.extname(filename || "").toLowerCase();
+  switch (ext) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".png":
+      return "image/png";
+    case ".gif":
+      return "image/gif";
+    case ".bmp":
+      return "image/bmp";
+    case ".tif":
+    case ".tiff":
+      return "image/tiff";
+    case ".pdf":
+      return "application/pdf";
+    default:
+      return "application/octet-stream";
+  }
+};
 
 // CRITICAL: Clean corrupted store BEFORE importing Store class
 function cleanupCorruptedStore() {
@@ -19,9 +42,9 @@ function cleanupCorruptedStore() {
         JSON.parse(content);
         debugLog('[Store] Config file is valid JSON');
       } catch (parseErr) {
-        debugLog('[Store] ❌ Corrupted config detected, deleting:', storePath);
+        debugLog('[Store] Corrupted config detected, deleting:', storePath);
         fs.unlinkSync(storePath);
-        debugLog('[Store] ✅ Corrupted file deleted');
+        debugLog('[Store] Corrupted file deleted');
       }
     }
   } catch (err) {
@@ -35,10 +58,10 @@ cleanupCorruptedStore();
 import Store from 'electron-store';
 const store = new Store();
 
-let API_BASE_URL_RUNTIME = process.env.API_BASE_URL
+const BACKEND_URL =
+  "https://aplsys-backend-814169275661.asia-southeast1.run.app";
 
-const BACKEND_URL = API_BASE_URL_RUNTIME
-console.log("[files.js init] BACKEND_URL resolved to:", BACKEND_URL)
+console.log("[files.js init] BACKEND_URL resolved to:", BACKEND_URL);
 
 const fileFilters =
 {
@@ -472,6 +495,18 @@ ipcMain.handle('file:writeFile', async (event, filePath, content) => {
       }
     }
 
+    // Encrypt sensitive data (OCR results contain extracted text which may be sensitive)
+    if (filePath.includes('ocr_results') && filePath.endsWith('.json') && isEncryptionAvailable()) {
+      try {
+        const jsonData = JSON.parse(dataToWrite.toString());
+        const encrypted = encryptData(jsonData);
+        dataToWrite = Buffer.from(encrypted, 'utf8');
+        debugLog('[file:writeFile] Encrypted OCR result');
+      } catch (encryptErr) {
+        debugLog('[file:writeFile] Failed to encrypt OCR data, saving unencrypted:', encryptErr.message);
+      }
+    }
+
     fs.writeFileSync(fullPath, dataToWrite);
     return { success: true };
   } catch (err) {
@@ -500,6 +535,18 @@ ipcMain.handle('file:readFile', async (event, filePath) => {
     const baseDir = getDocumentsFolder();
     const fullPath = path.join(baseDir, filePath);
     const content = fs.readFileSync(fullPath, 'utf8');
+
+    // Decrypt if it's an encrypted OCR result
+    if (filePath.includes('ocr_results') && filePath.endsWith('.json') && isEncryptionAvailable()) {
+      try {
+        const decrypted = decryptData(content);
+        return JSON.stringify(decrypted);
+      } catch (decryptErr) {
+        debugLog('[file:readFile] Failed to decrypt OCR data, returning raw content:', decryptErr.message);
+        return content; // Return raw if decryption fails
+      }
+    }
+
     return content;
   } catch (err) {
     console.error("Failed to read file:", err);
@@ -565,13 +612,16 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [], batch_task_id = nul
           const filename = path.basename(filePath);
           
           try {
-            // ✅ CRITICAL: Notify started
+            //CRITICAL: Notify started
             event.sender.send("ocr-progress", { filename, status: "started", batch_id: batch_task_id });
 
-            // Read file
-            const fileBuffer = fs.readFileSync(filePath);
+            // Read file from disk and stream it to the backend
+            const fileStream = fs.createReadStream(filePath);
             const formData = new FormData();
-            formData.append("files", fileBuffer, filename );
+            formData.append("files", fileStream, {
+              filename,
+              contentType: getMimeTypeForFilename(filename)
+            });
 
             console.log(`[ocr:startBatch] Posting to ${BACKEND_URL}/ocr/process-folder with file: ${filename}`);
             
@@ -598,12 +648,20 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [], batch_task_id = nul
               event.sender.send("ocr-progress", { filename, status: "done", batch_id: batch_task_id });
 
             } catch (postErr) {
-             console.error(`[ocr:startBatch] POST failed for ${filename}:`, postErr.message);
-             console.error(`[ocr:startBatch] Full error:`, postErr?.response?.data || postErr);
+              const statusCode = postErr?.response?.status;
+              const responseData = postErr?.response?.data;
+              const errorPayload = responseData?.message || responseData?.error || postErr?.message || String(postErr);
+
+              console.error(`[ocr:startBatch] POST failed for ${filename}:`, postErr.message);
+              console.error(`[ocr:startBatch] statusCode=${statusCode}`, "responseData=", responseData);
+              console.error(`[ocr:startBatch] Full error object:`, postErr);
+
               event.sender.send("ocr-progress", {
                 filename,
                 status: "error",
-                error: postErr?.message || String(postErr),
+                error: errorPayload,
+                statusCode,
+                responseData,
                 batch_id: batch_task_id
               });
             }
@@ -614,6 +672,7 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [], batch_task_id = nul
               filename,
               status: "error",
               error: err?.message || String(err),
+              stack: err?.stack,
               batch_id: batch_task_id
             });
           }
