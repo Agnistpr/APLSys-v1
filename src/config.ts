@@ -1,5 +1,5 @@
 // Frontend config used by files inside `src/`
-export const API_BASE_URL = "https://aplservice-814169275661.asia-southeast1.run.app";
+export const API_BASE_URL = "https://aplsys-backend-814169275661.asia-southeast1.run.app";
 
 export const DEV_TEST_URL = "http://localhost:8080";
 
