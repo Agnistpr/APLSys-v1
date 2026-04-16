@@ -167,7 +167,7 @@ const Management = ({ onTaskStart, onTaskEnd }) => {
         
         // Show modal only if we got a valid directory AND haven't shown it yet this session
         if (dir && !dirModalShown) {
-          console.log('[Management] ✅ Showing directory modal with path:', dir);
+          console.log('[Management] Showing directory modal with path:', dir);
           setDirPath(dir);
           setShowDirModal(true);
           setDirModalShown(true);
@@ -397,7 +397,7 @@ useEffect(() => {
             localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(stored));
           } catch (err) { /* noop */ }
         
-          // ✅ Add delay so "Started" toast doesn't overlap with previous toasts
+          // Add delay so "Started" toast doesn't overlap with previous toasts
           setTimeout(() => {
             toast(`${filename}: Started`, {
               id: task_id,
@@ -434,7 +434,7 @@ useEffect(() => {
           });
           setDocs(updatedDocs);
 
-          // ✅ Add 3s delay before showing "parsed successfully" toast
+          // Add 3s delay before showing "parsed successfully" toast
           setTimeout(() => {
             toast.success(`${filename} parsed successfully.`, {
               id: task_id,
@@ -484,7 +484,7 @@ useEffect(() => {
               dismissible: true,
               duration: 10000,
             });
-          }, 3000); // ✅ 3s delay for error toast
+          }, 3000); // 3s delay for error toast
         } else if (status === "all_done") {
           setProcessingMap({});
           setBatchId(null);
@@ -492,7 +492,7 @@ useEffect(() => {
           window.fileAPI.listDocuments().then(setDocs);
           onTaskEnd(task_id);
 
-          // ✅ Add 3s delay for final completion toast
+          // Add 3s delay for final completion toast
           setTimeout(() => {
             toast.success("All files have been processed", {
               id: scanToastId,
@@ -509,7 +509,7 @@ useEffect(() => {
         onTaskEnd(task_id);
         setTimeout(() => {
           toast.success("All files have been processed", {id: scanToastId, description: "Done", duration: 4000 });
-        }, 3000); // ✅ 3s delay for fallback all_done
+        }, 3000); // 3s delay for fallback all_done
       }
     };
 
