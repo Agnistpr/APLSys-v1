@@ -217,7 +217,7 @@ const DashboardLeave = ({ uid, setActivePage, setSelectedEmployeeId, refreshDash
       );
 
       if (!result.success) {
-        window.toast(result.message, "error");
+        window.toast(result.message || result.error || "Something went wrong", "error");
         return;
       }
 

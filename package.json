@@ -3,7 +3,7 @@
   "productName": "APLSys",
   "author": "The Canteen",
   "private": true,
-  "version": "1.2.8",
+  "version": "1.2.9",
   "type": "module",
   "main": "src/electron/main.js",
   "scripts": {

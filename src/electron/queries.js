@@ -2105,8 +2105,7 @@ ipcMain.handle('addLeave', async (event, employeeIds, date, reason, duration, ty
             reason,
             type,
             is_paid: isPaid,
-            status,
-            timestamp: new Date.toISOString(),
+            status
           },
         ]);
 
@@ -2175,7 +2174,7 @@ ipcMain.handle('updateLeaveStatus', async (event, { ids, status }) => {
     const now = new Date().toISOString();
     const { error } = await supabase
       .from('leave')
-      .update({ status, timestamp: now })
+      .update({ status })
       .in('leaveid', ids);
     if (error) throw new Error(error.message);
 
@@ -2759,7 +2758,7 @@ ipcMain.handle('updateApplicantsStatus', async (event, ids, options) => {
     const { status, setTrainingDate, resetTraining, setApplicationDate } = options || {};
     const nowISO = new Date().toISOString();
 
-    const updates = { status, timestamp: nowISO };
+    const updates = { status };
     if (setTrainingDate) updates.trainingdate = nowISO;
     if (resetTraining) updates.trainingdate = null;
     if (setApplicationDate) updates.applicationdate = nowISO;
@@ -2785,13 +2784,23 @@ ipcMain.handle('updateApplicantsStatus', async (event, ids, options) => {
           applicantid: applicant.applicantid,
           employeeimage: applicant.applicantimage,
           type: 'Regular',
-          leavecredit: 0.00,
+          leavecredit: 0.0,
           // shiftid: 1,
           hiredate: nowISO,
         };
-        // console.log("Payload for new employee:", employeePayload);
+
         console.log('Inserting new employee:', employeePayload);
-        await supabase.from('employee').insert([employeePayload]);
+
+        const { data: empData, error: empError } = await supabase
+          .from('employee')
+          .insert([employeePayload])
+          .select();
+
+        if (empError) {
+          console.error('Employee insert error:', empError);
+        } else {
+          console.log('Employee inserted:', empData);
+        }
       }
     }
 
@@ -2892,14 +2901,12 @@ ipcMain.handle('signUp', async (event, { email, password }) => {
 
 ipcMain.handle('logIn', async (event, { email, password }) => {
   try {
-    // 1️⃣ Log in via Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
 
     const user = data.user;
     if (!user) return { error: 'No user returned from authentication.' };
 
-    // 2️⃣ Get employee record
     const { data: employee, error: empError } = await supabase
       .from('employee')
       .select('employeeid, positionid')
@@ -2907,7 +2914,6 @@ ipcMain.handle('logIn', async (event, { email, password }) => {
       .single();
 
     if (empError || !employee) {
-      // ❌ Immediately revoke session
       await supabase.auth.signOut();
       return { error: 'No matching employee record found for this user.' };
     }
@@ -2925,7 +2931,6 @@ ipcMain.handle('logIn', async (event, { email, password }) => {
 
     const userRole = position.positionname;
 
-    // 4️⃣ Check access
     if (!allowedRoles.map(r => r.toLowerCase()).includes(userRole.toLowerCase())) {
       await supabase.auth.signOut();
       return { error: 'You are not authorized to log in with this account.' };
