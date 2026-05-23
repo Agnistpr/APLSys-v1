@@ -568,7 +568,7 @@ ipcMain.handle("ocr:startBatch", async (event, { files = [], batch_task_id = nul
         const ocrDir = path.join(baseDir, "ocr_results");
         fs.mkdirSync(ocrDir, { recursive: true });
 
-        // Use the module-level BACKEND_URL (reads process.env.BACKEND_URL) so it can be
+        // Use the module-level API_BASE_URL so it can be
         // configured when launching the Electron app in production.
 
         // helper: sleep
